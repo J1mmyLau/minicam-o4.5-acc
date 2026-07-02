@@ -15,6 +15,9 @@
 #ifdef GGML_USE_CUDA
 #include "ggml-cuda.h"
 #endif
+#ifdef GGML_USE_CANN
+#include "ggml-cann.h"
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -588,9 +591,14 @@ static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threa
 }
 
 static int query_gpu_memory_used_mb(int device_id = 0) {
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA)
     size_t free_bytes = 0, total_bytes = 0;
     ggml_backend_cuda_get_device_memory(device_id, &free_bytes, &total_bytes);
+    if (total_bytes == 0) return -1;
+    return (int)((total_bytes - free_bytes) / (1024 * 1024));
+#elif defined(GGML_USE_CANN)
+    size_t free_bytes = 0, total_bytes = 0;
+    ggml_backend_cann_get_device_memory(device_id, &free_bytes, &total_bytes);
     if (total_bytes == 0) return -1;
     return (int)((total_bytes - free_bytes) / (1024 * 1024));
 #else
@@ -1431,7 +1439,7 @@ bool projector_init(projector_model & model, const std::string & fname, bool use
         return false;
     }
     
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA) || defined(GGML_USE_CANN)
     if (use_cuda) {
         model.backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, NULL);
         if (!model.backend) {
@@ -4344,12 +4352,12 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 device_vocoder = voc_dev_env;
                 print_with_timestamp("Token2Wav: vocoder device overridden by OMNI_VOC_DEVICE=%s\n", voc_dev_env);
             } else {
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA) || defined(GGML_USE_CANN)
                 device_vocoder = token2wav_device;
-                print_with_timestamp("Token2Wav: CUDA detected, vocoder using GPU (%s)\n", device_vocoder.c_str());
+                print_with_timestamp("Token2Wav: GPU detected, vocoder using GPU (%s)\n", device_vocoder.c_str());
 #else
                 device_vocoder = "cpu";
-                print_with_timestamp("Token2Wav: non-CUDA backend, vocoder using CPU for better performance\n");
+                print_with_timestamp("Token2Wav: no GPU backend, vocoder using CPU for better performance\n");
 #endif
             }
             

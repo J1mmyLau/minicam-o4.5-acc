@@ -28,6 +28,9 @@ typedef void (*ggml_backend_cuda_set_disable_graph_t)(ggml_backend_t backend, bo
 #ifdef GGML_USE_CUDA
 #include "ggml-cuda.h"
 #endif
+#ifdef GGML_USE_CANN
+#include "ggml-cann.h"
+#endif
 #include <cstring>
 #include <memory>
 #include <cstddef>
@@ -2205,6 +2208,11 @@ ggml_backend_t fm_loader_init_backend_gpu_idx(int gpu_idx, std::string & backend
 #ifdef GGML_USE_CUDA
     backend = ggml_backend_cuda_init(gpu_idx);
 #endif
+#ifdef GGML_USE_CANN
+    if (!backend) {
+        backend = ggml_backend_cann_init(gpu_idx);
+    }
+#endif
     if (!backend) {
         // fallback to generic GPU init
         backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, nullptr);
@@ -3184,6 +3192,11 @@ ggml_backend_t ue_loader_init_backend_gpu_idx(int gpu_idx, std::string & backend
     ggml_backend_t backend = nullptr;
 #ifdef GGML_USE_CUDA
     backend = ggml_backend_cuda_init(gpu_idx);
+#endif
+#ifdef GGML_USE_CANN
+    if (!backend) {
+        backend = ggml_backend_cann_init(gpu_idx);
+    }
 #endif
     if (!backend) {
         backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, nullptr);
@@ -6596,6 +6609,11 @@ bool voc_hg2_model::voc_hg2_model_init_from_gguf(const std::string & gguf_path_i
 #ifdef GGML_USE_CUDA
         backend = ggml_backend_cuda_init(gpu_idx);
 #endif
+#ifdef GGML_USE_CANN
+        if (!backend) {
+            backend = ggml_backend_cann_init(gpu_idx);
+        }
+#endif
         if (!backend) {
             backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, nullptr);
         }
@@ -7235,6 +7253,11 @@ bool flowGGUFModelLoader::init_backend(const std::string & device) {
         }
 #ifdef GGML_USE_CUDA
         backend_ = ggml_backend_cuda_init(gpu_idx);
+#endif
+#ifdef GGML_USE_CANN
+        if (!backend_) {
+            backend_ = ggml_backend_cann_init(gpu_idx);
+        }
 #endif
         if (!backend_) {
             backend_ = flow_loader_init_backend_gpu_first(backend_name_);
