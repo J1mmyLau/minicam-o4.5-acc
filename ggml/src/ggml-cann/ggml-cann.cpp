@@ -1922,9 +1922,12 @@ static bool ggml_cann_compute_forward(ggml_backend_cann_context & ctx, struct gg
             ggml_cann_scale(ctx, dst);
             break;
         case GGML_OP_SQR:
-            GGML_ASSERT(dst->src[1] == nullptr);
-            dst->src[1] = dst->src[0];
-            ggml_cann_binary_op<aclnn_mul>(ctx, dst);
+            {
+                struct ggml_tensor * src1_prev = dst->src[1];
+                dst->src[1] = dst->src[0];
+                ggml_cann_binary_op<aclnn_mul>(ctx, dst);
+                dst->src[1] = src1_prev;
+            }
             break;
         case GGML_OP_SQRT:
             GGML_CANN_CALL_OP_UNARY(Sqrt);
