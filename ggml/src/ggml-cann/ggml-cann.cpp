@@ -797,6 +797,7 @@ struct TensorSetTracker {
 struct ggml_backend_cann_buffer_context {
     int32_t device;             ///< The device ID associated with this buffer context.
     void *  dev_ptr = nullptr;  ///< Pointer to the device memory allocated for the buffer.
+    aclrtStream d2d_stream = nullptr;  ///< Dedicated stream for async D2D buffer copies.
 
     std::mutex tracker_mutex;   ///< Protects the trackers map
     std::unordered_map<void *, std::unique_ptr<TensorSetTracker>> trackers;
@@ -812,7 +813,23 @@ struct ggml_backend_cann_buffer_context {
     /**
      * @brief Destructor to free the device memory allocated for the buffer.
      */
-    ~ggml_backend_cann_buffer_context() { ACL_CHECK(aclrtFree(dev_ptr)); }
+    ~ggml_backend_cann_buffer_context() {
+        if (d2d_stream != nullptr) {
+            aclrtSynchronizeStream(d2d_stream);
+            aclrtDestroyStream(d2d_stream);
+        }
+        ACL_CHECK(aclrtFree(dev_ptr));
+    }
+
+    /**
+     * @brief Get or create the D2D stream (lazy init, thread-safe via atomic guard).
+     */
+    aclrtStream get_d2d_stream() {
+        if (d2d_stream == nullptr) {
+            ACL_CHECK(aclrtCreateStream(&d2d_stream));
+        }
+        return d2d_stream;
+    }
 
     /**
      * @brief Get or create a tracker for the given tensor.
@@ -1403,10 +1420,15 @@ static bool ggml_backend_cann_buffer_cpy_tensor(ggml_backend_buffer_t buffer,
         ggml_backend_cann_buffer_context * dst_ctx = (ggml_backend_cann_buffer_context *) buffer->context;
 
         size_t memcpy_size = ggml_nbytes(src);
-        // Same device.
+        // Same device — use async D2D copy on a dedicated stream to avoid
+        // blocking the host.  The stream sync ensures the copy is complete
+        // before we return, but the operation is scoped to one stream instead
+        // of a global device sync.
         if (src_ctx->device == dst_ctx->device) {
-            ACL_CHECK(aclrtMemcpy((char *) dst->data, memcpy_size, (const char *) src->data, memcpy_size,
-                                  ACL_MEMCPY_DEVICE_TO_DEVICE));
+            aclrtStream stream = dst_ctx->get_d2d_stream();
+            ACL_CHECK(aclrtMemcpyAsync((char *) dst->data, memcpy_size, (const char *) src->data, memcpy_size,
+                                       ACL_MEMCPY_DEVICE_TO_DEVICE, stream));
+            ACL_CHECK(aclrtSynchronizeStream(stream));
             return true;
         } else {
 #ifdef ASCEND_310P
@@ -1419,8 +1441,10 @@ static bool ggml_backend_cann_buffer_cpy_tensor(ggml_backend_buffer_t buffer,
             if (canAccessPeer) {
                 ggml_cann_set_device(src_ctx->device);
                 ACL_CHECK(aclrtDeviceEnablePeerAccess(dst_ctx->device, 0));
-                ACL_CHECK(aclrtMemcpy((char *) dst->data, memcpy_size, (const char *) src->data, memcpy_size,
-                                      ACL_MEMCPY_DEVICE_TO_DEVICE));
+                aclrtStream stream = dst_ctx->get_d2d_stream();
+                ACL_CHECK(aclrtMemcpyAsync((char *) dst->data, memcpy_size, (const char *) src->data, memcpy_size,
+                                           ACL_MEMCPY_DEVICE_TO_DEVICE, stream));
+                ACL_CHECK(aclrtSynchronizeStream(stream));
                 return true;
             }
         }
