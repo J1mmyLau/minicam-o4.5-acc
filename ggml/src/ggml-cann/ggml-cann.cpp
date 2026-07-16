@@ -794,6 +794,10 @@ struct TensorSetTracker {
  * This structure holds information about a CANN buffer, including the device
  * ID, device pointer, and a name derived from GGML_CANN_NAME and the device ID.
  */
+
+// Forward declaration for buffer cache (defined later in this file).
+static void buffer_cache_add(int device, void* ptr, size_t size);
+
 struct ggml_backend_cann_buffer_context {
     int32_t device;             ///< The device ID associated with this buffer context.
     void *  dev_ptr = nullptr;  ///< Pointer to the device memory allocated for the buffer.
@@ -808,17 +812,29 @@ struct ggml_backend_cann_buffer_context {
      * @param device The device ID associated with this buffer context.
      * @param dev_ptr Pointer to the device memory allocated for the buffer.
      */
-    ggml_backend_cann_buffer_context(int32_t device, void * dev_ptr) : device(device), dev_ptr(dev_ptr) {}
+    size_t  alloc_size = 0;     ///< Allocation size for buffer cache recycling.
+
+    ggml_backend_cann_buffer_context(int32_t device, void * dev_ptr, size_t size = 0)
+        : device(device), dev_ptr(dev_ptr), alloc_size(size) {}
 
     /**
-     * @brief Destructor to free the device memory allocated for the buffer.
+     * @brief Destructor — recycle or free the device buffer.
+     *
+     * Instead of always calling aclrtFree, adds the buffer to a size-indexed
+     * free list for future reuse.  This avoids expensive aclrtMalloc calls
+     * (avg ~15ms each in the baseline profile) for repeated allocations of
+     * similar sizes during graph execution.
      */
     ~ggml_backend_cann_buffer_context() {
         if (d2d_stream != nullptr) {
             aclrtSynchronizeStream(d2d_stream);
             aclrtDestroyStream(d2d_stream);
         }
-        ACL_CHECK(aclrtFree(dev_ptr));
+        if (dev_ptr && alloc_size > 0) {
+            buffer_cache_add(device, dev_ptr, alloc_size);
+        } else if (dev_ptr) {
+            ACL_CHECK(aclrtFree(dev_ptr));
+        }
     }
 
     /**
@@ -857,7 +873,49 @@ struct ggml_backend_cann_buffer_context {
     }
 };
 
-// cann buffer type
+// Buffer free-list cache: reduces aclrtMalloc/aclrtFree churn by recycling
+// freed device buffers for future allocations of similar size.
+static std::mutex g_buffer_cache_mutex;
+static std::unordered_map<int, std::multimap<size_t, void*>> g_buffer_free_list;
+static size_t g_buffer_cache_total_bytes = 0;
+static constexpr size_t MAX_CACHE_BYTES = 256 * 1024 * 1024; // 256 MiB max cached
+
+static void* buffer_cache_try_alloc(int device, size_t size) {
+    std::lock_guard<std::mutex> lock(g_buffer_cache_mutex);
+    auto& free_list = g_buffer_free_list[device];
+    // Find a cached buffer >= requested size
+    auto it = free_list.lower_bound(size);
+    if (it != free_list.end()) {
+        void* ptr = it->second;
+        size_t cached_size = it->first;
+        free_list.erase(it);
+        g_buffer_cache_total_bytes -= cached_size;
+        return ptr;
+    }
+    return nullptr;
+}
+
+static void buffer_cache_add(int device, void* ptr, size_t size) {
+    std::lock_guard<std::mutex> lock(g_buffer_cache_mutex);
+    if (g_buffer_cache_total_bytes + size > MAX_CACHE_BYTES) {
+        // Cache full — free this buffer immediately
+        aclrtFree(ptr);
+        return;
+    }
+    g_buffer_free_list[device].emplace(size, ptr);
+    g_buffer_cache_total_bytes += size;
+}
+
+static void buffer_cache_clear() {
+    std::lock_guard<std::mutex> lock(g_buffer_cache_mutex);
+    for (auto& [device, free_list] : g_buffer_free_list) {
+        for (auto& [size, ptr] : free_list) {
+            aclrtFree(ptr);
+        }
+    }
+    g_buffer_free_list.clear();
+    g_buffer_cache_total_bytes = 0;
+}
 /**
  * @brief Structure representing context information for a specific backend
  * buffer type.
@@ -1524,7 +1582,15 @@ static ggml_backend_buffer_t ggml_backend_cann_buffer_type_alloc_buffer(ggml_bac
     if (size == 0) {
         size = alignment;
     }
-    void *   dev_ptr;
+
+    // Try the free-list cache first to avoid expensive aclrtMalloc.
+    void * dev_ptr = buffer_cache_try_alloc(buft_ctx->device, size);
+    if (dev_ptr != nullptr) {
+        ggml_backend_cann_buffer_context * ctx =
+            new ggml_backend_cann_buffer_context(buft_ctx->device, dev_ptr, size);
+        return ggml_backend_buffer_init(buft, ggml_backend_cann_buffer_interface, ctx, size);
+    }
+
     aclError err = aclrtMalloc(&dev_ptr, size, ACL_MEM_MALLOC_HUGE_FIRST);
     if (err != ACL_SUCCESS) {
         GGML_LOG_ERROR("%s: allocating %.2f MiB on device %d: aclrtMalloc failed: %s\n", __func__,
@@ -1532,7 +1598,8 @@ static ggml_backend_buffer_t ggml_backend_cann_buffer_type_alloc_buffer(ggml_bac
         return nullptr;
     }
 
-    ggml_backend_cann_buffer_context * ctx = new ggml_backend_cann_buffer_context(buft_ctx->device, dev_ptr);
+    ggml_backend_cann_buffer_context * ctx =
+        new ggml_backend_cann_buffer_context(buft_ctx->device, dev_ptr, size);
 
     return ggml_backend_buffer_init(buft, ggml_backend_cann_buffer_interface, ctx, size);
 }
