@@ -1272,6 +1272,7 @@ struct vision_model_loader {
             switch (model.model_type) {
                 case MiniCPM_o:
                     {
+                        hparams.minicpmv_max_slice_nums = 9;
                         if (hparams.minicpmv_version == 0) {
                             hparams.minicpmv_version = 25; // default to 20 if not set
                         }
