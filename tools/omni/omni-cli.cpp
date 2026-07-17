@@ -396,8 +396,8 @@ int main(int argc, char ** argv) {
         printf("  T2W CoreML: %s\n", params.token2wav_coreml_model_path.c_str());
     }
     
-    // 🔧 Token2Wav 使用 GPU（Metal），已用 ggml_add+ggml_repeat 替代不支持的 ggml_add1
-    auto ctx_omni = omni_init(&params, media_type, use_tts, tts_bin_dir, -1, "gpu:0");
+    // FIX: tts_gpu_layers=0 → TTS on CPU, avoids CANN device-1 crash
+    auto ctx_omni = omni_init(&params, media_type, use_tts, tts_bin_dir, /*tts_gpu_layers=*/0, "gpu:0");
     if (ctx_omni == nullptr) {
         fprintf(stderr, "Error: Failed to initialize omni context\n");
         return 1;

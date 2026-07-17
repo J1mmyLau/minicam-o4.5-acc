@@ -8895,7 +8895,15 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
 #endif
     print_with_timestamp("T2W thread (C++) started\n");
     fflush(stdout);
-    
+
+    // ── EXP-005A instrumentation: per-chunk timing CSV ──
+    const std::string timing_csv_path = ctx_omni->base_output_dir + "/t2w_timing.csv";
+    FILE* t2w_timing_fp = fopen(timing_csv_path.c_str(), "w");
+    if (t2w_timing_fp) {
+        fprintf(t2w_timing_fp, "chunk_idx,round_idx,dequeue_wait_ms,window_build_us,t2w_inference_ms,wav_write_us,wav_duration_s,rtf,queue_depth_before,queue_depth_after\n");
+        fflush(t2w_timing_fp);
+    }
+
     auto& queue = ctx_omni->t2w_thread_info->queue;
     auto& mtx = ctx_omni->t2w_thread_info->mtx;
     auto& cv = ctx_omni->t2w_thread_info->cv;
@@ -9158,6 +9166,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         }
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
                                             ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms);
+                        // EXP-005A: write per-chunk timing CSV
+                        if (t2w_timing_fp) {
+                            fprintf(t2w_timing_fp, "%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d\n",
+                                    wav_idx, effective_round_idx, queue_wait_ms, 0.0, t2w_ms, 0.0,
+                                    audio_duration, rtf, 0, 0);
+                            fflush(t2w_timing_fp);
+                        }
                         wav_idx++;
                     }
                 }
@@ -9252,6 +9267,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
     }
     
     print_with_timestamp("T2W(C++) 线程: 停止\n");
+    if (t2w_timing_fp) {
+        fclose(t2w_timing_fp);
+        print_with_timestamp("T2W timing CSV saved to %s\n", timing_csv_path.c_str());
+    }
     fflush(stdout);
 }
 
