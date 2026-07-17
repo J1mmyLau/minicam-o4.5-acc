@@ -9762,6 +9762,11 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     const int64_t               cid      = call_id++;
     const bool                  is_first = (cid == 0);
 
+    // ── EXP-005-V3: wait for previous window's async vocoder ──
+    if (pending_vocoder_.valid()) {
+        pending_vocoder_.wait();
+    }
+
     std::vector<float> mel_bct;
     const auto         t_t2m0 = clock::now();
     if (!t2m_.push_tokens(tokens, n_tokens, is_final, mel_bct)) {
@@ -9794,47 +9799,120 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
 
     const int64_t T_mel = (int64_t) mel_in_bct.size() / (int64_t) Token2Mel::kMelChannels;
 
-    std::vector<float> out_source_bt1;
-    int64_t            out_T_source = 0;
-    const auto t_voc0 = clock::now();
-    if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_, wave_bt_out,
-                                                out_T_audio, out_source_bt1, out_T_source)) {
-        LOG_ERROR( "Token2Wav.push_tokens_window: voc_hg2_runner_eval_stream failed\n");
-        return false;
+    // ── EXP-005-V3: launch vocoder async to overlap with next encoder+flow ──
+    // Capture copies of everything the vocoder + post-processing needs.
+    // The member caches (voc_*_) are only updated inside the async task,
+    // after pending_vocoder_.wait() on the next call guarantees they have
+    // been consumed by the previous async task.
+    if (!is_final || is_first) {
+        // Non-final or first call: launch async vocoder.
+        // On the first call there is no previous future, so we still launch
+        // async — the next call will wait for it.
+        pending_vocoder_ = std::async(std::launch::async, [this,
+                mel_in_bct = std::move(mel_in_bct),
+                T_mel, is_final]() mutable {
+            std::vector<float> out_source_bt1;
+            int64_t            out_T_source = 0;
+            std::vector<float> local_wave;
+            int64_t            local_T_audio = 0;
+            if (!voc_runner_.voc_hg2_runner_eval_stream(
+                    mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_,
+                    local_wave, local_T_audio, out_source_bt1, out_T_source)) {
+                std::fprintf(stderr, "Token2Wav async vocoder: eval_stream failed\n");
+                return;
+            }
+            // Post-processing (fade, crop, cache update) — same as sync path
+            if (!voc_speech_cache_bt_.empty()) {
+                token2wav_utils::fade_in_out_b1(local_wave, voc_speech_cache_bt_,
+                                                voc_speech_window_, (int64_t) kSourceCacheLen);
+            }
+            {
+                const int64_t      C       = Token2Mel::kMelChannels;
+                const int64_t      T_total = (int64_t) mel_in_bct.size() / C;
+                std::vector<float> next_mel_cache;
+                token2wav_utils::crop_bct_tail_b1(mel_in_bct, C, T_total, (int64_t) kMelCacheLen, next_mel_cache);
+                voc_mel_cache_bct_.swap(next_mel_cache);
+            }
+            {
+                std::vector<float> next_source_cache;
+                token2wav_utils::crop_t_tail_b1(out_source_bt1, (int64_t) kSourceCacheLen, next_source_cache);
+                voc_cache_source_bt1_.swap(next_source_cache);
+                voc_Tc_ = (int64_t) voc_cache_source_bt1_.size();
+            }
+            {
+                std::vector<float> next_speech_cache;
+                token2wav_utils::crop_t_tail_b1(local_wave, (int64_t) kSourceCacheLen, next_speech_cache);
+                voc_speech_cache_bt_.swap(next_speech_cache);
+            }
+            // Store results for retrieval by the caller
+            if (!is_final && (int64_t) local_wave.size() > (int64_t) kSourceCacheLen) {
+                local_wave.resize(local_wave.size() - (size_t) kSourceCacheLen);
+                local_T_audio = (int64_t) local_wave.size();
+            }
+            async_wave_out_ = std::move(local_wave);
+            async_T_audio_  = local_T_audio;
+        });
+        // For the first call, we must wait here because the caller needs
+        // the output immediately.
+        if (is_first) {
+            pending_vocoder_.wait();
+        }
+    } else {
+        // Final call (is_final && !is_first): run synchronously so the
+        // caller gets the output immediately.
+        std::vector<float> out_source_bt1;
+        int64_t            out_T_source = 0;
+        const auto t_voc0 = clock::now();
+        if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_,
+                                                     wave_bt_out, out_T_audio, out_source_bt1, out_T_source)) {
+            LOG_ERROR( "Token2Wav.push_tokens_window: voc_hg2_runner_eval_stream failed\n");
+            return false;
+        }
+        const auto t_voc1 = clock::now();
+        if (!voc_speech_cache_bt_.empty()) {
+            token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
+        }
+        {
+            const int64_t      C       = Token2Mel::kMelChannels;
+            const int64_t      T_total = (int64_t) mel_in_bct.size() / C;
+            std::vector<float> next_mel_cache;
+            token2wav_utils::crop_bct_tail_b1(mel_in_bct, C, T_total, (int64_t) kMelCacheLen, next_mel_cache);
+            voc_mel_cache_bct_.swap(next_mel_cache);
+        }
+        {
+            std::vector<float> next_source_cache;
+            token2wav_utils::crop_t_tail_b1(out_source_bt1, (int64_t) kSourceCacheLen, next_source_cache);
+            voc_cache_source_bt1_.swap(next_source_cache);
+            voc_Tc_ = (int64_t) voc_cache_source_bt1_.size();
+        }
+        {
+            std::vector<float> next_speech_cache;
+            token2wav_utils::crop_t_tail_b1(wave_bt_out, (int64_t) kSourceCacheLen, next_speech_cache);
+            voc_speech_cache_bt_.swap(next_speech_cache);
+        }
+        if (!is_final && (int64_t) wave_bt_out.size() > (int64_t) kSourceCacheLen) {
+            wave_bt_out.resize(wave_bt_out.size() - (size_t) kSourceCacheLen);
+            out_T_audio = (int64_t) wave_bt_out.size();
+        }
+        const double voc_ms   = std::chrono::duration<double, std::milli>(t_voc1 - t_voc0).count();
+        const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+        omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+        omni::flow::profile::record_ms("vocoder", voc_ms, is_first);
+        omni::flow::profile::record_ms("total", total_ms, is_first);
+        if (omni::flow::profile::verbose()) {
+            std::fprintf(stderr, "[timing] call=%lld%s tokens=%lld final=%d token2mel=%.3fms vocoder=%.3fms total=%.3fms\n",
+                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final, t2m_ms,
+                         voc_ms, total_ms);
+        }
+        voc_speech_window_ = mel_in_bct;  // for next fade
+        return true;
     }
-    const auto t_voc1 = clock::now();
 
-    if (!voc_speech_cache_bt_.empty()) {
-        token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
-    }
+    // Non-first, non-final: retrieve async results
+    wave_bt_out = std::move(async_wave_out_);
+    out_T_audio = async_T_audio_;
 
-    {
-        const int64_t      C       = Token2Mel::kMelChannels;
-        const int64_t      T_total = (int64_t) mel_in_bct.size() / C;
-        std::vector<float> next_mel_cache;
-        token2wav_utils::crop_bct_tail_b1(mel_in_bct, C, T_total, (int64_t) kMelCacheLen, next_mel_cache);
-        voc_mel_cache_bct_.swap(next_mel_cache);
-    }
-
-    {
-        std::vector<float> next_source_cache;
-        token2wav_utils::crop_t_tail_b1(out_source_bt1, (int64_t) kSourceCacheLen, next_source_cache);
-        voc_cache_source_bt1_.swap(next_source_cache);
-        voc_Tc_ = (int64_t) voc_cache_source_bt1_.size();
-    }
-
-    {
-        std::vector<float> next_speech_cache;
-        token2wav_utils::crop_t_tail_b1(wave_bt_out, (int64_t) kSourceCacheLen, next_speech_cache);
-        voc_speech_cache_bt_.swap(next_speech_cache);
-    }
-
-    if (!is_final && (int64_t) wave_bt_out.size() > (int64_t) kSourceCacheLen) {
-        wave_bt_out.resize(wave_bt_out.size() - (size_t) kSourceCacheLen);
-        out_T_audio = (int64_t) wave_bt_out.size();
-    }
-
-    const double voc_ms   = std::chrono::duration<double, std::milli>(t_voc1 - t_voc0).count();
+    const double voc_ms   = 0.0;  // async — not measured synchronously
     const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
 
     omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);

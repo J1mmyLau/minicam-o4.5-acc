@@ -2,6 +2,7 @@
 
 
 #include <cstdint>
+#include <future>
 #include "ggml.h"
 #include <functional>
 #include <memory>
@@ -2250,6 +2251,15 @@ class Token2Wav {
 
     std::vector<float> voc_speech_cache_bt_;
     std::vector<float> voc_speech_window_;
+
+    // EXP-005-V3: async vocoder output buffers
+    std::vector<float> async_wave_out_;
+    int64_t            async_T_audio_ = 0;
+
+    // Must be declared AFTER all members the async lambda accesses, so its
+    // destructor (which blocks until the async task completes) runs FIRST
+    // while the vectors are still alive.
+    mutable std::future<void> pending_vocoder_;
 
     bool models_loaded_ = false;
 };
