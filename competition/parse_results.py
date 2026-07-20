@@ -6,6 +6,7 @@ Usage:
     python3 parse_results.py results/benchmark_c1_n20.jsonl results/benchmark_c2_n20.jsonl ...
 """
 
+import argparse
 import csv
 import json
 import statistics
@@ -47,13 +48,14 @@ def compute_stats(values: list[float]) -> dict:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: parse_results.py <file1.jsonl> [file2.jsonl ...]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Parse benchmark JSONL results")
+    parser.add_argument("files", nargs="+", help="JSONL result files")
+    parser.add_argument("-o", "--output-dir", default=".", help="Output directory for CSV/JSON")
+    args = parser.parse_args()
 
     all_measured = []
 
-    for fpath in sys.argv[1:]:
+    for fpath in args.files:
         results = parse_jsonl(fpath)
         measured = [r for r in results if "measured" in r.get("session_id", "")]
         warmup = [r for r in results if "warmup" in r.get("session_id", "")]
