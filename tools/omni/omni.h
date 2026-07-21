@@ -423,6 +423,7 @@ struct omni_context {
     std::unique_ptr<omni::flow::Token2WavSession> token2wav_session;
     bool token2wav_initialized = false;
     std::string token2wav_model_dir;  // Directory containing token2wav GGUF models
+    bool token2wav_defer_worker_init = false;  // CANN: defer init to worker thread
     
     // 🔧 [Python Token2Wav] 使用 Python stepaudio2 库实现的 Token2Wav
     // 设置为 true 时使用 Python 实现（精度更高），false 时使用 C++ 实现

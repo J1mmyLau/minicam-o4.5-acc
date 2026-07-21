@@ -4339,10 +4339,20 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             ctx_omni->token2wav_session = std::make_unique<omni::flow::Token2WavSession>();
             
             // Device configuration - 使用 omni_init 传入的 token2wav_device 参数
-            // 格式: "gpu", "gpu:0", "gpu:1", "cpu"
+            // 格式: "gpu", "gpu:0", "gpu:1", "cpu", "cann-flow-only"
 #ifdef GGML_USE_CANN
+            const char * t2w_dev_env = getenv("OMNI_T2W_DEVICE");
             std::string device_token2mel = "cpu";
-            print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，flow_matching暂用CPU\n");
+            if (t2w_dev_env && std::string(t2w_dev_env) == "cann-flow-only") {
+                // Worker-thread CANN backend: defer session init to t2w_thread_func_cpp.
+                // The worker will create its own CANN backend, avoiding the cross-thread
+                // ctx=NULL / device=-1 failure (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP).
+                device_token2mel = "gpu";  // Will be used inside worker
+                ctx_omni->token2wav_defer_worker_init = true;
+                print_with_timestamp("Token2Wav: CANN flow-only mode — deferring init to worker thread\n");
+            } else {
+                print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，flow_matching暂用CPU\n");
+            }
 #else
             std::string device_token2mel = token2wav_device;
 #endif
@@ -4417,6 +4427,14 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 print_with_timestamp("Token2Wav: CoreML model = %s\n", coreml_model_path.c_str());
             }
 
+            if (ctx_omni->token2wav_defer_worker_init) {
+                // CANN flow-only: session init deferred to worker thread
+                // (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP — CANN backend must be
+                // created inside the worker thread that uses it)
+                init_ok = true;  // Worker will do the actual init
+                ctx_omni->token2wav_initialized = false;
+                print_with_timestamp("Token2Wav: init deferred to worker thread\n");
+            } else {
             init_ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
                     encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
                     vocoder_gguf, device_token2mel, device_vocoder, 5, 1.0f, coreml_model_path);
@@ -4435,9 +4453,12 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                         encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
                         vocoder_gguf, "cpu", "cpu", 5, 1.0f);
             }
-            
+            }  // end if (!defer_worker_init)
+
             if (init_ok) {
-                ctx_omni->token2wav_initialized = true;
+                if (!ctx_omni->token2wav_defer_worker_init) {
+                    ctx_omni->token2wav_initialized = true;
+                }
                 // Initialize token2wav buffer with 3 silence tokens (4218) as Python does
                 // Python: buffer = [4218] * 3  # 预先放入3个前缀静音token
                 ctx_omni->token2wav_buffer.clear();
@@ -8895,7 +8916,35 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
 #endif
     print_with_timestamp("T2W thread (C++) started\n");
     fflush(stdout);
-    
+
+    // CANN flow-only: create backend inside worker thread
+    // (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP — avoids ctx=NULL / device=-1)
+    if (ctx_omni->token2wav_defer_worker_init && !ctx_omni->token2wav_initialized) {
+        std::string encoder_gguf = ctx_omni->token2wav_model_dir + "/encoder.gguf";
+        std::string flow_matching_gguf = ctx_omni->token2wav_model_dir + "/flow_matching.gguf";
+        std::string flow_extra_gguf = ctx_omni->token2wav_model_dir + "/flow_extra.gguf";
+        std::string prompt_cache_gguf = ctx_omni->token2wav_model_dir + "/prompt_cache.gguf";
+        std::string vocoder_gguf = ctx_omni->token2wav_model_dir + "/hifigan2.gguf";
+        const char * t2w_dev = getenv("OMNI_T2W_DEVICE");
+        std::string flow_device = (t2w_dev && std::string(t2w_dev) == "cann-flow-only") ? "gpu" : "cpu";
+        const char * voc_dev = getenv("OMNI_VOC_DEVICE");
+        std::string voc_device = voc_dev ? voc_dev : "cpu";
+
+        print_with_timestamp("[token2wav] worker-thread init: flow=%s voc=%s\n",
+                             flow_device.c_str(), voc_device.c_str());
+        bool ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
+            encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
+            vocoder_gguf, flow_device, voc_device, 5, 1.0f);
+        if (!ok) {
+            print_with_timestamp("[token2wav] worker-thread init FAILED — falling back to CPU\n");
+            ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
+                encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
+                vocoder_gguf, "cpu", "cpu", 5, 1.0f);
+        }
+        ctx_omni->token2wav_initialized = true;
+        print_with_timestamp("[token2wav] worker-thread init complete\n");
+    }
+
     auto& queue = ctx_omni->t2w_thread_info->queue;
     auto& mtx = ctx_omni->t2w_thread_info->mtx;
     auto& cv = ctx_omni->t2w_thread_info->cv;
