@@ -2733,13 +2733,13 @@ static void aclnn_rope_cache_init(ggml_backend_cann_context & ctx,
     }
 
     // sin/cos
-    ggml_cann_pool_alloc sin_allocator(ctx.pool(), theta_length * sizeof(float));
+    ggml_cann_pool_alloc sin_allocator(ctx.pool(), std::max(theta_length, rope_dims * (int64_t)dst->ne[2]) * sizeof(float));
     void *               sin_buffer = sin_allocator.get();
     acl_tensor_ptr       acl_sin_tensor =
         ggml_cann_create_tensor(sin_buffer, ACL_FLOAT, sizeof(float), cache_ne, cache_nb, GGML_MAX_DIMS, ACL_FORMAT_ND);
     aclnn_sin(ctx, acl_theta_tensor.get(), acl_sin_tensor.get());
 
-    ggml_cann_pool_alloc cos_allocator(ctx.pool(), theta_length * sizeof(float));
+    ggml_cann_pool_alloc cos_allocator(ctx.pool(), std::max(theta_length, rope_dims * (int64_t)dst->ne[2]) * sizeof(float));
     void *               cos_buffer = cos_allocator.get();
     acl_tensor_ptr       acl_cos_tensor =
         ggml_cann_create_tensor(cos_buffer, ACL_FLOAT, sizeof(float), cache_ne, cache_nb, GGML_MAX_DIMS, ACL_FORMAT_ND);
@@ -2762,41 +2762,26 @@ static void aclnn_rope_cache_init(ggml_backend_cann_context & ctx,
         sin_reshape_nb[i] = sin_reshape_nb[i - 1] * sin_reshape_ne[i - 1];
     }
 
-    // Step 6: repeat — compute output shape and create destination tensors
-    if (is_neox) {
-        // neox: aclnn_repeat uses repeats array; dest shape matches source (API handles expansion)
-        acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
-        acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
-        // [sinθ1, sinθ1, sinθ2, sinθ2, ..., sinθn, sinθn]
-        int64_t repeatsArray[] = { 1, 1, 1, 2 };
-        aclnn_repeat(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), repeatsArray);
-        aclnn_repeat(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), repeatsArray);
-    } else {
-        // non-neox: repeat_interleave doubles dim=3.
-        // Output shape differs from input — must use separate descriptor.
-        int64_t num_repeats     = 2;
-        int64_t dim             = 3;
-        int64_t sin_repeat_ne[GGML_MAX_DIMS];
-        size_t  sin_repeat_nb[GGML_MAX_DIMS];
-        std::copy(std::begin(sin_reshape_ne), std::end(sin_reshape_ne), std::begin(sin_repeat_ne));
-        sin_repeat_ne[dim] *= num_repeats;
-
-        sin_repeat_nb[0] = sizeof(float);
-        for (int i = 1; i < GGML_MAX_DIMS; i++) {
-            sin_repeat_nb[i] = sin_repeat_nb[i - 1] * sin_repeat_ne[i - 1];
-        }
-
-        acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
-        acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
-        int64_t output_size = sin_repeat_ne[dim];
-        // [sinθ1, sinθ2, ..., sinθn, sinθ1, sinθ2, ..., sinθn]
-        aclnn_repeat_interleave(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), dim, num_repeats, output_size);
-        aclnn_repeat_interleave(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), dim, num_repeats, output_size);
+    // Step 6: repeat sin/cos from cache_ne={tsl,1,pos,1} to {rope_dims,1,pos,1}
+    // using aclnn_repeat along CANN dim=3 (GGML dim=0) ×2.
+    // Source CANN: {1,pos,1,tsl} → repeat dim=3×2 → {1,pos,1,2*tsl=rope_dims}
+    //   → GGML {rope_dims,1,pos,1}, matching ggml_cann_rope read layout.
+    int64_t sin_repeat_ne[GGML_MAX_DIMS] = { rope_dims, 1, position_length, 1 };
+    size_t  sin_repeat_nb[GGML_MAX_DIMS];
+    sin_repeat_nb[0] = sizeof(float);
+    for (int i = 1; i < GGML_MAX_DIMS; i++) {
+        sin_repeat_nb[i] = sin_repeat_nb[i - 1] * sin_repeat_ne[i - 1];
     }
+
+    acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
+                                                                   sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
+    acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
+                                                                   sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
+    // Repeat CANN dim=3 (GGML dim=0) by 2: cache_ne {tsl,1,pos,1}
+    // → CANN {1,pos,1,tsl} → repeat → {1,pos,1,2*tsl} → GGML {rope_dims,1,pos,1}
+    int64_t repeatsArray[] = { 1, 1, 1, 2 };
+    aclnn_repeat(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), repeatsArray);
+    aclnn_repeat(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), repeatsArray);
 
     // Update cached value.
     ctx.rope_cache.cached = true;
