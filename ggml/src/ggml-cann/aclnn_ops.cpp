@@ -2888,9 +2888,8 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     aclnn_rope_cache_init(ctx, dst, corr_dims, ext_factor, theta_scale, freq_scale, attn_factor, is_neox, sections,
                           mrope_used, is_imrope, is_vision, rope_dims);
 
-    // Cache is generated with ne00 dimensions, so we use ne00 for reshape.
-    // For non-neox, cache holds repeat_interleave output (dim=3 ×2). Shape must match.
-    int64_t sin_reshape_ne[4] = { rope_dims, 1, ne02, 2 };
+    // Cache is generated with ne00 dimensions, so we use ne00 for reshape
+    int64_t sin_reshape_ne[4] = { rope_dims, 1, ne02, 1 };
     size_t  sin_reshape_nb[GGML_MAX_DIMS];
     sin_reshape_nb[0] = sizeof(float);
     for (int i = 1; i < GGML_MAX_DIMS; i++) {
