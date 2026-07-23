@@ -2761,24 +2761,38 @@ static void aclnn_rope_cache_init(ggml_backend_cann_context & ctx,
     for (int i = 1; i < GGML_MAX_DIMS; i++) {
         sin_reshape_nb[i] = sin_reshape_nb[i - 1] * sin_reshape_ne[i - 1];
     }
-    acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
-                                                                   sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
-    acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
-                                                                   sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
 
-    // Step 6: repeat
+    // Step 6: repeat — compute output shape and create destination tensors
     if (is_neox) {
+        // neox: aclnn_repeat uses repeats array; dest shape matches source (API handles expansion)
+        acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
+                                                                       sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
+        acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
+                                                                       sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
         // [sinθ1, sinθ1, sinθ2, sinθ2, ..., sinθn, sinθn]
         int64_t repeatsArray[] = { 1, 1, 1, 2 };
         aclnn_repeat(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), repeatsArray);
         aclnn_repeat(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), repeatsArray);
     } else {
-        int64_t num_repeats = 2;
-        int64_t dim         = 3;
-        // output_size = size of OUTPUT tensor along the repeat dimension
-        // Fix: was theta_scale_length * num_repeats (total elements across all dims)
-        //      should be sin_reshape_ne[dim] * num_repeats (dim-specific size)
-        int64_t output_size = sin_reshape_ne[dim] * num_repeats;
+        // non-neox: repeat_interleave doubles dim=3.
+        // Output shape differs from input — must use separate descriptor.
+        int64_t num_repeats     = 2;
+        int64_t dim             = 3;
+        int64_t sin_repeat_ne[GGML_MAX_DIMS];
+        size_t  sin_repeat_nb[GGML_MAX_DIMS];
+        std::copy(std::begin(sin_reshape_ne), std::end(sin_reshape_ne), std::begin(sin_repeat_ne));
+        sin_repeat_ne[dim] *= num_repeats;
+
+        sin_repeat_nb[0] = sizeof(float);
+        for (int i = 1; i < GGML_MAX_DIMS; i++) {
+            sin_repeat_nb[i] = sin_repeat_nb[i - 1] * sin_repeat_ne[i - 1];
+        }
+
+        acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
+                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
+        acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
+                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
+        int64_t output_size = sin_repeat_ne[dim];
         // [sinθ1, sinθ2, ..., sinθn, sinθ1, sinθ2, ..., sinθn]
         aclnn_repeat_interleave(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), dim, num_repeats, output_size);
         aclnn_repeat_interleave(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), dim, num_repeats, output_size);
