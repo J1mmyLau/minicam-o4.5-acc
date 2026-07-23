@@ -2775,7 +2775,10 @@ static void aclnn_rope_cache_init(ggml_backend_cann_context & ctx,
     } else {
         int64_t num_repeats = 2;
         int64_t dim         = 3;
-        int64_t output_size = theta_scale_length * num_repeats;
+        // output_size = size of OUTPUT tensor along the repeat dimension
+        // Fix: was theta_scale_length * num_repeats (total elements across all dims)
+        //      should be sin_reshape_ne[dim] * num_repeats (dim-specific size)
+        int64_t output_size = sin_reshape_ne[dim] * num_repeats;
         // [sinθ1, sinθ2, ..., sinθn, sinθ1, sinθ2, ..., sinθn]
         aclnn_repeat_interleave(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), dim, num_repeats, output_size);
         aclnn_repeat_interleave(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), dim, num_repeats, output_size);
