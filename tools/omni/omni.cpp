@@ -2876,9 +2876,79 @@ static llama_token sample_tts_token_simplex(struct common_sampler * smpl, struct
     // - multinomial 采样 (无 top-p/top-k)
     float temperature = 0.8f;
     float repetition_penalty = 1.05f;
-    int win_size = 8;  // 🔧 [与 Python 对齐] Python: recent_ids = logits_token[:, -8:]
+    int win_size = 8;
+    // F003: allow temperature override for CANN collapse debugging
+    {
+        const char* env_t = getenv("TTS_TEMPERATURE");
+        if (env_t) temperature = atof(env_t);
+    }
+
+    // F004: dump logit statistics for CPU vs CANN comparison
+    {
+        const char* env_dump = getenv("TTS_DUMP_LOGIT_STATS");
+        if (env_dump) {
+            float max_logit = audio_logits[0];
+            float min_logit = audio_logits[0];
+            double sum_logit = 0.0;
+            float top1 = audio_logits[0]; int top1_idx = 0;
+            float top2 = audio_logits[0];
+            for (int i = 1; i < num_audio_tokens; i++) {
+                float z = audio_logits[i];
+                sum_logit += z;
+                if (z > max_logit) max_logit = z;
+                if (z < min_logit) min_logit = z;
+                if (z > top1) { top2 = top1; top1 = z; top1_idx = i; }
+                else if (z > top2) top2 = z;
+            }
+            float mean_logit = sum_logit / num_audio_tokens;
+            double sum_sq = 0.0;
+            for (int i = 0; i < num_audio_tokens; i++) {
+                float d = audio_logits[i] - mean_logit;
+                sum_sq += d * d;
+            }
+            float std_logit = sqrt(sum_sq / num_audio_tokens);
+
+            // Compute softmax entropy (temperature applied)
+            float temp = (temperature > 0) ? temperature : 1.0f;
+            double sm_sum = 0.0; double entropy = 0.0;
+            float top5_mass = 0.0;
+            // Find top-5 first
+            std::vector<std::pair<float,int>> sorted;
+            for (int i = 0; i < num_audio_tokens; i++)
+                sorted.push_back({audio_logits[i]/temp, i});
+            std::sort(sorted.begin(), sorted.end(), std::greater<>());
+            for (int i = 0; i < num_audio_tokens; i++) {
+                double p = exp(sorted[i].first);
+                sm_sum += p;
+                if (i < 5) top5_mass += sorted[i].first;
+            }
+            for (int i = 0; i < num_audio_tokens; i++) {
+                double p = exp(sorted[i].first) / sm_sum;
+                if (p > 1e-10) entropy -= p * log(p);
+            }
+            top5_mass = 0.0;
+            for (int i = 0; i < 5; i++)
+                top5_mass += exp(sorted[i].first) / sm_sum;
+
+            static FILE* f004_stats = nullptr;
+            if (f004_stats == nullptr) {
+                char path[512];
+                snprintf(path, sizeof(path), "%s/logit_stats.csv", env_dump);
+                f004_stats = fopen(path, "w");
+                if (f004_stats) fprintf(f004_stats, "step,top1_idx,top1_prob,top1_top2_margin,entropy,top5_mass,logit_mean,logit_std,logit_max,logit_min,temperature\n");
+            }
+            if (f004_stats) {
+                float top1_prob = exp(sorted[0].first) / sm_sum;
+                float margin = sorted[0].first - sorted[1].first;
+                fprintf(f004_stats, "%d,%d,%.6f,%.6f,%.6f,%.6f,%.4f,%.4f,%.4f,%.4f,%.2f\n",
+                    token_index_in_chunk, top1_idx, top1_prob, margin, entropy, top5_mass,
+                    mean_logit, std_logit, max_logit, min_logit, temperature);
+                fflush(f004_stats);
+            }
+        }
+    }
     
-    bool use_argmax = (params->sampling.temp <= 0.0f);
+    bool use_argmax = (params->sampling.temp <= 0.0f) || (getenv("TTS_FORCE_ARGMAX") != nullptr);
     
     int selected_relative_idx;
     if (use_argmax) {
@@ -3205,7 +3275,7 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
     int min_tokens_to_keep = 3;     // Python: TopPLogitsWarper/TopKLogitsWarper default
     
     // Get temperature from params if specified (for argmax mode)
-    bool use_argmax = (params->sampling.temp <= 0.0f);
+    bool use_argmax = (params->sampling.temp <= 0.0f) || (getenv("TTS_FORCE_ARGMAX") != nullptr);
     
     int selected_relative_idx;
     if (use_argmax) {
@@ -5457,7 +5527,27 @@ static bool generate_audio_tokens_local_simplex(
         
         output_audio_tokens.push_back(relative_idx);
         ctx_omni->tts_all_generated_tokens.push_back(sampled_token_abs);
-        
+
+        // F003 debug: dump all generated token IDs for CPU/CANN comparison
+        {
+            static FILE* f003_token_dump = nullptr;
+            if (f003_token_dump == nullptr) {
+                const char* dir = getenv("TTS_LOGITS_DEBUG_DIR");
+                if (dir) {
+                    char path[512];
+                    snprintf(path, sizeof(path), "%s/audio_tokens.txt", dir);
+                    f003_token_dump = fopen(path, "w");
+                    if (f003_token_dump) {
+                        fprintf(f003_token_dump, "# step relative_idx sampled_token_abs\n");
+                    }
+                }
+            }
+            if (f003_token_dump) {
+                fprintf(f003_token_dump, "%d %d %d\n", t, relative_idx, sampled_token_abs);
+                fflush(f003_token_dump);
+            }
+        }
+
         // 🔧 [与 Python 对齐] EOS token 检测
         bool is_eos = (relative_idx == num_audio_tokens - 1);
         if (is_eos) {
