@@ -158,6 +158,96 @@ struct projector_model {
 // ============================================================================
 using audio_output_cb_t = std::function<void(const float * samples, int n_samples, int sample_rate, bool is_final)>;
 
+// ============================================================================
+// E2E Stage Profiler — lightweight monotonic-clock timestamps
+// Controlled by OMNI_E2E_PROFILE=1 (default off, zero overhead)
+// Timestamps use std::chrono::steady_clock (monotonic, cross-thread safe)
+// ============================================================================
+enum E2EStage : int {
+    STAGE_request_received = 0,
+    STAGE_prompt_processing_start,
+    STAGE_llm_first_token,
+    STAGE_speak_token,
+    STAGE_talker_start,
+    STAGE_talker_first_audio_token,
+    STAGE_talker_token_28,
+    STAGE_t2w_submit,
+    STAGE_t2w_dequeue,
+    STAGE_flow_start,
+    STAGE_flow_end,
+    STAGE_vocoder_start,
+    STAGE_vocoder_end,
+    STAGE_wav_ready,
+    STAGE_client_first_audio,
+    STAGE_request_done,
+    STAGE_COUNT
+};
+
+struct E2EStageTiming {
+    bool enabled = false;
+    int request_index = 0;
+    std::string prompt_id;
+    int seed = 0;
+    std::atomic<int64_t> timestamps_ns[STAGE_COUNT] = {};  // 0 = not recorded
+    int talker_token_count = 0;
+    bool no_speech = false;
+    int cannerror = 0;
+    int crash = 0;
+
+    void record(E2EStage stage) {
+        if (!enabled || stage < 0 || stage >= STAGE_COUNT) return;
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        timestamps_ns[stage].store(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
+            std::memory_order_relaxed);
+    }
+
+    // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
+    int64_t elapsed_ms(E2EStage stage, int64_t t0_ns) const {
+        int64_t ts = timestamps_ns[stage].load(std::memory_order_relaxed);
+        if (ts == 0) return -1;
+        return (ts - t0_ns) / 1'000'000;
+    }
+
+    // Get t0 reference (request_received timestamp in ns)
+    int64_t t0_ns() const {
+        return timestamps_ns[STAGE_request_received].load(std::memory_order_relaxed);
+    }
+
+    const char* stage_name(E2EStage s) const {
+        switch (s) {
+            case STAGE_request_received:         return "request_received";
+            case STAGE_prompt_processing_start:   return "prompt_processing_start";
+            case STAGE_llm_first_token:           return "llm_first_token";
+            case STAGE_speak_token:               return "speak_token";
+            case STAGE_talker_start:              return "talker_start";
+            case STAGE_talker_first_audio_token:  return "talker_first_audio_token";
+            case STAGE_talker_token_28:           return "talker_token_28";
+            case STAGE_t2w_submit:                return "t2w_submit";
+            case STAGE_t2w_dequeue:               return "t2w_dequeue";
+            case STAGE_flow_start:                return "flow_start";
+            case STAGE_flow_end:                  return "flow_end";
+            case STAGE_vocoder_start:             return "vocoder_start";
+            case STAGE_vocoder_end:               return "vocoder_end";
+            case STAGE_wav_ready:                 return "wav_ready";
+            case STAGE_client_first_audio:        return "client_first_audio";
+            case STAGE_request_done:              return "request_done";
+            default: return "unknown";
+        }
+    }
+};
+
+// Environment variable to enable profiling: OMNI_E2E_PROFILE=1
+// Output directory for per-request JSON: OMNI_E2E_PROFILE_DIR (default: base_output_dir/e2e_profile)
+extern bool g_e2e_profile_enabled;
+
+// Global atomics for flow/vocoder stage timestamps (written by token2wav-impl.cpp, read by omni.cpp)
+// These are recorded per-request and consumed by E2EStageTiming::dump.
+extern std::atomic<int64_t> g_e2e_flow_start_ns;
+extern std::atomic<int64_t> g_e2e_flow_end_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
+
 struct omni_context {
     struct vision_ctx * ctx_vision = NULL;
     struct audition_ctx * ctx_audio = NULL;
@@ -418,6 +508,9 @@ struct omni_context {
     
     // Timestamp for stream_decode start (used for WAV file naming)
     std::chrono::high_resolution_clock::time_point stream_decode_start_time;
+
+    // E2E stage profiling (OMNI_E2E_PROFILE=1)
+    E2EStageTiming e2e_stage;
     
     // C++ Token2Wav session for audio synthesis
     std::unique_ptr<omni::flow::Token2WavSession> token2wav_session;

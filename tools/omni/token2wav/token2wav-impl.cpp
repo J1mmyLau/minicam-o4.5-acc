@@ -18,6 +18,27 @@ typedef void (*ggml_backend_cuda_set_disable_graph_t)(ggml_backend_t backend, bo
 #include <chrono>
 #include <fstream>
 #include <random>
+
+// E2E profiling globals (defined in omni.cpp)
+extern bool g_e2e_profile_enabled;
+extern std::atomic<int64_t> g_e2e_flow_start_ns;
+extern std::atomic<int64_t> g_e2e_flow_end_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
+
+static void e2e_record_ns(std::atomic<int64_t>& target) {
+    if (!g_e2e_profile_enabled) return;
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    target.store(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
+                 std::memory_order_relaxed);
+}
+
+static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {
+    if (!g_e2e_profile_enabled) return;
+    // Only record if not already set (one-shot for first window only)
+    if (target.load(std::memory_order_relaxed) != 0) return;
+    e2e_record_ns(target);
+}
 #include <unordered_map>
 
 #if defined(ENABLE_COREML) && defined(__APPLE__)
@@ -9764,11 +9785,13 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
 
     std::vector<float> mel_bct;
     const auto         t_t2m0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_start_ns);
     if (!t2m_.push_tokens(tokens, n_tokens, is_final, mel_bct)) {
         LOG_ERROR("Token2Wav.push_tokens_window: Token2Mel.push_tokens failed\n");
         return false;
     }
     const auto   t_t2m1  = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_end_ns);
     const double t2m_ms  = std::chrono::duration<double, std::milli>(t_t2m1 - t_t2m0).count();
 
     if (mel_bct.empty()) {
@@ -9797,12 +9820,14 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     std::vector<float> out_source_bt1;
     int64_t            out_T_source = 0;
     const auto t_voc0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_start_ns);
     if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_, wave_bt_out,
                                                 out_T_audio, out_source_bt1, out_T_source)) {
         LOG_ERROR( "Token2Wav.push_tokens_window: voc_hg2_runner_eval_stream failed\n");
         return false;
     }
     const auto t_voc1 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_end_ns);
 
     if (!voc_speech_cache_bt_.empty()) {
         token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
