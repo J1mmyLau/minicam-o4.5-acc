@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-07-24 06:15 | CHECKPOINT | F003_LIFECYCLE_120_PASS
+
+- Lifecycle: 15/15 runs, 255 WAVs+7 NoSpeech, 97.3% effective TTS, 0 CANN err, 0 crash
+- Phase 1: 12 runs (199 WAVs) → restart → Phase 2: 3 runs (56 WAVs)
+- All automated gates PASS. Only human blind listening remains.
+- Status: PRODUCTION_CANDIDATE_PENDING_HUMAN_LISTENING
+
 ## 2026-07-24 04:00 | CHECKPOINT | F003_PRODUCTION_CANDIDATE_PENDING_HUMAN
 
 - 7df34a1: dual-path ROPE confirmed correct for both neox and non-neox

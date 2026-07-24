@@ -88,14 +88,15 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | T2W-CANN-F003-CORRECTNESS | **DONE** | neox CPU ref match, non-neox construction proof |
 | T2W-CANN-F003-BASIC-STABILITY | **DONE** | 68+ streams, 0 CANN errors |
 | T2W-CANN-WAV-SANITY | **DONE** | 1ch/24kHz, non-silent, no NaN/Inf |
-| T2W-CANN-STRICT-AB | **PASS** | 5-rnd paired: p50 -48%, p90 -67%, mean -51%, FirstAudio -22% |
-| T2W-CANN-TAIL-LATENCY | **RESOLVED** | earlier p90 "regression" was gap-filter artifact; CANN p90=484ms < CPU 1487ms |
-| T2W-CANN-WAV-COMPARE | **PASS** | 10 pairs: comparable dur/peak/RMS/ZCR; CANN trail_sil higher (TTS variation) |
-| T2W-CANN-RESTART | **PASS** | 3x3 + 2 lifecycle runs, all exit 0 |
-| T2W-CANN-LIFECYCLE | **PARTIAL** | 2 full runs + 1 partial (timeout), 0 CANN err; 120-task pending |
+| T2W-CANN-STRICT-AB | **PRELIMINARY** | n=5 paired: FirstAudio 6539→5095ms(-22%), inter-token p50 -48%, p90 -67% |
+| T2W-CANN-AB-CAVEAT | **NOTE** | inter-token p90 may include chunk boundaries; final metrics: First28, steady ms/token, FirstAudio |
+| T2W-CANN-TAIL-LATENCY | **RESOLVED** | earlier "regression" was gap-filter artifact; CANN p90=484ms < CPU 1487ms |
+| T2W-CANN-WAV-SANITY | **PASS** | format/dur/peak/RMS/ZCR comparable; not content equivalence |
+| T2W-CANN-RESTART | **PASS** | 3x3 + 2 short lifecycle runs, 0 CANN err |
+| T2W-CANN-LIFECYCLE-120 | **PASS** | 15/15 runs, 255 WAVs+7 NoSpeech, 97.3% effective, restart PASS, 0 CANN err |
 | T2W-CANN-ASR | **UNAVAILABLE** | no whisper/funasr/transformers |
-| T2W-CANN-AUDIO-HUMAN | **PENDING** | blind listening materials at f003/blind-listening/ |
-| T2W-CANN-PRODUCTION | **PENDING_HUMAN_LISTENING** | promote to CANDIDATE if blind test passes |
+| T2W-CANN-AUDIO-HUMAN | **PENDING** | blind listening: /workspace/cann-migration-9.0-to-9.1/f003/blind-listening/ |
+| T2W-CANN-PRODUCTION | **PENDING_HUMAN_LISTENING** | promote 7df34a1 to PRODUCTION_CANDIDATE if blind test passes |
 | T2W-CANN-AUDIO | **PENDING** | 音质验证 |
 | T2W-CANN-LIFECYCLE | **PENDING** | 120 任务长稳 |
 
