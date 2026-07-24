@@ -1216,23 +1216,25 @@ void ggml_cann_rms_norm(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     float eps;
     memcpy(&eps, dst->op_params, sizeof(float));
 
+    // F004: optionally force RMSNorm to FP32 for precision
+    static bool f004_fp32_rmsnorm = parse_bool(get_env_as_lowercase("F004_FP32_RMSNORM").value_or("off"));
+
     // build gamma.
     size_t acl_gamma_nb[GGML_MAX_DIMS];
-    // gamma's type is the same with dst.
-    acl_gamma_nb[0] = ggml_type_size(dst->type);
+    ggml_type gamma_type = f004_fp32_rmsnorm ? GGML_TYPE_F32 : dst->type;
+    acl_gamma_nb[0] = ggml_type_size(gamma_type);
     for (int i = 1; i < GGML_MAX_DIMS; i++) {
         acl_gamma_nb[i] = acl_gamma_nb[i - 1] * src->ne[i - 1];
     }
     acl_tensor_ptr acl_gamma = get_cache_acl_tensor(
-        ctx, &ctx.rms_norm_one_tensor_cache.cache, ctx.rms_norm_one_tensor_cache.size, src->ne, acl_gamma_nb, dst->type,
+        ctx, &ctx.rms_norm_one_tensor_cache.cache, ctx.rms_norm_one_tensor_cache.size, src->ne, acl_gamma_nb, gamma_type,
         1,    // dims
         1.0f  // value
     );
 
-    // build rstd.
+    // build rstd. Always F32.
     int64_t acl_rstd_ne[] = { src->ne[1], src->ne[2], src->ne[3] };
     size_t  acl_rstd_nb[GGML_MAX_DIMS - 1];
-    // rstd will always be F32.
     acl_rstd_nb[0] = sizeof(float);
     for (int i = 1; i < GGML_MAX_DIMS - 1; i++) {
         acl_rstd_nb[i] = acl_rstd_nb[i - 1] * acl_rstd_ne[i - 1];
@@ -1243,7 +1245,20 @@ void ggml_cann_rms_norm(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
                              0.0f  // value
         );
 
-    GGML_CANN_CALL_ACLNN_OP(ctx, RmsNorm, acl_src.get(), acl_gamma.get(), eps, acl_dst.get(), acl_rstd.get());
+    if (f004_fp32_rmsnorm) {
+        // Cast src to FP32, compute RMSNorm in FP32, cast dst back
+        ggml_cann_pool_alloc src_fp32_alloc(ctx.pool(), ggml_nelements(src) * sizeof(float));
+        ggml_cann_pool_alloc dst_fp32_alloc(ctx.pool(), ggml_nelements(dst) * sizeof(float));
+        acl_tensor_ptr acl_src_fp32 = ggml_cann_create_tensor(src_fp32_alloc.get(), ACL_FLOAT, sizeof(float),
+                                                               src->ne, src->nb, GGML_MAX_DIMS);
+        acl_tensor_ptr acl_dst_fp32 = ggml_cann_create_tensor(dst_fp32_alloc.get(), ACL_FLOAT, sizeof(float),
+                                                               dst->ne, dst->nb, GGML_MAX_DIMS);
+        aclnn_cast(ctx, acl_src.get(), acl_src_fp32.get(), ACL_FLOAT);
+        GGML_CANN_CALL_ACLNN_OP(ctx, RmsNorm, acl_src_fp32.get(), acl_gamma.get(), eps, acl_dst_fp32.get(), acl_rstd.get());
+        aclnn_cast(ctx, acl_dst_fp32.get(), acl_dst.get(), ggml_cann_type_mapping(dst->type));
+    } else {
+        GGML_CANN_CALL_ACLNN_OP(ctx, RmsNorm, acl_src.get(), acl_gamma.get(), eps, acl_dst.get(), acl_rstd.get());
+    }
 }
 
 // TODO: performace is low.
