@@ -433,6 +433,16 @@ int main(int argc, char ** argv) {
         if(ctx_omni->use_tts && ctx_omni->t2w_thread.joinable()) { ctx_omni->t2w_thread.join(); printf("t2w thread end\n"); }
     }
 
+    // E2E profiling: dump after all threads have joined (safe from race with T2W thread stop)
+    extern bool g_e2e_profile_enabled;
+    extern void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir);
+    if (ctx_omni->e2e_stage.enabled) {
+        const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
+        std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
+        e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
+        ctx_omni->e2e_stage.record(STAGE_request_done);
+    }
+
     llama_perf_context_print(ctx_omni->ctx_llama);
 
     omni_free(ctx_omni);
