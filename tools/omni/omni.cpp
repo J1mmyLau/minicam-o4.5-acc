@@ -72,6 +72,60 @@
 #endif
 
 // ============================================================
+// E2E Stage Profiling globals
+// ============================================================
+static bool cross_platform_mkdir_p(const std::string& path);  // forward decl
+
+bool g_e2e_profile_enabled = false;
+std::atomic<int64_t> g_e2e_flow_start_ns{0};
+std::atomic<int64_t> g_e2e_flow_end_ns{0};
+std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
+std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
+
+void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
+    if (!t.enabled) return;
+    cross_platform_mkdir_p(dir);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/e2e_%04d.json", dir.c_str(), t.request_index);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    int64_t t0 = t.t0_ns();
+    fprintf(f, "{\n");
+    fprintf(f, "  \"request_index\": %d,\n", t.request_index);
+    fprintf(f, "  \"prompt_id\": \"%s\",\n", t.prompt_id.c_str());
+    fprintf(f, "  \"seed\": %d,\n", t.seed);
+    fprintf(f, "  \"talker_token_count\": %d,\n", t.talker_token_count);
+    fprintf(f, "  \"no_speech\": %s,\n", t.no_speech ? "true" : "false");
+    fprintf(f, "  \"cann_error\": %d,\n", t.cannerror);
+    fprintf(f, "  \"crash\": %d,\n", t.crash);
+    fprintf(f, "  \"stages_ms\": {\n");
+    bool first = true;
+    for (int i = 0; i < STAGE_COUNT; i++) {
+        int64_t elapsed = t.elapsed_ms(static_cast<E2EStage>(i), t0);
+        if (elapsed < 0) continue;
+        if (!first) fprintf(f, ",\n");
+        first = false;
+        fprintf(f, "    \"%s\": %lld", t.stage_name(static_cast<E2EStage>(i)), (long long)elapsed);
+    }
+    // Include flow/vocoder stages from global atomics
+    auto add_global_stage = [&](const char* name, const std::atomic<int64_t>& ns) {
+        int64_t val = ns.load(std::memory_order_relaxed);
+        if (val == 0 || t0 == 0) return;
+        int64_t elapsed = (val - t0) / 1'000'000;
+        if (elapsed < 0) return;
+        if (!first) fprintf(f, ",\n");
+        first = false;
+        fprintf(f, "    \"%s\": %lld", name, (long long)elapsed);
+    };
+    add_global_stage("flow_start", g_e2e_flow_start_ns);
+    add_global_stage("flow_end", g_e2e_flow_end_ns);
+    add_global_stage("vocoder_start", g_e2e_vocoder_start_ns);
+    add_global_stage("vocoder_end", g_e2e_vocoder_end_ns);
+    fprintf(f, "\n  }\n}\n");
+    fclose(f);
+}
+
+// ============================================================
 // Cross-platform helper: recursive directory creation
 // Replaces "mkdir -p" shell command for Windows compatibility
 // ============================================================
@@ -4700,6 +4754,16 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
     // ANE/CoreML warmup: pre-load models into NPU to avoid first-inference latency
     omni_warmup_ane(ctx_omni);
 
+    // E2E stage profiler initialization
+    {
+        const char *env = getenv("OMNI_E2E_PROFILE");
+        ctx_omni->e2e_stage.enabled = (env && (strcmp(env, "1") == 0 || strcmp(env, "true") == 0));
+        if (ctx_omni->e2e_stage.enabled) {
+            g_e2e_profile_enabled = true;
+            print_with_timestamp("E2E Stage Profiler: ENABLED\n");
+        }
+    }
+
     print_with_timestamp("=== omni_init success: ctx_llama = %p\n", (void*)ctx_omni->ctx_llama);
     return ctx_omni;
 }
@@ -5378,7 +5442,11 @@ static bool generate_audio_tokens_local_simplex(
 ) {
     print_with_timestamp("TTS Simplex: generating audio tokens for chunk %d (n_tokens=%d, tts_n_embd=%d)\n",
                         chunk_idx, n_tokens, tts_n_embd);
-    
+    // One-shot: only record talker_start on first chunk
+    if (ctx_omni->e2e_stage.timestamps_ns[STAGE_talker_start].load(std::memory_order_relaxed) == 0) {
+        ctx_omni->e2e_stage.record(STAGE_talker_start);
+    }
+
     const int audio_bos_token_id = 151687;
     const int num_audio_tokens = 6562;
     // 🔧 [与 Python 对齐] Python: max_new_token=500，每个 LLM condition 生成直到 EOS
@@ -5528,6 +5596,11 @@ static bool generate_audio_tokens_local_simplex(
         output_audio_tokens.push_back(relative_idx);
         ctx_omni->tts_all_generated_tokens.push_back(sampled_token_abs);
 
+        // E2E profiling: record first audio token (one-shot across all chunks)
+        if (ctx_omni->e2e_stage.timestamps_ns[STAGE_talker_first_audio_token].load(std::memory_order_relaxed) == 0) {
+            ctx_omni->e2e_stage.record(STAGE_talker_first_audio_token);
+        }
+
         // F003 debug: dump all generated token IDs for CPU/CANN comparison
         {
             static FILE* f003_token_dump = nullptr;
@@ -5577,10 +5650,14 @@ static bool generate_audio_tokens_local_simplex(
                 ctx_omni->t2w_thread_info->queue.push(t2w_out);
             }
             ctx_omni->t2w_thread_info->cv.notify_one();
-            
-            print_with_timestamp("TTS Simplex Phase1: yield %d tokens 到 T2W (step %d, buffer=%zu)\n", 
+            // E2E profiling: record first T2W submit
+            if (ctx_omni->e2e_stage.timestamps_ns[STAGE_t2w_submit].load(std::memory_order_relaxed) == 0) {
+                ctx_omni->e2e_stage.record(STAGE_t2w_submit);
+            }
+
+            print_with_timestamp("TTS Simplex Phase1: yield %d tokens 到 T2W (step %d, buffer=%zu)\n",
                                 CHUNK_SIZE, t + 1, ctx_omni->tts_token_buffer.size());
-            ctx_omni->tts_token_buffer.erase(ctx_omni->tts_token_buffer.begin(), 
+            ctx_omni->tts_token_buffer.erase(ctx_omni->tts_token_buffer.begin(),
                                               ctx_omni->tts_token_buffer.begin() + CHUNK_SIZE);
         }
         
@@ -9109,6 +9186,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // Wait for queue to have data or thread to stop
         cv.wait(lock, [&] { return !queue.empty() || !t2w_thread_running || ctx_omni->break_event.load(); });
         auto dequeue_time = std::chrono::steady_clock::now();
+        // One-shot: record first dequeue
+        if (ctx_omni->e2e_stage.timestamps_ns[STAGE_t2w_dequeue].load(std::memory_order_relaxed) == 0) {
+            ctx_omni->e2e_stage.record(STAGE_t2w_dequeue);
+        }
         
         if (!t2w_thread_running && queue.empty()) {
             break;
@@ -9222,6 +9303,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         // Process windows using sliding window
         int process_count = 0;
+
+        // E2E profiling: record when buffer first reaches 28 tokens
+        if (token_buffer.size() >= WINDOW_SIZE &&
+            ctx_omni->e2e_stage.timestamps_ns[STAGE_talker_token_28].load(std::memory_order_relaxed) == 0) {
+            ctx_omni->e2e_stage.record(STAGE_talker_token_28);
+        }
+
         while (token_buffer.size() >= min_process_threshold || (need_flush && !token_buffer.empty())) {
             // Determine how many tokens to process
             size_t process_size = std::min(token_buffer.size(), (size_t)WINDOW_SIZE);
@@ -9291,8 +9379,14 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         auto wav_complete_time = std::chrono::high_resolution_clock::now();
                         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                             wav_complete_time - ctx_omni->stream_decode_start_time).count();
-                        
+
+                        // One-shot: record first WAV ready
+                        if (ctx_omni->e2e_stage.timestamps_ns[STAGE_wav_ready].load(std::memory_order_relaxed) == 0) {
+                            ctx_omni->e2e_stage.record(STAGE_wav_ready);
+                        }
+
                         if (wav_idx == 0) {
+                            ctx_omni->e2e_stage.record(STAGE_client_first_audio);
                             print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms\n", (long long)elapsed_ms);
                         }
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
@@ -10827,6 +10921,12 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     
     // Record start time (t=0) for WAV file naming
     ctx_omni->stream_decode_start_time = std::chrono::high_resolution_clock::now();
+    ctx_omni->e2e_stage.record(STAGE_request_received);
+    // Reset global flow/vocoder atomics for new request
+    g_e2e_flow_start_ns.store(0, std::memory_order_relaxed);
+    g_e2e_flow_end_ns.store(0, std::memory_order_relaxed);
+    g_e2e_vocoder_start_ns.store(0, std::memory_order_relaxed);
+    g_e2e_vocoder_end_ns.store(0, std::memory_order_relaxed);
     
     // 🔧 [诊断] 打印 stream_decode 开始时的关键状态
     print_with_timestamp("📍 stream_decode 开始: n_past=%d, n_keep=%d, n_ctx=%d, duplex_mode=%d\n",
@@ -11105,6 +11205,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 // }
                 if (!llm_first_token_logged) {
                     llm_first_token_logged = true;
+                    ctx_omni->e2e_stage.record(STAGE_llm_first_token);
                 }
                 if (tmp == nullptr) {
                     LOG_ERR("llama_loop returned nullptr!");
@@ -11115,6 +11216,9 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 
                 // 🔧 [使用 token ID 检测] 使用缓存的 token ID 进行检测，比字符串比较更高效
                 OmniTokenType token_type = get_token_type(ctx_omni, sampled_token);
+                if (token_type == OmniTokenType::SPEAK) {
+                    ctx_omni->e2e_stage.record(STAGE_speak_token);
+                }
                 if (token_type != OmniTokenType::NORMAL) {
                 }
 
