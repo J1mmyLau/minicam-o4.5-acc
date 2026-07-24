@@ -94,13 +94,8 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | T2W-CANN-RESTART | **PASS** | 3x3 + 2 lifecycle runs, all exit 0 |
 | T2W-CANN-LIFECYCLE | **PARTIAL** | 2 full runs + 1 partial (timeout), 0 CANN err; 120-task pending |
 | T2W-CANN-ASR | **UNAVAILABLE** | no whisper/funasr/transformers |
-| T2W-CANN-AUDIO-HUMAN | **FAIL (F003)** | F003 blind listening failed; new issue found |
-| F003-ROPE | **FIXED** | 7df34a1 — neox+non-neox RoPE runtime/layout correct |
-| F004-CANN-REPETITION | **MITIGATED** | ngl=8 hybrid: 0% collapse, -14% FA, human listening PASS |
-| F004-NGL8-HYBRID | **VALIDATED** | hybrid-talker-ngl8-candidate-20260724 |
-| F005-COMMON-AUDIO | **OPEN** | CPU 4/20 + ngl8 2/20 unintelligible — NOT backend-specific |
-| FULL-CANN-TALKER | **BLOCKED** | systemic FP16 precision divergence |
-| TALKER-CANN-PRODUCTION | **HYBRID_CANDIDATE** | ngl=8 ready; full CANN blocked |
+| T2W-CANN-AUDIO-HUMAN | **PENDING** | blind listening materials at f003/blind-listening/ |
+| T2W-CANN-PRODUCTION | **PENDING_HUMAN_LISTENING** | promote to CANDIDATE if blind test passes |
 | T2W-CANN-AUDIO | **PENDING** | 音质验证 |
 | T2W-CANN-LIFECYCLE | **PENDING** | 120 任务长稳 |
 
