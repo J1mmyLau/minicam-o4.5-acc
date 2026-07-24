@@ -5601,6 +5601,64 @@ static bool generate_audio_tokens_local_simplex(
             ctx_omni->e2e_stage.record(STAGE_talker_first_audio_token);
         }
 
+        // F005: token repetition detection (gated by F005_REPEAT_DETECT=1)
+        {
+            static bool f005_enabled = ([](){
+                const char *v = getenv("F005_REPEAT_DETECT");
+                return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+            })();
+            static int f005_max_consecutive = ([](){
+                const char *v = getenv("F005_MAX_CONSECUTIVE");
+                return v ? std::max(3, std::stoi(v)) : 10;
+            })();
+            static int f005_max_cycle = ([](){
+                const char *v = getenv("F005_MAX_CYCLE_LEN");
+                return v ? std::max(2, std::min(8, std::stoi(v))) : 4;
+            })();
+            static bool f005_retry = ([](){
+                const char *v = getenv("F005_RETRY_ON_DEGENERATE");
+                return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+            })();
+            if (f005_enabled) {
+                // Consecutive repetition check
+                int consec = 1;
+                for (int k = (int)output_audio_tokens.size() - 2; k >= 0; --k) {
+                    if (output_audio_tokens[k] == relative_idx) consec++;
+                    else break;
+                }
+                if (consec >= f005_max_consecutive) {
+                    print_with_timestamp("F005: consecutive repeat detected: token %d repeated %d times at step %d\n",
+                                        relative_idx, consec, t);
+                }
+                // Cycle detection: check if last N tokens form a repeating cycle
+                if ((int)output_audio_tokens.size() >= f005_max_cycle * 3) {
+                    for (int cl = 1; cl <= f005_max_cycle; ++cl) {
+                        int total = (int)output_audio_tokens.size();
+                        bool is_cycle = true;
+                        for (int i = 0; i < cl * 3 && (total - 1 - i) >= 0; ++i) {
+                            if (output_audio_tokens[total - 1 - i] !=
+                                output_audio_tokens[total - 1 - (i % cl)]) {
+                                is_cycle = false;
+                                break;
+                            }
+                        }
+                        if (is_cycle) {
+                            print_with_timestamp("F005: cycle detected: len=%d at step %d (tokens: %d %d %d ...)\n",
+                                                cl, t,
+                                                output_audio_tokens[total-1],
+                                                output_audio_tokens[total-2],
+                                                output_audio_tokens[total-3]);
+                            if (f005_retry) {
+                                print_with_timestamp("F005: retry requested — stopping generation early\n");
+                                ctx_omni->e2e_stage.cannerror = -5; // -5 = F005 degeneration flag
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // F003 debug: dump all generated token IDs for CPU/CANN comparison
         {
             static FILE* f003_token_dump = nullptr;
