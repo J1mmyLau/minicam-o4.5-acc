@@ -11617,6 +11617,14 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         // eval_prefix(ctx_omni, ctx_omni->params);
     }
     
+
+    // E2E profiling: dump per-request (before next test case overwrites stages)
+    if (ctx_omni->e2e_stage.enabled) {
+        const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
+        std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
+        e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
+        ctx_omni->e2e_stage.request_index++;
+    }
     return true;
 }
 
