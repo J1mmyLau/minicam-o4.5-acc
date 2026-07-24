@@ -5,12 +5,15 @@
 
 ---
 
-## 2026-07-24 06:15 | CHECKPOINT | F003_LIFECYCLE_120_PASS
+## 2026-07-24 14:45 | CHECKPOINT | F004_NGL8_HYBRID_VALIDATED
 
-- Lifecycle: 15/15 runs, 255 WAVs+7 NoSpeech, 97.3% effective TTS, 0 CANN err, 0 crash
-- Phase 1: 12 runs (199 WAVs) → restart → Phase 2: 3 runs (56 WAVs)
-- All automated gates PASS. Only human blind listening remains.
-- Status: PRODUCTION_CANDIDATE_PENDING_HUMAN_LISTENING
+- ngl=8 hybrid Talker all gates passed
+- Collapse 0/20, FA -14% (n=23, CI=[-985,-507]ms)
+- Human listening COMPARATIVE PASS (ngl8 2/20 vs CPU 4/20 abnormal)
+- Tag hybrid-talker-ngl8-candidate-20260724
+- Config Talker n_gpu_layers=8, Flow CANN, Vocoder CPU
+- F005 opened common audio content failures both backends
+- Full CANN Talker PRODUCTION_BLOCKED
 
 ## 2026-07-24 04:00 | CHECKPOINT | F003_PRODUCTION_CANDIDATE_PENDING_HUMAN
 
