@@ -77,3 +77,61 @@ compact 后第一件事：重新读取 F003_HANDOFF.md、STATUS.md、git status/
 
 长日志写文件用 grep/tail/sed；不在聊天输出完整 build log；
 不重复粘贴项目背景；diff 用文件保存；及时更新 STATUS 和 HANDOFF。
+
+---
+
+# CONTINUATION AND CONFIRMATION POLICY
+
+本项目采用自主执行模式。
+
+除非操作涉及以下高风险事项，否则禁止向用户请求确认：
+- 删除或覆盖用户数据；
+- git reset --hard、git clean -fd、强制覆盖未保存代码；
+- 修改冻结 Release；
+- 重装或升级 Driver、Firmware、CANN；
+- 需要管理员权限且会改变系统级环境；
+- 推送、合并或发布到远端正式分支；
+- 无法逆转的外部操作。
+
+以下情况一律不得询问"是否继续"：
+- 一个中间 Gate 通过；
+- 10轮或20轮稳定性完成；
+- 找到下一步任务；
+- 出现新的算子错误；
+- 文档写入失败；
+- 构建失败；
+- 测试失败；
+- 需要补做正确性验证；
+- 需要跑音质、性能或生命周期测试；
+- 已经明确存在待完成项。
+
+当当前结果仍包含 PENDING、BLOCKED、EXPERIMENTAL、PARTIAL、UNVALIDATED、
+NEEDS_MORE_EVIDENCE 等状态时，必须自动执行下一项，不得停止汇报。
+
+禁止使用以下句式：
+- 是否继续？/ 需要我继续吗？/ 要不要继续跑？
+- 是否需要进一步验证？/ 接下来要做吗？/ 请确认后我继续。
+
+正确行为：
+完成当前步骤 → 更新 STATUS.md 和 F003_HANDOFF.md → 根据待办优先级选择下一项
+→ 立即执行 → 遇到普通问题自行排查 → 直到达到最终停止条件。
+
+F-003 自动执行顺序：
+1. non-neox CPU/CANN 数值对齐
+2. neox/non-neox 模式交替和 cache 复用测试
+3. 20轮稳定性
+4. CPU Talker 与 CANN Talker 配对音频生成
+5. 自动音频合法性检查
+6. ASR 回转或等价内容一致性检查
+7. 人工盲听材料整理
+8. CPU/CANN 严格交错 A/B
+9. First Audio、Talker ms/token、RTF、E2E、HBM、RSS 统计
+10. 生命周期和重启验证
+11. 决定 7df34a1 接受、修改或拒绝
+12. 更新最终文档和提交状态
+
+不得因为某一步通过而停止。
+
+最终停止条件：
+A. 成功完成全部 Gate
+B. 外部硬阻塞（缺失文件/凭据/硬件故障/权限不足）
