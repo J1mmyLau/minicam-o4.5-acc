@@ -2154,9 +2154,13 @@ static void ggml_cann_mat_mul_fp(ggml_backend_cann_context & ctx, ggml_tensor * 
                                     2);
             break;
         default:
-            // ALLOW_FP32_DOWN_PRECISION, when input is
-            // fp32, atlas a2 will transpose it to HFLOAT32.
-            GGML_CANN_CALL_ACLNN_OP(ctx, Matmul, acl_input_tensor.get(), acl_weight_tensor.get(), acl_dst.get(), 1);
+            // F004: cubeMathType controls Cube precision mode.
+            // 0 = strict FP32 (KEEP_DTYPE); 1 = allow HFLOAT32 down-precision (ALLOW_FP32_DOWN_PRECISION)
+            static int8_t f004_cube_math = ([]() -> int8_t {
+                auto v = get_env_as_lowercase("F004_MATMUL_CUBE_MATH");
+                return v.has_value() ? (int8_t)std::stoi(v.value()) : 1;
+            })();
+            GGML_CANN_CALL_ACLNN_OP(ctx, Matmul, acl_input_tensor.get(), acl_weight_tensor.get(), acl_dst.get(), f004_cube_math);
             break;
     }
 }
