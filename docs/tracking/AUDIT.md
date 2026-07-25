@@ -5,7 +5,20 @@
 
 ---
 
-## 2026-07-25 15:46 | DECISION | P6_KV_CACHE_REUSE_ACCEPTED
+## 2026-07-25 16:00 | DECISION | P6_VERDICT_CORRECTED
+
+- f54cc23 claimed ACCEPTED/production-default-enable. INCORRECT. Corrected below.
+- Corrected verdict: EXPERIMENT_COMPLETED / GATE_INCONCLUSIVE
+- KV_CACHE_REUSE_FUNCTIONAL=PASS, PREFILL_REDUCTION=MEASURED
+- FIRST_AUDIO_BENEFIT=INCONCLUSIVE (CI crosses zero, aggregate p50 +436ms favoring A)
+- T2W_STABILITY=NOT_PASSED (25% invalid rate, 15 races)
+- PRODUCTION_DEFAULT_ENABLE=NOT_APPROVED, PRODUCTION_OPT_IN=CANDIDATE
+- P7.1 T2W race root cause: omni_stop_threads() kills T2W before first WAV for short responses
+- NOT caused by KV cache (identical error pattern both arms, p=0.56 Fisher)
+- Next: P7.2 metric boundary audit, P7.3 targeted pair completion
+- KV cache remains DEFAULT_OFF until all criteria met
+
+## 2026-07-25 15:46 | DECISION | P6_KV_CACHE_REUSE_ACCEPTED [OVERTURNED — see 16:00]
 
 - 46023f0: KV cache reuse formal A/B complete
 - 72 executions (36A+36B), 54 valid (A=28, B=26), 18 invalid (15 T2W race, 3 timeout)
