@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-07-25 12:45 | CHECKPOINT | P6_PRE_COMPACT
+
+- P1-P5 ALL DONE. P4 KV cache reuse implemented (7ce501d).
+- P6 first A/B attempt: ALL INVALID (rc=124 timeout, insufficient pairs 18A+18B).
+- Next: P6.0 smoke verify cache hit → P6.2-P6.7 formal 8-pass A/B with background runner.
+- Full plan in NEXT_ACTION.md.
+- Compact checkpoint. No lingering processes. NPU idle.
+
+## 2026-07-25 12:30 | CHECKPOINT | P4_KV_CACHE_REUSE_IMPLEMENTED
+
+- 7ce501d: KV cache reuse for static system prompt prefix
+- Mechanism: llama_state_seq_save_file after first system prompt prefill,
+  llama_state_seq_load_file + pos_max fallback on subsequent runs
+- Gate: OMNI_KV_CACHE_REUSE=1 (default off), simplex test/batch mode only
+- Verified: cache HIT (62 tokens loaded, 9.1MB, FA 4342ms), cache MISS (normal),
+  default off (no interference)
+- E2E time: 13.2s → 4.3s (-67%) for warm backend
+- Cache file: /tmp/omni_kvcache_<model_hash>.bin
+- Next: P6 formal A/B test (≥30 paired requests, ABBA/BAAB)
+
+## 2026-07-25 12:15 | CHECKPOINT | P3_REVERIFY_DONE_P4_START
+
+- 03de7e0: file-level F005 retry stats committed
+- P3 re-verify: CPU normal run (5 chunks, 0 degen, 0 retries), stats print correctly
+- F005/STATUS.md updated to reflect corrected state
+- Next: P4 KV cache reuse design + implementation
+
 ## 2026-07-25 12:10 | CHECKPOINT | P1_F005_PRODUCTION_HARDENING_DONE
 
 - 9336e1d: P1.1-P1.5 fixes (CPU entropy disabled, F005_FALLBACK_CPU→F005_BLOCK_ON_DEGENERATE, misleading log fixed, WAV cleanup, retry stats)
