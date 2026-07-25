@@ -11196,10 +11196,17 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         // 只有当检测到 TURN_EOS/TTS_EOS/EOS 时才会在下面设置为 true
         local_is_end_of_turn = false;
         
-        // 🔧 [单双工适配] chunk 限制只在双工模式下生效
-        // - 双工模式: 每个 chunk 最多 max_new_speak_tokens_per_chunk 个 tokens，便于及时响应打断
-        // - 单工模式: 无限制，LLM 生成直到 EOS
+        // 🔧 [单双工适配] chunk 限制
+        // - 双工模式: 每个 chunk 最多 max_new_speak_tokens_per_chunk 个 tokens
+        // - 单工模式: 默认无限制 (0)，可通过 OMNI_SIMPLEX_CHUNK_TOKENS 启用增量推送
         int max_chunk_tokens = ctx_omni->duplex_mode ? ctx_omni->max_new_speak_tokens_per_chunk : 0;
+        if (!ctx_omni->duplex_mode && max_chunk_tokens == 0) {
+            static int simplex_chunk = ([](){
+                const char *v = getenv("OMNI_SIMPLEX_CHUNK_TOKENS");
+                return v ? std::max(1, std::stoi(v)) : 0;
+            })();
+            if (simplex_chunk > 0) max_chunk_tokens = simplex_chunk;
+        }
         bool chunk_limit_reached = (max_chunk_tokens > 0 && current_chunk_tokens >= max_chunk_tokens);
         {
             fflush(stdout);
@@ -11367,24 +11374,26 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         }
         fflush(stdout);
         
-        // 🔧 [P2-chunk限制] 如果达到 chunk 限制，结束当前 decode
-        // 这与 Python 双工 server 行为一致：每次 generate 只返回一个 chunk
-        // 客户端需要再次调用 stream_decode 获取下一个 chunk
+        // 🔧 [P2-chunk限制] 如果达到 chunk 限制
         if (chunk_limit_reached) {
-            
-            // 🔧 [P0-修复] 与 Python 对齐：达到 chunk 限制时，强制添加 <|chunk_eos|> token
-            // Python: self.decoder.feed(self.decoder.embed_token(self.chunk_eos_token_id))
+            // Feed chunk_eos token to model (update KV cache), same as duplex
             if (ctx_omni->special_token_chunk_eos >= 0) {
                 std::lock_guard<std::mutex> llama_lock(ctx_omni->llama_mtx);
-                // Feed chunk_eos token to model (update KV cache)
                 std::vector<llama_token> chunk_eos_tokens = {ctx_omni->special_token_chunk_eos};
-                eval_tokens(ctx_omni, ctx_omni->params, chunk_eos_tokens, 
+                eval_tokens(ctx_omni, ctx_omni->params, chunk_eos_tokens,
                            ctx_omni->params->n_batch, &ctx_omni->n_past);
             }
-            // 这样 SSE 流会结束，客户端可以再次调用 decode
-            llm_finish = true;
-            // 注意：不重置 current_chunk_tokens，下次 decode 会从 0 开始
-            current_chunk_tokens = 0;
+            // 双工模式: SSE流结束，客户端再次调用 stream_decode
+            // 单工模式 (OMNI_SIMPLEX_CHUNK_TOKENS): 继续 decode 循环，推送更多 chunk
+            if (!ctx_omni->duplex_mode) {
+                // Simplex incremental: push current chunk, then continue generating
+                current_chunk_tokens = 0;
+                chunk_limit_reached = false;
+                // llm_finish stays false, outer loop continues generating next chunk
+            } else {
+                llm_finish = true;
+                current_chunk_tokens = 0;
+            }
         }
         
         // add </unit> token after each chunk
