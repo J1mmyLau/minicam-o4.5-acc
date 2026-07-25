@@ -5602,23 +5602,37 @@ static bool generate_audio_tokens_local_simplex(
         }
 
         // F005: token repetition detection (gated by F005_REPEAT_DETECT=1)
+        // Shared config — evaluated once, visible to all detection blocks
+        static bool f005_enabled = ([](){
+            const char *v = getenv("F005_REPEAT_DETECT");
+            return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+        })();
+        static int f005_max_consecutive = ([](){
+            const char *v = getenv("F005_MAX_CONSECUTIVE");
+            return v ? std::max(3, std::stoi(v)) : 10;
+        })();
+        static int f005_max_cycle = ([](){
+            const char *v = getenv("F005_MAX_CYCLE_LEN");
+            return v ? std::max(2, std::min(8, std::stoi(v))) : 4;
+        })();
+        static bool f005_retry = ([](){
+            const char *v = getenv("F005_RETRY_ON_DEGENERATE");
+            return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+        })();
+        static int f005_entropy_window = ([](){
+            const char *v = getenv("F005_ENTROPY_WINDOW");
+            return v ? std::max(10, std::stoi(v)) : 20;
+        })();
+        static float f005_entropy_low = ([](){
+            const char *v = getenv("F005_ENTROPY_LOW_THRESHOLD");
+            return v ? std::stof(v) : 0.5f;
+        })();
+        static float f005_entropy_high = ([](){
+            const char *v = getenv("F005_ENTROPY_HIGH_THRESHOLD");
+            return v ? std::stof(v) : 7.0f;
+        })();
+        // Block 1: consecutive and cycle repetition
         {
-            static bool f005_enabled = ([](){
-                const char *v = getenv("F005_REPEAT_DETECT");
-                return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
-            })();
-            static int f005_max_consecutive = ([](){
-                const char *v = getenv("F005_MAX_CONSECUTIVE");
-                return v ? std::max(3, std::stoi(v)) : 10;
-            })();
-            static int f005_max_cycle = ([](){
-                const char *v = getenv("F005_MAX_CYCLE_LEN");
-                return v ? std::max(2, std::min(8, std::stoi(v))) : 4;
-            })();
-            static bool f005_retry = ([](){
-                const char *v = getenv("F005_RETRY_ON_DEGENERATE");
-                return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
-            })();
             if (f005_enabled) {
                 // Consecutive repetition check
                 int consec = 1;
@@ -5655,6 +5669,32 @@ static bool generate_audio_tokens_local_simplex(
                             break;
                         }
                     }
+                }
+            }
+        }
+        // Entropy-based detection: sliding window token diversity
+        {
+            if (f005_enabled && (int)output_audio_tokens.size() >= f005_entropy_window) {
+                // Count token frequencies in window
+                std::map<int, int> freq;
+                int start = (int)output_audio_tokens.size() - f005_entropy_window;
+                for (int i = start; i < (int)output_audio_tokens.size(); ++i) {
+                    freq[output_audio_tokens[i]]++;
+                }
+                // Shannon entropy estimate
+                float entropy = 0.0f;
+                int unique_tokens = (int)freq.size();
+                for (auto &kv : freq) {
+                    float p = (float)kv.second / f005_entropy_window;
+                    if (p > 0) entropy -= p * std::log2(p);
+                }
+                if (entropy < f005_entropy_low) {
+                    print_with_timestamp("F005: LOW entropy %.2f (window=%d, unique=%d/%d) at step %d\n",
+                                        entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
+                }
+                if (entropy > f005_entropy_high) {
+                    print_with_timestamp("F005: HIGH entropy %.2f (window=%d, unique=%d/%d) at step %d\n",
+                                        entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
                 }
             }
         }
