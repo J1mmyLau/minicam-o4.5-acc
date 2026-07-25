@@ -170,6 +170,14 @@ void test_case(struct omni_context *ctx_omni, common_params& params, std::string
     bool orig_async = ctx_omni->async;
     ctx_omni->async = false;  // 使用同步模式 prefill，确保所有数据被处理
 
+    // P4 KV Cache consistency: use case 0 audio as ref_audio for all test cases
+    // so the system prompt (and KV cache) is identical across all --test-start indices
+    std::string saved_ref_audio_path = ctx_omni->ref_audio_path;
+    char idx0[16];
+    snprintf(idx0, sizeof(idx0), "%04d", 0);
+    std::string case0_audio = data_path_prefix + idx0 + ".wav";
+    ctx_omni->ref_audio_path = case0_audio;
+
     for (int il = start_idx; il < start_idx + cnt; ++il) {
         char idx_str[16];
         snprintf(idx_str, sizeof(idx_str), "%04d", il);  // 格式化为4位数字，如 0000, 0001
@@ -200,6 +208,7 @@ void test_case(struct omni_context *ctx_omni, common_params& params, std::string
     // 注意：同步 prefill 不会启动线程，需要用 async=true 的方式调用 decode
     // stream_decode 内部会检查 async 并启动 TTS/T2W 线程
     ctx_omni->async = orig_async;
+    ctx_omni->ref_audio_path = saved_ref_audio_path;
     stream_decode(ctx_omni, "./");
 }
 
