@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-07-25 16:15 | CHECKPOINT | P7.1_P7.2_COMPLETE
+
+- P7.1 T2W race root cause: omni_stop_threads() kills T2W before first WAV for short responses
+- NOT caused by KV cache (identical error pattern both arms, Fisher p=0.56)
+- P7.2 Metric boundary: FA clock starts INSIDE stream_decode(), AFTER stream_prefill() returns
+- Prefill and FA are SEQUENTIAL, NON-OVERLAPPING stages
+- FA excludes prefill by code design → FA is WRONG metric for KV cache evaluation
+- Correct metric: TOTAL = prefill + FA = p50 14822→6114ms (-58.8%)
+- Report: e2e-ngl8/p6-ab/P6_METRIC_BOUNDARY_AUDIT.md
+- Next: P7.3 targeted pair completion after T2W fix
+
 ## 2026-07-25 16:00 | DECISION | P6_VERDICT_CORRECTED
 
 - f54cc23 claimed ACCEPTED/production-default-enable. INCORRECT. Corrected below.
