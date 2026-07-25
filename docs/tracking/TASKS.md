@@ -115,6 +115,12 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | E2E-P3-EXPERIMENT | **REJECTED** | Chunking A/B v4: chunk=20 NEUTRAL（FA -8ms）, chunk=5 TTS 分歧 |
 | E2E-P4-F005 | **DONE** | Recall 33%, FP 0%. Degeneration is stochastic. |
 
+## Phase 14: P6 KV Cache Reuse A/B
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| P6-KV-CACHE-AB | **ACCEPTED** | 46023f0: Formal A/B complete. 9.1s prefill eliminated, FA neutral, 0 regressions |
+
 ## FINAL STATUS
 
 Release: `bde403d`（冻结）。
