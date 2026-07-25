@@ -5625,12 +5625,11 @@ static bool generate_audio_tokens_local_simplex(
         })();
         static float f005_entropy_low = ([](){
             const char *v = getenv("F005_ENTROPY_LOW_THRESHOLD");
-            return v ? std::stof(v) : 1.0f;  // default: 1.0 (CPU normal ~2.8-3.1)
+            return v ? std::stof(v) : 1.0f;  // default: 1.0 (same for both backends)
         })();
-        static float f005_entropy_high = ([](){
-            const char *v = getenv("F005_ENTROPY_HIGH_THRESHOLD");
-            return v ? std::stof(v) : 6.5f;  // default: 6.5 (ngl8 max observed ~5.3 in diag, ~5.3 in normal)
-        })();
+        const char *f005_eh_env = getenv("F005_ENTROPY_HIGH_THRESHOLD");
+        float f005_entropy_high = f005_eh_env ? std::stof(f005_eh_env) :
+            ((ctx_omni->params->n_gpu_layers > 0) ? 5.8f : 4.0f);
         // Block 1: consecutive and cycle repetition
         {
             if (f005_enabled) {
