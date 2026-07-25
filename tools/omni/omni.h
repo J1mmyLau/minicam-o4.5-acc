@@ -72,6 +72,31 @@ struct LLMThreadInfo {
     LLMThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
 
+// ============================================================================
+// P7.3 T2W Drain State Machine
+// ============================================================================
+
+// T2W worker lifecycle states
+enum T2WDrainState {
+    T2W_DRAIN_IDLE = 0,           // No active request
+    T2W_DRAIN_RUNNING = 1,        // Processing audio tokens
+    T2W_DRAIN_EOS_SIGNALED = 2,   // EOS received, worker draining
+    T2W_DRAIN_COMPLETE = 3,       // All output produced, drain finished
+    T2W_DRAIN_FAILED = 4,         // Error during processing/drain
+};
+
+// Terminal output classification for each request
+// Distinguishes "expected no-audio" from silent failures
+enum T2WTerminalOutput {
+    T2W_TERMINAL_UNKNOWN        = 0,
+    T2W_AUDIO_SUCCESS           = 1,  // ≥1 WAV produced
+    T2W_VALID_NO_SPEECH         = 2,  // LLM legitimately produced no audio tokens
+    T2W_OUTPUT_BLOCKED          = 3,  // WAV write failed (disk full, permissions, etc.)
+    T2W_DRAIN_TIMEOUT           = 4,  // Drain did not complete within timeout
+    T2W_PIPELINE_FAILURE        = 5,  // feed_window() failed repeatedly
+    T2W_GENERATION_FAILURE      = 6,  // Upstream failure (LLM/TTS did not produce)
+};
+
 struct T2WOut {
     std::vector<llama_token> audio_tokens;  // Audio token IDs (25 tokens per chunk)
     bool is_final = false;  // Whether this is the final chunk (turn end)
@@ -87,6 +112,32 @@ struct T2WThreadInfo {
     std::condition_variable cv;
     std::chrono::steady_clock::time_point start;
     std::chrono::steady_clock::time_point end;
+
+    // ========================================================================
+    // P7.3 Drain State Machine — per-request lifecycle tracking
+    // ========================================================================
+
+    // Worker drain state (written by T2W worker, read by main thread)
+    std::atomic<int> drain_state{T2W_DRAIN_IDLE};
+
+    // EOS signal from main thread → T2W worker
+    std::atomic<bool> eos_received{false};
+
+    // Set by worker after is_final fully processed and all WAVs written
+    std::atomic<bool> is_final_processed{false};
+
+    // WAV files written for current request (resets per round)
+    std::atomic<int> wav_count{0};
+
+    // Terminal output classification (set after drain)
+    std::atomic<int> terminal_output{T2W_TERMINAL_UNKNOWN};
+
+    // Number of feed_window failures in this request
+    std::atomic<int> feed_window_errors{0};
+
+    // CV for main thread to wait on drain completion
+    std::mutex drain_mtx;
+    std::condition_variable drain_cv;
 
     T2WThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
