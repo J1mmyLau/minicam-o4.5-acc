@@ -190,7 +190,11 @@ void test_case(struct omni_context *ctx_omni, common_params& params, std::string
             img_fname = img_candidate;
         }
 
-        auto t0 = std::chrono::high_resolution_clock::now();
+        // P7.3 P10: set request-level clock before stream_prefill for
+        // request_to_first_audio_ms measurement (full user-facing latency).
+        ctx_omni->request_start_time = std::chrono::high_resolution_clock::now();
+
+        auto t0 = ctx_omni->request_start_time;
         // index 从 0 开始，第一次 prefill (index=0) 初始化系统 prompt
         // 后续 prefill 在同步模式下直接添加到 KV cache
         stream_prefill(ctx_omni, aud_fname, img_fname, il);
