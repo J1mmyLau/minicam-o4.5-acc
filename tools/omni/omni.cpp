@@ -9430,9 +9430,14 @@ void t2w_thread_func_python(struct omni_context * ctx_omni, common_params *param
                         wav_complete_time - ctx_omni->stream_decode_start_time).count();
                     
                     if (wav_idx == 0) {
-                        print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms\n", (long long)elapsed_ms);
+                        auto req_elapsed = ctx_omni->request_start_time.time_since_epoch().count() > 0
+                            ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                                wav_complete_time - ctx_omni->request_start_time).count()
+                            : 0;
+                        print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio)\n",
+                            (long long)elapsed_ms, (long long)req_elapsed);
                     }
-                    
+
                     float rtf = (float)(inference_time_ms / 1000.0) / audio_duration;
                     print_with_timestamp("T2W(Python): wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms\n",
                                         ctx_omni->wav_turn_base + wav_idx, audio_duration, inference_time_ms, rtf, (long long)elapsed_ms);
@@ -9893,7 +9898,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
 
                         if (wav_idx == 0) {
                             ctx_omni->e2e_stage.record(STAGE_client_first_audio);
-                            print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms\n", (long long)elapsed_ms);
+                            // P7.3 P10: report both decode_to_first_audio and request_to_first_audio
+                            auto req_elapsed = ctx_omni->request_start_time.time_since_epoch().count() > 0
+                                ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    wav_complete_time - ctx_omni->request_start_time).count()
+                                : 0;
+                            print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio)\n",
+                                (long long)elapsed_ms, (long long)req_elapsed);
                         }
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
                                             ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms);
