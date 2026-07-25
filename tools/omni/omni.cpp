@@ -4876,8 +4876,22 @@ bool omni_tts_queues_empty(struct omni_context * ctx_omni) {
     return tts_empty && t2w_empty;
 }
 
+// P7.3 forward declarations — defined after omni_stop_threads
+static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni);
+static void t2w_drain_classify_terminal(struct omni_context * ctx_omni);
+
 // 停止所有线程（发送信号，不等待）
 void omni_stop_threads(struct omni_context * ctx_omni) {
+    // ====================================================================
+    // P7.3: Drain T2W BEFORE stopping threads.
+    // TTS must still be running so it can send is_final if not yet done.
+    // We wait for the T2W worker to confirm is_final processed, or timeout.
+    // ====================================================================
+    if (ctx_omni->t2w_thread_info && ctx_omni->t2w_thread.joinable()) {
+        t2w_drain_signal_and_wait(ctx_omni);
+        t2w_drain_classify_terminal(ctx_omni);
+    }
+
     // 发送停止信号
     llm_thread_running = false;
     tts_thread_running = false;
@@ -4903,6 +4917,97 @@ void omni_stop_threads(struct omni_context * ctx_omni) {
     }
 
     print_with_timestamp("omni_stop_threads: stop signals sent\n");
+}
+
+// ============================================================================
+// P7.3 T2W Drain Protocol — helper functions
+// ============================================================================
+
+// Read OMNI_T2W_DRAIN_TIMEOUT_MS from environment, bounded [1000, 60000], default 5000.
+static int t2w_get_drain_timeout_ms() {
+    const char * env = getenv("OMNI_T2W_DRAIN_TIMEOUT_MS");
+    if (!env) return 5000;
+    int val = atoi(env);
+    if (val < 1000)  return 1000;
+    if (val > 60000) return 60000;
+    return val;
+}
+
+// Signal EOS to the T2W worker and wait for drain completion on a bounded timeout.
+// Must be called AFTER TTS is joined (all is_final items are enqueued).
+// Sets terminal_output to UNKNOWN on entry, then waits.
+static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
+    auto * info = ctx_omni->t2w_thread_info;
+    if (!info) return;
+
+    info->terminal_output.store(T2W_TERMINAL_UNKNOWN, std::memory_order_release);
+
+    // If is_final was already processed (worker finished before we got here),
+    // drain is already complete — nothing to do.
+    if (info->is_final_processed.load(std::memory_order_acquire)) {
+        print_with_timestamp("T2W drain: is_final already processed (wav_count=%d)\n",
+                             info->wav_count.load());
+        info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+        return;
+    }
+
+    // Signal EOS to the T2W worker
+    info->eos_received.store(true, std::memory_order_release);
+    info->drain_state.store(T2W_DRAIN_EOS_SIGNALED, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(info->mtx);
+        // Wake the worker so it dequeues any remaining items
+    }
+    info->cv.notify_all();
+
+    // Wait for worker to process is_final (or timeout)
+    int timeout_ms = t2w_get_drain_timeout_ms();
+    print_with_timestamp("T2W drain: waiting up to %dms for is_final processing...\n", timeout_ms);
+
+    std::unique_lock<std::mutex> lock(info->drain_mtx);
+    bool drained = info->drain_cv.wait_for(
+        lock, std::chrono::milliseconds(timeout_ms),
+        [&]() { return info->is_final_processed.load(std::memory_order_acquire); }
+    );
+
+    if (drained) {
+        info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+        print_with_timestamp("T2W drain: complete (wav_count=%d)\n",
+                             info->wav_count.load());
+    } else {
+        print_with_timestamp("T2W drain: TIMEOUT after %dms — worker did not process is_final\n",
+                             timeout_ms);
+    }
+}
+
+// Classify terminal output after drain (or timeout).
+// Must be called after t2w_drain_signal_and_wait() and before worker join.
+static void t2w_drain_classify_terminal(struct omni_context * ctx_omni) {
+    auto * info = ctx_omni->t2w_thread_info;
+    if (!info) return;
+
+    bool final_processed = info->is_final_processed.load(std::memory_order_acquire);
+    int  wavs           = info->wav_count.load(std::memory_order_relaxed);
+    int  errors         = info->feed_window_errors.load(std::memory_order_relaxed);
+
+    if (!final_processed) {
+        // Worker never processed is_final → timeout or upstream failure
+        info->terminal_output.store(T2W_DRAIN_TIMEOUT, std::memory_order_release);
+        LOG_ERR("T2W terminal: DRAIN_TIMEOUT — is_final never processed (wav_count=%d, errors=%d)\n",
+                wavs, errors);
+    } else if (errors > 0) {
+        // is_final processed but feed_window failed
+        info->terminal_output.store(T2W_PIPELINE_FAILURE, std::memory_order_release);
+        LOG_ERR("T2W terminal: PIPELINE_FAILURE — %d feed_window errors (wav_count=%d)\n",
+                errors, wavs);
+    } else if (wavs > 0) {
+        info->terminal_output.store(T2W_AUDIO_SUCCESS, std::memory_order_release);
+        print_with_timestamp("T2W terminal: AUDIO_SUCCESS (%d WAV(s))\n", wavs);
+    } else {
+        // is_final processed, no errors, zero WAVs → legitimate no-speech
+        info->terminal_output.store(T2W_VALID_NO_SPEECH, std::memory_order_release);
+        print_with_timestamp("T2W terminal: VALID_NO_SPEECH — is_final processed, 0 WAVs\n");
+    }
 }
 
 // Reset a context between backend-protocol sessions: end any duplex session,
@@ -4932,6 +5037,17 @@ void omni_prepare_for_reuse(struct omni_context * ctx_omni) {
     }
     if (ctx_omni->tts_thread.joinable()) {
         ctx_omni->tts_thread.join();
+    }
+
+    // =======================================================================
+    // P7.3: T2W Drain Protocol — verify output before worker teardown
+    // TTS is already joined (all is_final items enqueued).
+    // Signal EOS so the T2W worker flushes any remaining buffer and marks
+    // is_final_processed. Then wait for it on a bounded timeout.
+    // =======================================================================
+    if (ctx_omni->t2w_thread_info) {
+        t2w_drain_signal_and_wait(ctx_omni);
+        t2w_drain_classify_terminal(ctx_omni);
     }
 
     t2w_thread_running = false;
@@ -4992,7 +5108,13 @@ void omni_free(struct omni_context * ctx_omni) {
             ctx_omni->tts_thread_info->cv.notify_all(); // Wake up the thread if it's waiting
             ctx_omni->tts_thread.join(); // Wait for the thread to finish
         }
-        
+
+        // P7.3: T2W Drain Protocol — same as omni_prepare_for_reuse
+        if (ctx_omni->t2w_thread_info) {
+            t2w_drain_signal_and_wait(ctx_omni);
+            t2w_drain_classify_terminal(ctx_omni);
+        }
+
         // Stop T2W thread
         t2w_thread_running = false; // Signal the thread to stop
         if (ctx_omni->t2w_thread.joinable()) {
@@ -9525,8 +9647,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         std::unique_lock<std::mutex> lock(mtx);
         
-        // Wait for queue to have data or thread to stop
-        cv.wait(lock, [&] { return !queue.empty() || !t2w_thread_running || ctx_omni->break_event.load(); });
+        // Wait for queue to have data, EOS signal, or thread to stop
+        cv.wait(lock, [&] {
+            return !queue.empty()
+                || !t2w_thread_running
+                || ctx_omni->t2w_thread_info->eos_received.load(std::memory_order_relaxed)
+                || ctx_omni->break_event.load();
+        });
         auto dequeue_time = std::chrono::steady_clock::now();
         // One-shot: record first dequeue
         if (ctx_omni->e2e_stage.timestamps_ns[STAGE_t2w_dequeue].load(std::memory_order_relaxed) == 0) {
@@ -9536,7 +9663,16 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         if (!t2w_thread_running && queue.empty()) {
             break;
         }
-        
+
+        // ====================================================================
+        // P7.3: EOS signal with empty queue — set up forced flush of buffer
+        // (handles case where TTS was killed before sending is_final)
+        // ====================================================================
+        bool eos_force_flush = false;
+        if (ctx_omni->t2w_thread_info->eos_received.load(std::memory_order_relaxed) && queue.empty()) {
+            eos_force_flush = true;
+        }
+
         // 🔧 [P0-打断检测] 检测到 break_event 时跳过当前数据
         if (ctx_omni->break_event.load()) {
             lock.unlock();
@@ -9571,10 +9707,32 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         lock.unlock();
         
+        // P7.3: EOS force flush — treat remaining buffer as final window.
+        // Must come after need_flush is declared but before the empty check.
+        // Declare need_flush early (actual value set below in existing code)
+        bool need_flush = is_final || is_chunk_end;
+
+        if (eos_force_flush && new_tokens.empty() && !is_chunk_end && !is_final) {
+            if (token_buffer.size() > 3 && ctx_omni->token2wav_initialized && ctx_omni->token2wav_session) {
+                is_final = true;     // Force final-window processing
+                need_flush = true;
+                print_with_timestamp("T2W(C++): EOS force flush — buffer has %zu tokens\n",
+                                     token_buffer.size() - 3);
+            } else {
+                // No tokens to flush — mark drain complete directly
+                ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
+                ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+                ctx_omni->t2w_thread_info->drain_cv.notify_one();
+                print_with_timestamp("T2W(C++): EOS drain — buffer empty (wav_count=%d)\n",
+                                     ctx_omni->t2w_thread_info->wav_count.load());
+                continue;
+            }
+        }
+
         if (new_tokens.empty() && !is_chunk_end && !is_final) {
             continue;
         }
-        
+
         // 📌 [轮次切换检测] 使用 T2WOut 传入的 round_idx 判断，而不是直接读取 ctx_omni->simplex_round_idx
         // 原因：TTS 线程在发送 is_final 之前会递增 simplex_round_idx，导致竞态条件
         // 现在 T2WOut.round_idx 保存的是递增前的值，确保 WAV 写入正确的目录
@@ -9596,6 +9754,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             wav_idx = 0;                                                    // WAV 文件编号从 0 开始
             ctx_omni->wav_turn_base = effective_round_idx * 1000;           // 更新全局 WAV 编号基数
             token_buffer = {4218, 4218, 4218};                              // 重置 token buffer（3个静音前缀）
+
+            // P7.3: reset drain state machine for new round
+            ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_RUNNING, std::memory_order_release);
+            ctx_omni->t2w_thread_info->is_final_processed.store(false, std::memory_order_release);
+            ctx_omni->t2w_thread_info->wav_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->feed_window_errors.store(0, std::memory_order_relaxed);
             
             print_with_timestamp("T2W线程(C++): 新输出目录 %s\n", tts_wav_output_dir.c_str());
             
@@ -9632,9 +9796,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         }
         
         // 处理逻辑（单工/双工分开）
-        bool need_flush = false;
+        // NOTE: need_flush is declared earlier (P7.3 eos_force_flush path)
         size_t min_process_threshold = WINDOW_SIZE;
-        
+
         if (!ctx_omni->duplex_mode) {
             need_flush = is_final || is_chunk_end;
         } else {
@@ -9734,10 +9898,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
                                             ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms);
                         wav_idx++;
+                        // P7.3: track WAV count for drain verification
+                        ctx_omni->t2w_thread_info->wav_count.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
             } else {
                 LOG_ERR("T2W线程: feed_window 失败\n");
+                ctx_omni->t2w_thread_info->feed_window_errors.fetch_add(1, std::memory_order_relaxed);
             }
             
             // Slide window by CHUNK_SIZE (25), keep last PRE_LOOKAHEAD (3) for overlap
@@ -9823,7 +9990,18 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 break;
             }
         }
-        
+
+        // ====================================================================
+        // P7.3 Drain State Machine — notify main thread when is_final done
+        // ====================================================================
+        if (is_final) {
+            ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
+            ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
+            print_with_timestamp("T2W(C++): drain complete — wav_count=%d\n",
+                ctx_omni->t2w_thread_info->wav_count.load());
+        }
+
     }
     
     print_with_timestamp("T2W(C++) 线程: 停止\n");
