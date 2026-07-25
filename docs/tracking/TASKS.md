@@ -95,11 +95,30 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | T2W-CANN-RESTART | **PASS** | 3x3 + 2 short lifecycle runs, 0 CANN err |
 | T2W-CANN-LIFECYCLE-120 | **PASS** | 15/15 runs, 255 WAVs+7 NoSpeech, 97.3% effective, restart PASS, 0 CANN err |
 | T2W-CANN-ASR | **UNAVAILABLE** | no whisper/funasr/transformers |
-| T2W-CANN-AUDIO-HUMAN | **PENDING** | blind listening: /workspace/cann-migration-9.0-to-9.1/f003/blind-listening/ |
-| T2W-CANN-PRODUCTION | **PENDING_HUMAN_LISTENING** | promote 7df34a1 to PRODUCTION_CANDIDATE if blind test passes |
-| T2W-CANN-AUDIO | **PENDING** | 音质验证 |
-| T2W-CANN-LIFECYCLE | **PENDING** | 120 任务长稳 |
+| T2W-CANN-AUDIO-HUMAN | **SUPERSEDED** | F003-era blind listening; full CANN Talker BLOCKED by F004 |
+| T2W-CANN-PRODUCTION | **SUPERSEDED** | 7df34a1 is RoPE fix only, NOT standalone Talker candidate |
+| T2W-CANN-AUDIO | **SUPERSEDED** | Replaced by F004 ngl=8 hybrid validation |
+| T2W-CANN-LIFECYCLE | **DONE** | 15/15 runs, 255 WAVs, 0 CANN err |
+
+## Phase 13: F003/F004/F005 + E2E Profiling
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| F-003 | **FIXED** | 7df34a1 dual-path ROPE repeat（RoPE 修复，非完整 Talker candidate） |
+| Full CANN Talker | **PRODUCTION_BLOCKED** | F004 发现 full CANN 数值分叉/坍缩风险 |
+| F-004 | **VALIDATED** | ngl=8 hybrid Talker PRODUCTION_CANDIDATE（`e6151fb`） |
+| F-005 detectors | **IMPLEMENTED** | consecutive + cycle + entropy, recall 33%, FP 0% |
+| F-005 retry/fallback | **IMPLEMENTED** | `c1d2af6`, opt-in via `F005_RETRY_ON_DEGENERATE=1` |
+| F-005 deployment | **RECALL_LIMITED / OPT_IN_READY** | recall 33%，不建议默认开启 |
+| E2E-P1-INSTRUMENT | **DONE** | 16-stage profiler (d1e89db) |
+| E2E-P2-BASELINE | **DONE** | n=34, FA p50=7280ms: LLM 69% + Talker 22% + T2W 6% |
+| E2E-P3-EXPERIMENT | **REJECTED** | Chunking A/B v4: chunk=20 NEUTRAL（FA -8ms）, chunk=5 TTS 分歧 |
+| E2E-P4-F005 | **DONE** | Recall 33%, FP 0%. Degeneration is stochastic. |
 
 ## FINAL STATUS
 
-Release: bde403d（冻结）。Candidate: 3fc0ed5。F-003 根因确认，待修复。
+Release: `bde403d`（冻结）。
+Production candidate: ngl=8 hybrid（Talker ngl=8, Flow CANN, Vocoder CPU, F005 opt-in）。
+Full CANN Talker: PRODUCTION_BLOCKED。
+Chunking: REJECTED。
+F003 7df34a1: RoPE fix only, not standalone Talker production candidate.
