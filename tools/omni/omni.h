@@ -560,6 +560,12 @@ struct omni_context {
     // Timestamp for stream_decode start (used for WAV file naming)
     std::chrono::high_resolution_clock::time_point stream_decode_start_time;
 
+    // P7.3 P10: request-level clock — set before stream_prefill() by the caller.
+    // Measures full user-facing latency from request boundary to first audio.
+    // Defaults to epoch (0) if not set; the WAV writer uses this as the
+    // authoritative request start when available.
+    std::chrono::high_resolution_clock::time_point request_start_time;
+
     // E2E stage profiling (OMNI_E2E_PROFILE=1)
     E2EStageTiming e2e_stage;
     
