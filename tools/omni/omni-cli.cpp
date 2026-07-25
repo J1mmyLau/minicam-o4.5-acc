@@ -71,7 +71,8 @@ static void show_usage(const char * prog_name) {
         "                        Use 'auto' to auto-discover CoreML model in model dir\n"
         "  --vision-batch-encode  Enable batched encoding of same-size vision slices\n"
         "                          (off by default; helps large / high-res / high-refresh images)\n"
-        "  --test <prefix> <n> Run test case with data prefix and count\n"
+        "  --test <prefix> <n> Run test cases with data prefix, count, starting from --test-start (default 0)\n"
+        "  --test-start <n>   Starting index for --test (default: 0). Use --test p 1 --test-start 15 for single case\n"
         "  --bench-vision <img> Benchmark serial vs batched vision encoding\n"
         "  -h, --help          Show this help message\n\n"
         "Example:\n"
@@ -162,14 +163,14 @@ static void print_model_paths(const OmniModelPaths & paths) {
     printf("===================\n");
 }
 
-void test_case(struct omni_context *ctx_omni, common_params& params, std::string data_path_prefix, int cnt){
+void test_case(struct omni_context *ctx_omni, common_params& params, std::string data_path_prefix, int cnt, int start_idx = 0){
     // 🔧 单工模式：先 prefill 所有输入，然后 decode 一次生成完整回复
     // 使用同步模式 prefill，避免 async 模式下的竞态条件
     ctx_omni->system_prompt_initialized = false;
     bool orig_async = ctx_omni->async;
     ctx_omni->async = false;  // 使用同步模式 prefill，确保所有数据被处理
-    
-    for (int il = 0; il < cnt; ++il) {
+
+    for (int il = start_idx; il < start_idx + cnt; ++il) {
         char idx_str[16];
         snprintf(idx_str, sizeof(idx_str), "%04d", il);  // 格式化为4位数字，如 0000, 0001
         std::string aud_fname = data_path_prefix + idx_str + ".wav";
@@ -224,6 +225,7 @@ int main(int argc, char ** argv) {
     bool vision_batch_encode = false;  // 多 slice 批量编码优化（默认关闭）
     std::string test_audio_prefix;
     int test_count = 0;
+    int test_start_idx = 0;
     
     // 解析命令行参数
     for (int i = 1; i < argc; i++) {
@@ -283,6 +285,9 @@ int main(int argc, char ** argv) {
             run_test = true;
             test_audio_prefix = argv[++i];
             test_count = std::atoi(argv[++i]);
+        }
+        else if (arg == "--test-start" && i + 1 < argc) {
+            test_start_idx = std::atoi(argv[++i]);
         }
         else if (arg == "--bench-vision" && i + 1 < argc) {
             bench_vision_image = argv[++i];
@@ -409,7 +414,8 @@ int main(int argc, char ** argv) {
         printf("=== Running test case ===\n");
         printf("  Audio prefix: %s\n", test_audio_prefix.c_str());
         printf("  Count: %d\n", test_count);
-        test_case(ctx_omni, params, test_audio_prefix, test_count);
+        printf("  Start index: %d\n", test_start_idx);
+        test_case(ctx_omni, params, test_audio_prefix, test_count, test_start_idx);
     } else {
         // 默认测试用例
         test_case(ctx_omni, params, std::string("tools/omni/assets/test_case/audio_test_case/audio_test_case_"), 2);

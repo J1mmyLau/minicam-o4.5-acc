@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-07-25 11:10 | CHECKPOINT | P1_F005_RECALL_IMPROVEMENT_DONE
+
+- 08afb84: two new detectors (SustainedHighEntropy + DominantTokenCollapse)
+- Miss mode classification: CPU=low-entropy repetition (covered), ngl8=high-entropy drift + token proliferation (NEW)
+- Offline validation: 10 F005 diag runs, 0 FP, 3/4 degenerate caught
+- Report: f005/MISS_MODE_REPORT.md
+- Next: P2 F005 formal validation
+
 ## 2026-07-25 09:49 | CHECKPOINT | F005_RETRY_FALLBACK_IMPLEMENTED
 
 - c1d2af6: retry/fallback closed loop implemented
