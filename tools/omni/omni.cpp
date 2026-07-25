@@ -82,6 +82,36 @@ std::atomic<int64_t> g_e2e_flow_end_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
 
+// F005 retry statistics (file-level, accumulated across all chunks in a run)
+static int g_f005_stat_requests = 0;
+static int g_f005_stat_degen_detected = 0;
+static int g_f005_stat_retry_attempted = 0;
+static int g_f005_stat_retry_recovered = 0;
+static int g_f005_stat_retry_exhausted = 0;
+static int g_f005_stat_output_blocked = 0;
+
+static void f005_print_retry_stats() {
+    if (g_f005_stat_requests == 0) return;
+    fprintf(stderr, "=== F005 Retry Statistics ===\n");
+    fprintf(stderr, "  total_chunks:           %d\n", g_f005_stat_requests);
+    fprintf(stderr, "  degeneration_detected:  %d\n", g_f005_stat_degen_detected);
+    fprintf(stderr, "  retry_attempted:        %d\n", g_f005_stat_retry_attempted);
+    fprintf(stderr, "  retry_recovered:        %d\n", g_f005_stat_retry_recovered);
+    fprintf(stderr, "  retry_exhausted:        %d\n", g_f005_stat_retry_exhausted);
+    fprintf(stderr, "  output_blocked:         %d\n", g_f005_stat_output_blocked);
+    fprintf(stderr, "  retry_recovery_rate:    %.0f%%\n",
+            g_f005_stat_retry_attempted > 0 ?
+            100.0 * g_f005_stat_retry_recovered / g_f005_stat_retry_attempted : 0.0);
+    fprintf(stderr, "==============================\n");
+    // Reset for next run
+    g_f005_stat_requests = 0;
+    g_f005_stat_degen_detected = 0;
+    g_f005_stat_retry_attempted = 0;
+    g_f005_stat_retry_recovered = 0;
+    g_f005_stat_retry_exhausted = 0;
+    g_f005_stat_output_blocked = 0;
+}
+
 void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
     if (!t.enabled) return;
     cross_platform_mkdir_p(dir);
@@ -7855,23 +7885,15 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     return v ? std::max(1, std::min(3, std::stoi(v))) : 2;
                 })();
 
-                // F005 retry statistics (session-level, printed at end of run)
-                static int f005_stat_requests = 0;
-                static int f005_stat_degen_detected = 0;
-                static int f005_stat_retry_attempted = 0;
-                static int f005_stat_retry_recovered = 0;
-                static int f005_stat_retry_exhausted = 0;
-                static int f005_stat_output_blocked = 0;
-                static bool f005_stat_printed = false;
-                f005_stat_requests++;
+                g_f005_stat_requests++;
 
                 bool degenerated = (ctx_omni->e2e_stage.cannerror == -5);
                 int retry_count = 0;
 
-                if (degenerated) f005_stat_degen_detected++;
+                if (degenerated) g_f005_stat_degen_detected++;
 
                 while (degenerated && retry_count < f005_max_retries && f005_retry_enabled) {
-                    f005_stat_retry_attempted++;
+                    g_f005_stat_retry_attempted++;
                     print_with_timestamp("F005: degeneration detected in chunk %d, retry %d/%d\n",
                                         current_chunk_idx, retry_count + 1, f005_max_retries);
 
@@ -7904,21 +7926,21 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     retry_count++;
 
                     if (!degenerated) {
-                        f005_stat_retry_recovered++;
+                        g_f005_stat_retry_recovered++;
                         print_with_timestamp("F005: retry %d succeeded — degeneration cleared\n", retry_count);
                     }
                 }
 
                 if (degenerated && f005_block_on_degen) {
-                    f005_stat_retry_exhausted++;
-                    f005_stat_output_blocked++;
+                    g_f005_stat_retry_exhausted++;
+                    g_f005_stat_output_blocked++;
                     print_with_timestamp("F005: retry exhausted, degeneration persists — blocking output\n");
                     tts_gen_success = false;
                     audio_tokens.clear();
                     ctx_omni->tts_token_buffer.clear();
                     ctx_omni->e2e_stage.cannerror = -6;  // -6 = F005 blocked output
                 } else if (degenerated && f005_retry_enabled) {
-                    f005_stat_retry_exhausted++;
+                    g_f005_stat_retry_exhausted++;
                     // retry exhausted without block — output proceeds with last attempt's tokens
                     print_with_timestamp("F005: retry exhausted (%d/%d), proceeding with last attempt\n",
                                         retry_count, f005_max_retries);
@@ -7955,21 +7977,6 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     LOG_ERR("TTS Local: failed for chunk %d\n", current_chunk_idx);
                 }
 
-                // Print F005 retry statistics at end of run (when all chunks are done)
-                if (llm_finish && f005_retry_enabled && !f005_stat_printed) {
-                    f005_stat_printed = true;
-                    print_with_timestamp("=== F005 Retry Statistics ===\n");
-                    print_with_timestamp("  total_chunks:           %d\n", f005_stat_requests);
-                    print_with_timestamp("  degeneration_detected:  %d\n", f005_stat_degen_detected);
-                    print_with_timestamp("  retry_attempted:        %d\n", f005_stat_retry_attempted);
-                    print_with_timestamp("  retry_recovered:        %d\n", f005_stat_retry_recovered);
-                    print_with_timestamp("  retry_exhausted:        %d\n", f005_stat_retry_exhausted);
-                    print_with_timestamp("  output_blocked:         %d\n", f005_stat_output_blocked);
-                    print_with_timestamp("  retry_recovery_rate:    %.0f%%\n",
-                                        f005_stat_retry_attempted > 0 ?
-                                        100.0 * f005_stat_retry_recovered / f005_stat_retry_attempted : 0.0);
-                    print_with_timestamp("==============================\n");
-                }
             }
             
             // Always increment chunk_idx after processing
@@ -11932,6 +11939,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
         ctx_omni->e2e_stage.request_index++;
     }
+    // F005 retry statistics: print at end of each request
+    f005_print_retry_stats();
     return true;
 }
 
