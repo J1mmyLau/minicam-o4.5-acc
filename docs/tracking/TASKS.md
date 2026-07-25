@@ -121,7 +121,7 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 |----|------|------|
 | P6-KV-CACHE-AB | **EXPERIMENT_COMPLETED / GATE_INCONCLUSIVE** | 46023f0: 72 runs, 54 valid, FA CI crosses zero, T2W race 25% invalid. Verdict corrected from f54cc23 ACCEPTED. |
 | P7.1-T2W-RACE | **DONE** | Root cause: omni_stop_threads kills T2W before first WAV. Not KV-cache-related. |
-| P7.2-METRIC-BOUNDARY | **PENDING** | Why prefill -9s doesn't propagate to FA |
+| P7.2-METRIC-BOUNDARY | **DONE** | FA excludes prefill by code design. Total=prefill+FA: p50 -8709ms (-58.8%). FA is wrong metric for KV cache. |
 | P7.3-TARGETED-PAIRS | **PENDING** | Fix T2W race, complete ≥30 matched pairs |
 
 ## FINAL STATUS
