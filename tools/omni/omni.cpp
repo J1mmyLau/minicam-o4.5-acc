@@ -4883,19 +4883,16 @@ static void t2w_drain_classify_terminal(struct omni_context * ctx_omni);
 // 停止所有线程（发送信号，不等待）
 void omni_stop_threads(struct omni_context * ctx_omni) {
     // ====================================================================
-    // P7.3: Drain T2W BEFORE stopping threads.
-    // TTS must still be running so it can send is_final if not yet done.
-    // We wait for the T2W worker to confirm is_final processed, or timeout.
+    // P7.3: Do NOT drain or stop T2W here — TTS may still be generating
+    // audio tokens. Let omni_free() / omni_prepare_for_reuse() handle
+    // the full TTS-join → T2W-drain → T2W-stop sequence.
+    // We only stop LLM here; TTS is stopped but T2W stays alive.
     // ====================================================================
-    if (ctx_omni->t2w_thread_info && ctx_omni->t2w_thread.joinable()) {
-        t2w_drain_signal_and_wait(ctx_omni);
-        t2w_drain_classify_terminal(ctx_omni);
-    }
 
     // 发送停止信号
     llm_thread_running = false;
     tts_thread_running = false;
-    t2w_thread_running = false;
+    // t2w_thread_running remains true — T2W drained by omni_free/omni_prepare_for_reuse
 
     // 唤醒所有等待的线程
     if (ctx_omni->llm_thread_info) {
@@ -4904,9 +4901,7 @@ void omni_stop_threads(struct omni_context * ctx_omni) {
     if (ctx_omni->tts_thread_info) {
         ctx_omni->tts_thread_info->cv.notify_all();
     }
-    if (ctx_omni->t2w_thread_info) {
-        ctx_omni->t2w_thread_info->cv.notify_all();
-    }
+    // Do NOT notify t2w_thread_info here — T2W stays alive for drain
 
     // 🔧 [Duplex Pipeline Stage 1] 停止 duplex 双线程
     if (ctx_omni->duplex != nullptr) {
@@ -4916,7 +4911,7 @@ void omni_stop_threads(struct omni_context * ctx_omni) {
         ctx_omni->duplex->decode_done_cv.notify_all();
     }
 
-    print_with_timestamp("omni_stop_threads: stop signals sent\n");
+    print_with_timestamp("omni_stop_threads: stop signals sent (T2W kept alive for drain)\n");
 }
 
 // ============================================================================

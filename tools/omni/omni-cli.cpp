@@ -449,7 +449,7 @@ int main(int argc, char ** argv) {
         omni_stop_threads(ctx_omni);
         if(ctx_omni->llm_thread.joinable()) { ctx_omni->llm_thread.join(); printf("llm thread end\n"); }
         if(ctx_omni->use_tts && ctx_omni->tts_thread.joinable()) { ctx_omni->tts_thread.join(); printf("tts thread end\n"); }
-        if(ctx_omni->use_tts && ctx_omni->t2w_thread.joinable()) { ctx_omni->t2w_thread.join(); printf("t2w thread end\n"); }
+        // P7.3: Do NOT join T2W here — omni_free() will drain+stop+join it
     }
 
 
