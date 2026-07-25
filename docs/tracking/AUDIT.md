@@ -5,23 +5,65 @@
 
 ---
 
+## 2026-07-25 09:49 | CHECKPOINT | F005_RETRY_FALLBACK_IMPLEMENTED
+
+- c1d2af6: retry/fallback closed loop implemented
+- Detection → re-seed RNG → regenerate → if persistent + F005_FALLBACK_CPU=1 → block output
+- Verified: normal recovery (token 4137), persistent block (token 6486, 30 vs 60 WAVs)
+- Opt-in: F005_RETRY_ON_DEGENERATE=1, F005_FALLBACK_CPU=1, F005_MAX_RETRIES=2
+- F005 status: PROTECTION_IMPLEMENTED, RECALL_LIMITED (33%), OPT_IN_READY
+
+## 2026-07-25 09:08 | CHECKPOINT | F005_ENTROPY_THRESHOLDS
+
+- 88da7bb: per-backend entropy thresholds (ngl8 >5.8, CPU >4.0)
+- Non-static evaluation for entropy detection
+- Degeneration patterns differ by backend: CPU=low-entropy/repetition, ngl8=high-entropy drift
+
+## 2026-07-25 02:07 | CHECKPOINT | F005_DETECTOR_DEFAULTS
+
+- ac71c59: calibrate detector defaults, fix cycle len=1 redundancy
+- 3-detector suite: consecutive ≥8, cycle len 2-4, sliding-window entropy
+
+## 2026-07-25 02:04 | CHECKPOINT | F005_ENTROPY_DETECTOR
+
+- 5a41839: sliding-window entropy detection added
+- Per-backend entropy thresholds required (CPU vs ngl8 behavior differs)
+
+## 2026-07-25 02:02 | DECISION | CHUNKING_REJECTED
+
+- 26fe2a8: OMNI_SIMPLEX_CHUNK_TOKENS implemented
+- Chunk=20 A/B: NEUTRAL (FA -8ms, -0.2%), n=57
+- Chunk=5 smoke: FA -18.6% but TTS token divergence
+- VERDICT: REJECTED for current simplex workload
+- Chunking A/B v4 (30 paired): confirmed NEUTRAL (FA p50 delta -8ms)
+
+## 2026-07-24 21:42 | CHECKPOINT | F005_REPETITION_DETECTOR
+
+- 7cb1dd9: Talker token repetition detection added
+- Foundation for F005 protection infrastructure
+
+## 2026-07-24 17:21 | CHECKPOINT | E2E_INSTRUMENTATION_FIXES
+
+- 6a5b6c3: remove duplicate CLI dump, fix per-run directory overwrite
+- 4f0ba33: per-stream_decode dump for profiling
+
+## 2026-07-24 16:50 | PHASE | E2E_P1_INSTRUMENTATION
+
+- d1e89db: 16-stage E2E profiler, OMNI_E2E_PROFILE=1
+- Stages: request_received → llm_first_token → talker_start → ... → client_first_audio
+
+## 2026-07-24 10:45 | PHASE | F004_PRECISION_ABLATION
+
+- e6151fb, f53e14f, 23dcff9: F004 precision switches (FP32_RMSNORM, MATMUL_CUBE_MATH)
+- ngl=8 hybrid Talker VALIDATED as PRODUCTION_CANDIDATE
+- Full CANN Talker: PRODUCTION_BLOCKED (numerical divergence/collapse risk)
+
 ## 2026-07-24 06:15 | CHECKPOINT | F003_LIFECYCLE_120_PASS
 
 - Lifecycle: 15/15 runs, 255 WAVs+7 NoSpeech, 97.3% effective TTS, 0 CANN err, 0 crash
-- Phase 1: 12 runs (199 WAVs) → restart → Phase 2: 3 runs (56 WAVs)
-- All automated gates PASS. Only human blind listening remains.
-- Status: PRODUCTION_CANDIDATE_PENDING_HUMAN_LISTENING
-
-## 2026-07-24 04:00 | CHECKPOINT | F003_PRODUCTION_CANDIDATE_PENDING_HUMAN
-
-- 7df34a1: dual-path ROPE confirmed correct for both neox and non-neox
-- Strict A/B (5-round paired): CANN p50=36ms vs CPU 69ms (-48%), p90 -67%, FirstAudio -22%
-- Earlier p90 regression was artifact (inter-chunk gaps mixed in); resolved with gap filtering
-- WAV signal: 10 CPU vs 10 CANN pairs comparable (dur/peak/RMS/ZCR)
-- Lifecycle: 2 full runs + 1 partial, 0 CANN errors across all
-- Blind listening: 10 pairs generated at f003/blind-listening/
-- ASR: unavailable (no whisper/funasr installed)
-- STATUS: PRODUCTION_CANDIDATE_PENDING_HUMAN_LISTENING
+- 7df34a1: dual-path ROPE confirmed correct
+- Note: 7df34a1 is RoPE fix only; NOT standalone Talker production candidate
+- Full CANN Talker later BLOCKED by F004 findings
 
 ## 2026-07-24 03:45 | CHECKPOINT | F003_CORRECTNESS_CANDIDATE
 
