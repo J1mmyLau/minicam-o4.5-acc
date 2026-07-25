@@ -5609,11 +5609,11 @@ static bool generate_audio_tokens_local_simplex(
         })();
         static int f005_max_consecutive = ([](){
             const char *v = getenv("F005_MAX_CONSECUTIVE");
-            return v ? std::max(3, std::stoi(v)) : 10;
+            return v ? std::max(3, std::stoi(v)) : 8;  // default: 8 (safe margin above normal ~4)
         })();
         static int f005_max_cycle = ([](){
             const char *v = getenv("F005_MAX_CYCLE_LEN");
-            return v ? std::max(2, std::min(8, std::stoi(v))) : 4;
+            return v ? std::max(2, std::min(8, std::stoi(v))) : 4;  // default: 4 (cycles of len 2-4)
         })();
         static bool f005_retry = ([](){
             const char *v = getenv("F005_RETRY_ON_DEGENERATE");
@@ -5621,15 +5621,15 @@ static bool generate_audio_tokens_local_simplex(
         })();
         static int f005_entropy_window = ([](){
             const char *v = getenv("F005_ENTROPY_WINDOW");
-            return v ? std::max(10, std::stoi(v)) : 20;
+            return v ? std::max(10, std::stoi(v)) : 20;  // default: 20 tokens
         })();
         static float f005_entropy_low = ([](){
             const char *v = getenv("F005_ENTROPY_LOW_THRESHOLD");
-            return v ? std::stof(v) : 0.5f;
+            return v ? std::stof(v) : 1.0f;  // default: 1.0 (CPU normal ~2.8-3.1)
         })();
         static float f005_entropy_high = ([](){
             const char *v = getenv("F005_ENTROPY_HIGH_THRESHOLD");
-            return v ? std::stof(v) : 7.0f;
+            return v ? std::stof(v) : 6.5f;  // default: 6.5 (ngl8 max observed ~5.3 in diag, ~5.3 in normal)
         })();
         // Block 1: consecutive and cycle repetition
         {
@@ -5644,9 +5644,9 @@ static bool generate_audio_tokens_local_simplex(
                     print_with_timestamp("F005: consecutive repeat detected: token %d repeated %d times at step %d\n",
                                         relative_idx, consec, t);
                 }
-                // Cycle detection: check if last N tokens form a repeating cycle
+                // Cycle detection: check if last N tokens form a repeating cycle (length >= 2)
                 if ((int)output_audio_tokens.size() >= f005_max_cycle * 3) {
-                    for (int cl = 1; cl <= f005_max_cycle; ++cl) {
+                    for (int cl = 2; cl <= f005_max_cycle; ++cl) {
                         int total = (int)output_audio_tokens.size();
                         bool is_cycle = true;
                         for (int i = 0; i < cl * 3 && (total - 1 - i) >= 0; ++i) {
