@@ -119,10 +119,15 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 
 | ID | 状态 | 说明 |
 |----|------|------|
-| P6-KV-CACHE-AB | **EXPERIMENT_COMPLETED / GATE_INCONCLUSIVE** | 46023f0: 72 runs, 54 valid, FA CI crosses zero, T2W race 25% invalid. Verdict corrected from f54cc23 ACCEPTED. |
-| P7.1-T2W-RACE | **DONE** | Root cause: omni_stop_threads kills T2W before first WAV. Not KV-cache-related. |
-| P7.2-METRIC-BOUNDARY | **DONE** | FA excludes prefill by code design. Total=prefill+FA: p50 -8709ms (-58.8%). FA is wrong metric for KV cache. |
-| P7.3-TARGETED-PAIRS | **PENDING** | Fix T2W race, complete ≥30 matched pairs |
+| P6-KV-CACHE-AB | **EXPERIMENT_COMPLETED / GATE_INCONCLUSIVE** | 46023f0: 72 runs, 54 valid. decode_to_first_audio neutral, prefill_start_to_first_audio -58.8% (COMPUTED), T2W 25% invalid. |
+| P7.1-T2W-RACE | **DONE** | Root cause candidate: omni_free() join order kills T2W before first WAV. Full trace at P7_T2W_LIFECYCLE_TRACE.md. No statistically detectable arm association (Fisher p=0.56). |
+| P7.2-METRIC-BOUNDARY | **DONE** | decode_to_first_audio clock starts inside stream_decode(), excludes prefill. request_to_first_audio not yet instrumented. |
+| P0-TERMINOLOGY | **DONE** | Metric names corrected. Race language tightened. Report copied into repo. |
+| P7.3-P2-DRAIN-FIX | **PENDING** | Implement T2W drain-before-stop state machine |
+| P7.3-P3-REGRESSION | **PENDING** | 100+ short response tests after drain fix |
+| P7.3-P4-INSTRUMENT | **PENDING** | Add request_to_first_audio_ms direct measurement |
+| P7.3-P5-SUPPLEMENTAL | **PENDING** | ≥30 matched pairs with fixed T2W + new metrics |
+| P7.3-P6-DECISION | **PENDING** | Final production gate check |
 
 ## FINAL STATUS
 

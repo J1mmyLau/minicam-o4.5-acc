@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-07-25 16:15 | CHECKPOINT | P0_TERMINOLOGY_TIGHTENED_P7.1_TRACE
+
+- P0: Metric names corrected. decode_to_first_audio_ms (was "FA"), prefill_start_to_first_audio_ms (was "total"), request_to_first_audio_ms (NOT YET MEASURED)
+- P0: Race language tightened. "No statistically detectable association in current sample (Fisher p=0.56, n=15)" replaces "race not related to KV cache"
+- P7.1 full trace: P7_T2W_LIFECYCLE_TRACE.md. Root cause: omni_free() join order + t2w exit on (!running && queue.empty())
+- P6_METRIC_BOUNDARY_AUDIT.md copied into repo at docs/experiments/e2e-ngl8/
+- Next: P2 T2W drain fix → P3 regression tests → P4 request_to_first_audio instrumentation → P5 supplemental A/B
+
 ## 2026-07-25 16:15 | CHECKPOINT | P7.1_P7.2_COMPLETE
 
 - P7.1 T2W race root cause: omni_stop_threads() kills T2W before first WAV for short responses
