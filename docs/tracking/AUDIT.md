@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-07-25 12:10 | CHECKPOINT | P1_F005_PRODUCTION_HARDENING_DONE
+
+- 9336e1d: P1.1-P1.5 fixes (CPU entropy disabled, F005_FALLBACK_CPU→F005_BLOCK_ON_DEGENERATE, misleading log fixed, WAV cleanup, retry stats)
+- P2 per-detector confusion matrix generated from n=32 existing data
+- Cycle: 0 FP → DEFAULT_ON candidate. Consecutive: 1 borderline FP → threshold →10
+- SUSTAINED + DOMINANT: 0 FP on diag, untriggered in P2 batch (drift stochastic)
+- Report: f005/P2_DETECTOR_CONFUSION_MATRIX.md
+- Next: P3 re-verify closed-loop → P4 KV cache reuse implementation
+
 ## 2026-07-25 11:55 | DECISION | STATE_CORRECTION_USER_AUDIT
 
 - P1→DONE, P2→VALIDATION_DONE_GATE_FAILED, P3→ANALYSIS_DONE_IMPLEMENTATION_INCOMPLETE
