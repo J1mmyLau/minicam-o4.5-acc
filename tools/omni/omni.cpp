@@ -5642,6 +5642,9 @@ static bool generate_audio_tokens_local_simplex(
                 if (consec >= f005_max_consecutive) {
                     print_with_timestamp("F005: consecutive repeat detected: token %d repeated %d times at step %d\n",
                                         relative_idx, consec, t);
+                    if (f005_retry) {
+                        ctx_omni->e2e_stage.cannerror = -5;  // signal retry
+                    }
                 }
                 // Cycle detection: check if last N tokens form a repeating cycle (length >= 2)
                 if ((int)output_audio_tokens.size() >= f005_max_cycle * 3) {
@@ -5690,10 +5693,12 @@ static bool generate_audio_tokens_local_simplex(
                 if (entropy < f005_entropy_low) {
                     print_with_timestamp("F005: LOW entropy %.2f (window=%d, unique=%d/%d) at step %d\n",
                                         entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
+                    if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
                 }
                 if (entropy > f005_entropy_high) {
                     print_with_timestamp("F005: HIGH entropy %.2f (window=%d, unique=%d/%d) at step %d\n",
                                         entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
+                    if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
                 }
             }
         }
@@ -7739,6 +7744,61 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 tts_gen_success = generate_audio_tokens_local_simplex(ctx_omni, params, merged_embeddings,
                                                 n_tokens_filtered, tts_n_embd, current_chunk_idx,
                                                 audio_tokens, tts_wav_output_dir, is_final_text_chunk);
+
+                // F005 retry/fallback: if degeneration detected and retry enabled
+                static bool f005_retry_enabled = ([](){
+                    const char *v = getenv("F005_RETRY_ON_DEGENERATE");
+                    return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+                })();
+                static bool f005_fallback_cpu = ([](){
+                    const char *v = getenv("F005_FALLBACK_CPU");
+                    return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+                })();
+                static int f005_max_retries = ([](){
+                    const char *v = getenv("F005_MAX_RETRIES");
+                    return v ? std::max(1, std::min(3, std::stoi(v))) : 2;
+                })();
+
+                bool degenerated = (ctx_omni->e2e_stage.cannerror == -5);
+                int retry_count = 0;
+
+                while (degenerated && retry_count < f005_max_retries && f005_retry_enabled) {
+                    print_with_timestamp("F005: degeneration detected in chunk %d, retry %d/%d\n",
+                                        current_chunk_idx, retry_count + 1, f005_max_retries);
+
+                    // Clear partial output from failed generation
+                    audio_tokens.clear();
+                    ctx_omni->tts_token_buffer.clear();
+                    ctx_omni->e2e_stage.cannerror = 0;  // reset flag
+
+                    // Re-seed RNG for different sampling path
+                    uint32_t old_seed = params->sampling.seed;
+                    params->sampling.seed = (uint32_t)(old_seed ^ ((retry_count + 1) * 0x9E3779B9));
+                    print_with_timestamp("F005: retry with new seed %u (was %u)\n",
+                                        params->sampling.seed, old_seed);
+
+                    tts_gen_success = generate_audio_tokens_local_simplex(
+                        ctx_omni, params, merged_embeddings,
+                        n_tokens_filtered, tts_n_embd, current_chunk_idx,
+                        audio_tokens, tts_wav_output_dir, is_final_text_chunk);
+
+                    params->sampling.seed = old_seed;  // restore original seed
+                    degenerated = (ctx_omni->e2e_stage.cannerror == -5);
+                    retry_count++;
+
+                    if (!degenerated) {
+                        print_with_timestamp("F005: retry %d succeeded — degeneration cleared\n", retry_count);
+                    }
+                }
+
+                if (degenerated && f005_fallback_cpu) {
+                    print_with_timestamp("F005: retry exhausted, degeneration persists — blocking output\n");
+                    tts_gen_success = false;
+                    audio_tokens.clear();
+                    ctx_omni->tts_token_buffer.clear();
+                    ctx_omni->e2e_stage.cannerror = -6;  // -6 = F005 blocked output
+                }
+
                 if (tts_gen_success) {
                     tts_success = true;
                     
