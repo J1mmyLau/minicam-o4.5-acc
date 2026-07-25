@@ -5700,6 +5700,75 @@ static bool generate_audio_tokens_local_simplex(
                                         entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
                     if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
                 }
+                // Block 3: sustained high entropy detection (gated by F005_SUSTAINED_ENTROPY=1)
+                // Detects ngl8-type high-entropy drift: entropy stays elevated for many consecutive steps
+                {
+                    static bool f005_sust_entropy_enabled = ([](){
+                        const char *v = getenv("F005_SUSTAINED_ENTROPY");
+                        return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+                    })();
+                    static float f005_sust_entropy_threshold = ([](){
+                        const char *v = getenv("F005_SUSTAINED_ENTROPY_THRESHOLD");
+                        return v ? std::stof(v) : 4.5f;
+                    })();
+                    static int f005_sust_entropy_steps = ([](){
+                        const char *v = getenv("F005_SUSTAINED_ENTROPY_STEPS");
+                        return v ? std::max(20, std::stoi(v)) : 40;
+                    })();
+                    static int f005_sust_entropy_count = 0;
+                    if (f005_sust_entropy_enabled) {
+                        if (entropy > f005_sust_entropy_threshold) {
+                            f005_sust_entropy_count++;
+                            if (f005_sust_entropy_count >= f005_sust_entropy_steps) {
+                                print_with_timestamp("F005: SUSTAINED HIGH entropy — %d consecutive windows > %.1f at step %d\n",
+                                                    f005_sust_entropy_count, f005_sust_entropy_threshold, t);
+                                if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
+                                f005_sust_entropy_count = 0;
+                            }
+                        } else {
+                            f005_sust_entropy_count = 0;
+                        }
+                    }
+                }
+            }
+        }
+        // Block 4: dominant token frequency collapse (gated by F005_DOM_TOK_COLLAPSE=1)
+        // Detects ngl8-type token set proliferation: no single token dominates the distribution
+        {
+            static bool f005_dom_tok_enabled = ([](){
+                const char *v = getenv("F005_DOM_TOK_COLLAPSE");
+                return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+            })();
+            static float f005_dom_tok_threshold = ([](){
+                const char *v = getenv("F005_DOM_TOK_COLLAPSE_THRESHOLD");
+                return v ? std::stof(v) : 0.03f;
+            })();
+            static int f005_dom_tok_min_count = ([](){
+                const char *v = getenv("F005_DOM_TOK_MIN_COUNT");
+                return v ? std::max(100, std::stoi(v)) : 200;
+            })();
+            static bool f005_dom_tok_checked = false;
+            // Reset check flag when token buffer is cleared (new generation / retry)
+            if (f005_dom_tok_checked && (int)output_audio_tokens.size() < f005_dom_tok_min_count) {
+                f005_dom_tok_checked = false;
+            }
+            if (f005_dom_tok_enabled && f005_enabled && !f005_dom_tok_checked
+                && (int)output_audio_tokens.size() >= f005_dom_tok_min_count) {
+                std::map<int, int> global_freq;
+                for (int tok : output_audio_tokens) {
+                    global_freq[tok]++;
+                }
+                int max_freq = 0;
+                for (auto &kv : global_freq) {
+                    if (kv.second > max_freq) max_freq = kv.second;
+                }
+                float dom_freq = (float)max_freq / (int)output_audio_tokens.size();
+                if (dom_freq < f005_dom_tok_threshold) {
+                    print_with_timestamp("F005: DOMINANT TOKEN COLLAPSE — max freq %.4f < %.3f at %d tokens\n",
+                                        dom_freq, f005_dom_tok_threshold, (int)output_audio_tokens.size());
+                    if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
+                }
+                f005_dom_tok_checked = true;
             }
         }
 
