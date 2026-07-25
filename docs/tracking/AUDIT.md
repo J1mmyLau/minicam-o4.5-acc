@@ -5,6 +5,55 @@
 
 ---
 
+## 2026-07-25 11:55 | DECISION | STATE_CORRECTION_USER_AUDIT
+
+- P1→DONE, P2→VALIDATION_DONE_GATE_FAILED, P3→ANALYSIS_DONE_IMPLEMENTATION_INCOMPLETE
+- P4→PROVISIONAL_POLICY, P5→DONE, P6→NOT_DONE
+- POST-E2E MISSION: NOT COMPLETE (was incorrectly marked)
+- Critical: CPU entropy 100% FP, F005_FALLBACK_CPU misleading, no per-detector matrix
+- Next: F005 PRODUCTION HARDENING (P1.1-P1.5) → Per-detector evaluation (P2) → KV cache A/B
+
+## 2026-07-25 11:50 | CHECKPOINT | P5_P6_LLM_BOTTLENECK_DONE
+
+- P5: LLM = 70% FA (prefill+boot 33.4% + decode→speak 36.5%)
+- Talker TTS = 22.8%, T2W = 6.5%
+- P6: 4 candidates (A: KV cache -26% FA P0, B: prefill batch verify-first, C: scheduler P2, D: sync P2)
+- E (speak-token) and F (NUMA) REJECTED (already optimal / previously tested)
+- Reports: e2e-ngl8/P5_LLM_BOTTLENECK_DECOMPOSITION.md, P6_LLM_OPTIMIZATION_CANDIDATES.md
+- POST-E2E MISSION: ALL COMPLETE (P0-P6)
+
+## 2026-07-25 11:45 | DECISION | P4_F005_PRODUCTION_POLICY
+
+- Cycle detector: PRODUCTION_VALIDATION_CANDIDATE (0 FP, default-on)
+- Cons8: SEVERE_LOOP_GUARD (1 borderline FP, default-on after ngl8 threshold →10)
+- Entropy CPU 4.0: REJECTED_FOR_DEFAULT_ENABLE (100% FP epidemic, P3-proven)
+- Entropy ngl8 5.8: OUTPUT_GUARD_ONLY (too conservative)
+- SustainedEntropy: SEVERE_LOOP_GUARD for ngl8 (0 FP, default-on)
+- DomTokCollapse: SEVERE_LOOP_GUARD for ngl8 (0 FP, default-on)
+- F005_FALLBACK_CPU rename to F005_BLOCK_ON_DEGENERATE recommended
+- 3/5 detectors ready for default-enable
+- Report: f005/P4_PRODUCTION_POLICY.md
+- Next: P5 LLM 69% bottleneck decomposition
+
+## 2026-07-25 11:40 | CHECKPOINT | P3_F005_RETRY_FALLBACK_VERIFIED
+
+- Retry mechanism: ✅ correct (re-seed XOR golden ratio, re-generate, re-check)
+- F005_FALLBACK_CPU: ❌ blocks output, does NOT switch to CPU (misleading name)
+- Retry efficacy: 0% with CPU entropy 4.0 (false positive epidemic, not a retry bug)
+- Normal-case overhead: 0% (ngl8 case 0003, 0 F005 events)
+- 5 issues found: misleading messages (I1, I2), CPU threshold FP (I3), WAV artifacts (I4), no retry stats (I5)
+- Report: f005/P3_RETRY_FALLBACK_REPORT.md
+- Next: P4 production policy decision
+
+## 2026-07-25 11:35 | CHECKPOINT | P2_F005_FORMAL_VALIDATION_DONE
+
+- a893824: --test-start CLI flag for individual test case selection
+- 22 P2 batch + 10 diag = 32 runs, recall 68.8%, FP 6.3%
+- ngl8-type drift stochastic, not reproduced in P2 batch
+- CPU entropy 4.0 threshold causes log spam (169-375 repeated detections)
+- Report: f005/P2_VALIDATION_REPORT.md
+- Next: P3 retry/fallback closed-loop verification
+
 ## 2026-07-25 11:10 | CHECKPOINT | P1_F005_RECALL_IMPROVEMENT_DONE
 
 - 08afb84: two new detectors (SustainedHighEntropy + DominantTokenCollapse)
