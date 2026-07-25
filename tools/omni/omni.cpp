@@ -112,6 +112,43 @@ static void f005_print_retry_stats() {
     g_f005_stat_output_blocked = 0;
 }
 
+// ─── P4 KV Cache Reuse Statistics ────────────────────────────────────────
+static bool g_kv_cache_reuse_enabled = ([](){
+    const char *v = getenv("OMNI_KV_CACHE_REUSE");
+    return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+})();
+
+static int g_kv_cache_hits = 0;
+static int g_kv_cache_misses = 0;
+static int g_kv_cache_tokens_reused = 0;
+
+static std::string kv_cache_get_model_hash(const std::string & model_path) {
+    struct stat st;
+    if (stat(model_path.c_str(), &st) == 0) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%lx-%lx",
+                 (unsigned long)st.st_size, (unsigned long)st.st_mtime);
+        return std::string(buf);
+    }
+    return "no-model";
+}
+
+static std::string kv_cache_get_path(const std::string & model_hash) {
+    return "/tmp/omni_kvcache_" + model_hash + ".bin";
+}
+
+static void kv_cache_print_stats() {
+    if (!g_kv_cache_reuse_enabled) return;
+    fprintf(stderr, "=== KV Cache Reuse Statistics ===\n");
+    fprintf(stderr, "  cache_hits:       %d\n", g_kv_cache_hits);
+    fprintf(stderr, "  cache_misses:     %d\n", g_kv_cache_misses);
+    fprintf(stderr, "  tokens_reused:    %d\n", g_kv_cache_tokens_reused);
+    fprintf(stderr, "=================================\n");
+    g_kv_cache_hits = 0;
+    g_kv_cache_misses = 0;
+    g_kv_cache_tokens_reused = 0;
+}
+
 void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
     if (!t.enabled) return;
     cross_platform_mkdir_p(dir);
@@ -10928,6 +10965,53 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         print_with_timestamp("stream_prefill: n_past = %d\n voice_clone_prompt = %s\n assistant_prompt = %s\n", ctx_omni->n_past, voice_clone_prompt.c_str(), assistant_prompt.c_str());
         // tc-todo
         // llama_kv_cache_clear(ctx_omni->ctx_llama);
+
+        // ─── P4 KV Cache Reuse: load cached system prompt ─────────────────
+        bool kv_cache_loaded = false;
+        std::string kv_cache_path_for_save;
+        if (g_kv_cache_reuse_enabled && ctx_omni->params && !ctx_omni->async) {
+            std::string model_hash = kv_cache_get_model_hash(ctx_omni->params->model.path);
+            kv_cache_path_for_save = kv_cache_get_path(model_hash);
+
+            struct stat cache_st;
+            if (stat(kv_cache_path_for_save.c_str(), &cache_st) == 0) {
+                size_t n_tokens_out = 0;
+                size_t loaded = llama_state_seq_load_file(
+                    ctx_omni->ctx_llama, kv_cache_path_for_save.c_str(),
+                    0, nullptr, 0, &n_tokens_out);
+                // n_tokens_out may be 0 if saved with empty token list;
+                // fall back to seq_pos_max to get actual position count
+                int loaded_pos = (int)n_tokens_out;
+                if (loaded_pos == 0 && loaded > 0) {
+                    llama_memory_t mem = llama_get_memory(ctx_omni->ctx_llama);
+                    if (mem) {
+                        llama_pos pos_max = llama_memory_seq_pos_max(mem, 0);
+                        if (pos_max >= 0) {
+                            loaded_pos = (int)pos_max + 1;
+                        }
+                    }
+                }
+                if (loaded > 0 && loaded_pos > 0) {
+                    ctx_omni->n_past = loaded_pos;
+                    ctx_omni->n_keep = ctx_omni->n_past;
+                    ctx_omni->system_prompt_initialized = true;
+                    g_kv_cache_hits++;
+                    g_kv_cache_tokens_reused += loaded_pos;
+                    kv_cache_loaded = true;
+                    print_with_timestamp("🔁 KV cache HIT: loaded %d positions (%zu bytes) from %s, skipping system prompt prefill\n",
+                                       loaded_pos, loaded, kv_cache_path_for_save.c_str());
+                    sliding_window_register_system_prompt(ctx_omni);
+                    goto kv_cache_system_prompt_done;
+                } else {
+                    print_with_timestamp("🔁 KV cache file found but load returned %zu bytes (n_tokens=%zu), recomputing\n",
+                                       loaded, n_tokens_out);
+                }
+            }
+        }
+        if (g_kv_cache_reuse_enabled && !kv_cache_loaded) {
+            g_kv_cache_misses++;
+            print_with_timestamp("🔁 KV cache MISS: will compute system prompt from scratch\n");
+        }
         
         // 🔧 [对齐 Python 双工模型] 初始化格式
         // Python 双工模型的 _init_duplex_session：
@@ -11056,6 +11140,21 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                 t2w_thread_running = true;
                 ctx_omni->t2w_thread = std::thread(t2w_thread_func, ctx_omni, ctx_omni->params);
                 print_with_timestamp("create t2w thread success\n");
+            }
+        }
+
+        // ─── P4 KV Cache Reuse: save freshly computed system prompt ──────
+        kv_cache_system_prompt_done:
+        if (g_kv_cache_reuse_enabled && !kv_cache_loaded && !kv_cache_path_for_save.empty() && ctx_omni->n_past > 0) {
+            size_t saved = llama_state_seq_save_file(
+                ctx_omni->ctx_llama, kv_cache_path_for_save.c_str(),
+                0, nullptr, 0);
+            if (saved > 0) {
+                print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d)\n",
+                                   saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past);
+            } else {
+                print_with_timestamp("🔁 KV cache SAVE FAILED: %s (returned %zu bytes)\n",
+                                   kv_cache_path_for_save.c_str(), saved);
             }
         }
 
@@ -11941,6 +12040,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     }
     // F005 retry statistics: print at end of each request
     f005_print_retry_stats();
+    kv_cache_print_stats();
     return true;
 }
 
