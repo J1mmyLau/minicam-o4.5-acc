@@ -123,9 +123,9 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | P7.1-T2W-RACE | **DONE** | Root cause candidate: omni_free() join order kills T2W before first WAV. Full trace at P7_T2W_LIFECYCLE_TRACE.md. No statistically detectable arm association (Fisher p=0.56). |
 | P7.2-METRIC-BOUNDARY | **DONE** | decode_to_first_audio clock starts inside stream_decode(), excludes prefill. request_to_first_audio not yet instrumented. |
 | P0-TERMINOLOGY | **DONE** | Metric names corrected. Race language tightened. Report copied into repo. |
-| P7.3-P2-DRAIN-FIX | **PENDING** | Implement T2W drain-before-stop state machine |
-| P7.3-P3-REGRESSION | **PENDING** | 100+ short response tests after drain fix |
-| P7.3-P4-INSTRUMENT | **PENDING** | Add request_to_first_audio_ms direct measurement |
+| P7.3-P2-DRAIN-FIX | **DONE (91bbcc9)** | T2W drain-before-stop state machine — T2WDrainState enum, EOS protocol, bounded timeout, terminal output classification |
+| P7.3-P3-REGRESSION | **RUNNING** | 135 requests (15 passes × 9 cases), gate: rc0_without_audio=0 |
+| P7.3-P4-INSTRUMENT | **DONE (10e63ec)** | request_to_first_audio_ms from request boundary (before stream_prefill) |
 | P7.3-P5-SUPPLEMENTAL | **PENDING** | ≥30 matched pairs with fixed T2W + new metrics |
 | P7.3-P6-DECISION | **PENDING** | Final production gate check |
 
@@ -136,3 +136,4 @@ Production candidate: ngl=8 hybrid（Talker ngl=8, Flow CANN, Vocoder CPU, F005 
 Full CANN Talker: PRODUCTION_BLOCKED。
 Chunking: REJECTED。
 F003 7df34a1: RoPE fix only, not standalone Talker production candidate.
+P7.3: DRAIN_FIX_DONE, INSTRUMENT_DONE, REGRESSION_RUNNING.
