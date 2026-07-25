@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-07-25 15:46 | DECISION | P6_KV_CACHE_REUSE_ACCEPTED
+
+- 46023f0: KV cache reuse formal A/B complete
+- 72 executions (36A+36B), 54 valid (A=28, B=26), 18 invalid (15 T2W race, 3 timeout)
+- All B-arm executions: cache_hit=1, reused=62 ✅
+- Prefill: 9064 → 2.7 ms (99.97% reduction)
+- FA: median delta -127 ms, Bootstrap 95% CI [-1435, 341] ms — crosses zero (FA is LLM-dominated)
+- 0 CANN errors, 0 degeneration, 0 retry in both arms
+- VERDICT: ACCEPTED — enable OMNI_KV_CACHE_REUSE=1 as default for production multi-turn
+- Report: e2e-ngl8/p6-ab/P6_KV_CACHE_REUSE_RESULT.md
+- Post-E2E Mission: COMPLETE (P1-P6 all done)
+
 ## 2026-07-25 12:45 | CHECKPOINT | P6_PRE_COMPACT
 
 - P1-P5 ALL DONE. P4 KV cache reuse implemented (7ce501d).
