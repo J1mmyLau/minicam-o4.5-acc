@@ -5630,6 +5630,13 @@ static bool generate_audio_tokens_local_simplex(
         const char *f005_eh_env = getenv("F005_ENTROPY_HIGH_THRESHOLD");
         float f005_entropy_high = f005_eh_env ? std::stof(f005_eh_env) :
             ((ctx_omni->params->n_gpu_layers > 0) ? 5.8f : 4.0f);
+        // P1.1: CPU high-entropy point detector is DEFAULT OFF (100% FP on normal CPU samples).
+        // CPU degeneration (low-entropy repetition/collapse) is caught by Cons8 + Cycle.
+        // Opt-in via F005_CPU_ENTROPY_DETECT=1 if CPU high-entropy monitoring is desired.
+        static bool f005_cpu_entropy_enabled = ([](){
+            const char *v = getenv("F005_CPU_ENTROPY_DETECT");
+            return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+        })();
         // Block 1: consecutive and cycle repetition
         {
             if (f005_enabled) {
@@ -5665,7 +5672,7 @@ static bool generate_audio_tokens_local_simplex(
                                                 output_audio_tokens[total-2],
                                                 output_audio_tokens[total-3]);
                             if (f005_retry) {
-                                print_with_timestamp("F005: retry requested — stopping generation early\n");
+                                print_with_timestamp("F005: cycle degeneration detected — flag set for post-chunk retry\n");
                                 ctx_omni->e2e_stage.cannerror = -5; // -5 = F005 degeneration flag
                             }
                             break;
@@ -5695,9 +5702,18 @@ static bool generate_audio_tokens_local_simplex(
                                         entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
                     if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
                 }
-                if (entropy > f005_entropy_high) {
+                // HIGH entropy: default OFF on CPU (100% FP on normal diverse input).
+                // On ngl8: threshold 5.8. On CPU: opt-in via F005_CPU_ENTROPY_DETECT=1.
+                // Rate-limited: fires at most once per chunk to prevent log spam.
+                static bool f005_high_entropy_fired = false;
+                if (f005_high_entropy_fired && (int)output_audio_tokens.size() <= f005_entropy_window) {
+                    f005_high_entropy_fired = false;  // reset on new chunk (token buffer cleared)
+                }
+                bool cpu_entropy_gated = (ctx_omni->params->n_gpu_layers == 0) && !f005_cpu_entropy_enabled;
+                if (!cpu_entropy_gated && entropy > f005_entropy_high && !f005_high_entropy_fired) {
                     print_with_timestamp("F005: HIGH entropy %.2f (window=%d, unique=%d/%d) at step %d\n",
                                         entropy, f005_entropy_window, unique_tokens, f005_entropy_window, t);
+                    f005_high_entropy_fired = true;
                     if (f005_retry) ctx_omni->e2e_stage.cannerror = -5;
                 }
                 // Block 3: sustained high entropy detection (gated by F005_SUSTAINED_ENTROPY=1)
@@ -7819,21 +7835,53 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     const char *v = getenv("F005_RETRY_ON_DEGENERATE");
                     return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
                 })();
-                static bool f005_fallback_cpu = ([](){
-                    const char *v = getenv("F005_FALLBACK_CPU");
-                    return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+                // F005_BLOCK_ON_DEGENERATE: block output when all retries exhausted (primary name)
+                // F005_FALLBACK_CPU: deprecated alias (does NOT switch to CPU — blocks output only)
+                static bool f005_block_on_degen = ([](){
+                    const char *v_new = getenv("F005_BLOCK_ON_DEGENERATE");
+                    const char *v_old = getenv("F005_FALLBACK_CPU");
+                    if (v_new && (strcmp(v_new, "1") == 0 || strcmp(v_new, "true") == 0)) {
+                        return true;
+                    }
+                    if (v_old && (strcmp(v_old, "1") == 0 || strcmp(v_old, "true") == 0)) {
+                        fprintf(stderr, "WARNING: F005_FALLBACK_CPU is deprecated — use F005_BLOCK_ON_DEGENERATE.\n");
+                        fprintf(stderr, "  F005_FALLBACK_CPU does NOT switch to CPU Talker; it BLOCKS output on persistent degeneration.\n");
+                        return true;
+                    }
+                    return false;
                 })();
                 static int f005_max_retries = ([](){
                     const char *v = getenv("F005_MAX_RETRIES");
                     return v ? std::max(1, std::min(3, std::stoi(v))) : 2;
                 })();
 
+                // F005 retry statistics (session-level, printed at end of run)
+                static int f005_stat_requests = 0;
+                static int f005_stat_degen_detected = 0;
+                static int f005_stat_retry_attempted = 0;
+                static int f005_stat_retry_recovered = 0;
+                static int f005_stat_retry_exhausted = 0;
+                static int f005_stat_output_blocked = 0;
+                static bool f005_stat_printed = false;
+                f005_stat_requests++;
+
                 bool degenerated = (ctx_omni->e2e_stage.cannerror == -5);
                 int retry_count = 0;
 
+                if (degenerated) f005_stat_degen_detected++;
+
                 while (degenerated && retry_count < f005_max_retries && f005_retry_enabled) {
+                    f005_stat_retry_attempted++;
                     print_with_timestamp("F005: degeneration detected in chunk %d, retry %d/%d\n",
                                         current_chunk_idx, retry_count + 1, f005_max_retries);
+
+                    // Clean up token files from failed attempt (WAVs may already be emitted by async T2W)
+                    if (!tts_wav_output_dir.empty()) {
+                        std::string failed_tokens = tts_wav_output_dir + "/audio_tokens_chunk_" +
+                                                    std::to_string(current_chunk_idx) + ".bin";
+                        std::remove(failed_tokens.c_str());
+                        print_with_timestamp("F005: cleaned up failed attempt tokens: %s\n", failed_tokens.c_str());
+                    }
 
                     // Clear partial output from failed generation
                     audio_tokens.clear();
@@ -7856,16 +7904,24 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     retry_count++;
 
                     if (!degenerated) {
+                        f005_stat_retry_recovered++;
                         print_with_timestamp("F005: retry %d succeeded — degeneration cleared\n", retry_count);
                     }
                 }
 
-                if (degenerated && f005_fallback_cpu) {
+                if (degenerated && f005_block_on_degen) {
+                    f005_stat_retry_exhausted++;
+                    f005_stat_output_blocked++;
                     print_with_timestamp("F005: retry exhausted, degeneration persists — blocking output\n");
                     tts_gen_success = false;
                     audio_tokens.clear();
                     ctx_omni->tts_token_buffer.clear();
                     ctx_omni->e2e_stage.cannerror = -6;  // -6 = F005 blocked output
+                } else if (degenerated && f005_retry_enabled) {
+                    f005_stat_retry_exhausted++;
+                    // retry exhausted without block — output proceeds with last attempt's tokens
+                    print_with_timestamp("F005: retry exhausted (%d/%d), proceeding with last attempt\n",
+                                        retry_count, f005_max_retries);
                 }
 
                 if (tts_gen_success) {
@@ -7897,6 +7953,22 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     // This is separate from the token2wav sliding window
                 } else {
                     LOG_ERR("TTS Local: failed for chunk %d\n", current_chunk_idx);
+                }
+
+                // Print F005 retry statistics at end of run (when all chunks are done)
+                if (llm_finish && f005_retry_enabled && !f005_stat_printed) {
+                    f005_stat_printed = true;
+                    print_with_timestamp("=== F005 Retry Statistics ===\n");
+                    print_with_timestamp("  total_chunks:           %d\n", f005_stat_requests);
+                    print_with_timestamp("  degeneration_detected:  %d\n", f005_stat_degen_detected);
+                    print_with_timestamp("  retry_attempted:        %d\n", f005_stat_retry_attempted);
+                    print_with_timestamp("  retry_recovered:        %d\n", f005_stat_retry_recovered);
+                    print_with_timestamp("  retry_exhausted:        %d\n", f005_stat_retry_exhausted);
+                    print_with_timestamp("  output_blocked:         %d\n", f005_stat_output_blocked);
+                    print_with_timestamp("  retry_recovery_rate:    %.0f%%\n",
+                                        f005_stat_retry_attempted > 0 ?
+                                        100.0 * f005_stat_retry_recovered / f005_stat_retry_attempted : 0.0);
+                    print_with_timestamp("==============================\n");
                 }
             }
             
