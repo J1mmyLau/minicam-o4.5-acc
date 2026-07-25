@@ -10961,7 +10961,7 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
     // 这是因为 omni_init 中可能会调用 stream_prefill(voice_audio, "", 0)，
     // 然后测试脚本又会调用 stream_prefill(audio_0, "", 0)
     // 如果不检查这个标志，系统 prompt 会被评估两次，导致格式混乱
-    if (index == 0 && !ctx_omni->system_prompt_initialized) {
+    if (!ctx_omni->system_prompt_initialized) {
         print_with_timestamp("stream_prefill: n_past = %d\n voice_clone_prompt = %s\n assistant_prompt = %s\n", ctx_omni->n_past, voice_clone_prompt.c_str(), assistant_prompt.c_str());
         // tc-todo
         // llama_kv_cache_clear(ctx_omni->ctx_llama);
@@ -11056,11 +11056,16 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
             } else {
                 // 🔧 [与 Python 对齐] 非双工 TTS/voice-clone system prompt:
                 // <|im_start|>system\nprefix\n<|audio_start|>[ref_audio]<|audio_end|>suffix<|im_end|>\n
-                std::string system_ref_audio = !aud_fname.empty()
-                    ? aud_fname
-                    : (!ctx_omni->ref_audio_path.empty()
-                        ? ctx_omni->ref_audio_path
-                        : "tools/omni/assets/default_ref_audio/default_ref_audio.wav");
+                // P4: for index>0, use ref_audio_path (set to case 0 audio in test_case)
+                // to ensure KV cache consistency across all --test-start indices
+                std::string system_ref_audio;
+                if (index == 0 && !aud_fname.empty()) {
+                    system_ref_audio = aud_fname;
+                } else if (!ctx_omni->ref_audio_path.empty()) {
+                    system_ref_audio = ctx_omni->ref_audio_path;
+                } else {
+                    system_ref_audio = "tools/omni/assets/default_ref_audio/default_ref_audio.wav";
+                }
                 print_with_timestamp("system prompt ref_audio: %s\n", system_ref_audio.c_str());
 
                 eval_string(ctx_omni, ctx_omni->params, voice_clone_prompt.c_str(),
