@@ -21,7 +21,7 @@
 | A | 1h | HIT_PATH | COMPLETE | 03:33 UTC | 04:33 UTC | PASS (hit) / NOT_CONFIRMED (mixed) | stage_a_20260726_033330/ |
 | B | 6h | HIT_PATH | **COMPLETE** ✅ | 05:08 UTC (restart) | 11:10 UTC | **PASS** (13/14 gates) / NOT_CONFIRMED (mixed) | stage_b_20260726_050817/ + STAGE_B_GATE_REPORT.md |
 | C (HIT) | 24h | HIT_PATH | **CANCELLED** | — | — | Replaced by M1 mixed-workload | — |
-| M1 | 1h | MIXED | PENDING | — | — | Prerequisites: runner telemetry | KV_CACHE_MIXED_WORKLOAD_PLAN.md |
+| M1 | 1h | MIXED | **COMPLETE** ✅ | 11:29 UTC | 12:30 UTC | **PASS** (12/12 gates, 81 iters, 0 crash) | stage_mixed_20260726_112936/ + STAGE_M1_GATE_REPORT.md |
 | M6 | 6h | MIXED | PENDING | — | — | After M1 gate | — |
 | C (MIXED) | 24h | MIXED | PENDING | — | — | After M6 gate | — |
 | D | 72h | MIXED | PENDING | — | — | After C gate | — |
