@@ -79,13 +79,21 @@ print(timeout)
 # ─── Resource Sampling ──────────────────────────────────────────────
 # Sample child process resource usage during execution.
 # Runs in background, writes peak values to a temp file.
+# $1 = timeout wrapper PID; the actual binary PID is found via pgrep -P.
 sample_child_resources() {
-    local pid="$1"
+    local timeout_pid="$1"
     local outfile="$2"
     local peak_rss=0 peak_fd=0 peak_threads=0 hbm_pct=0
-    local rss fd threads
+    local rss fd threads pid
 
-    while kill -0 "$pid" 2>/dev/null; do
+    # Wait briefly for timeout to spawn the actual binary, then find it
+    sleep 2
+    pid=$(pgrep -P "$timeout_pid" 2>/dev/null | head -1) || pid=""
+    if [ -z "$pid" ]; then
+        pid="$timeout_pid"  # fallback to timeout wrapper
+    fi
+
+    while kill -0 "$timeout_pid" 2>/dev/null; do
         if [ -f "/proc/$pid/status" ]; then
             rss=$(awk '/^VmRSS:/ {print $2}' "/proc/$pid/status" 2>/dev/null) || rss=0
             [ "$rss" -gt "$peak_rss" ] 2>/dev/null && peak_rss=$rss
@@ -98,7 +106,7 @@ sample_child_resources() {
     done
 
     # Final HBM snapshot
-    hbm_pct=$(npu-smi info -t memory -i 0 2>/dev/null | grep -oP 'Usage Rate\s*:\s*\K[0-9]+' | head -1) || hbm_pct=0
+    hbm_pct=$(npu-smi info -t usages -i 0 2>/dev/null | grep -oP 'HBM Usage Rate\s*\(\s*%?\s*\)\s*:\s*\K[0-9]+' | head -1) || hbm_pct=0
 
     cat > "$outfile" << EOF
 peak_rss_kb=${peak_rss}
