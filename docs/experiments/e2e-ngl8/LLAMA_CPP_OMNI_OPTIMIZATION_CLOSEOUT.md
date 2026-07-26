@@ -4,7 +4,7 @@
 **日期:** 2026-07-26  
 **仓库:** `/workspace/llama.cpp-omni-ngl8-e2e`  
 **分支:** `perf/ngl8-e2e-stage-profiling`  
-**最终 HEAD:** `8ffa76c` docs: normalize KV cache A/B delta sign and workload scope  
+**最终 HEAD:** `cefd096` docs: record P11 closeout document checkpoint in audit log  
 **状态:** 技术闭环完成。生产就绪度评审：KV Cache OPT_IN_READY / DEFAULT_OFF；通用生产就绪度 NOT_YET_APPROVED。
 
 ---
@@ -216,13 +216,20 @@ Commit 链:
 | `9336e1d` | 2026-07-25 | fix(f005): harden degeneration retry and output blocking |
 | `03de7e0` | 2026-07-25 | fix(f005): move retry stats to file-level for end-of-run printing |
 
-**3 检测器套件（门控 `F005_REPEAT_DETECT=1`）:**
+**初始 3 检测器套件（`7cb1dd9`+`5a41839`，门控 `F005_REPEAT_DETECT=1`）:**
 
 | 检测器 | 阈值 | 检测目标 | 触发条件 |
 |--------|------|---------|---------|
 | 连续重复 (Consecutive) | ≥8 次 | CPU 型 token 锁死 | 同一 token 连续出现 ≥8 次 |
 | 短周期循环 (Cycle) | len 2–4 | 交替重复 | 2-4 个 token 循环出现 |
 | 滑动窗口熵 (Entropy) | low <1.0, high ngl8>5.8 / CPU>4.0 | 低熵锁死 / 高熵漂移 | 滑动窗口内 token 分布的熵值异常 |
+
+**追加检测器（`08afb84`，2026-07-25）：**
+
+| 检测器 | 检测目标 | 说明 |
+|--------|---------|------|
+| SustainedHighEntropy | 持续高熵漂移（ngl8 型） | 滑动窗口熵持续高于阈值 |
+| DominantTokenCollapse | 单 token 支配坍缩 | 单个 token 占比超过阈值 |
 
 **Retry/Fallback 闭环 (`c1d2af6`):**
 
@@ -236,10 +243,10 @@ Commit 链:
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 召回率 | 2/6 = 33% | MEASURED — 32 次运行 (22 P2 batch + 10 diag) |
-| 误杀率 | 0/14 = 0% | 正常样本无触发 |
-| 捕获类型 | CPU 连续重复型 | token 4299 ×9, 6486 循环 |
-| 未命中 | 4/6 | 退化未复现 — 概率性 |
+| 召回率 | 2/6 = 33% | MEASURED — 6 例已知退化，2 例在正式验证中复现并被捕获 |
+| 误杀率 | 0/14 = 0% | 14 例正常样本无触发 |
+| 捕获类型 | CPU 连续重复型 | token 4299 ×9, 6486 短周期循环 |
+| 未复现 | 4/6 | 4 例已知退化在正式验证中未复现（退化是概率性随机现象） |
 
 **关键发现:**
 - ngl8 和 CPU 退化模式不同：CPU = 低熵/重复型，ngl8 = 高熵漂移型
@@ -257,7 +264,7 @@ Commit 链:
 | DomTokCollapse | 0 (ngl8) | OUTPUT_GUARD default-on |
 | Entropy CPU 4.0 | 100% FP | **REJECTED_FOR_DEFAULT_ENABLE** |
 
-3/5 检测器具备 default-enable 条件。
+3/5 检测器（Cycle、Consecutive、SustainedHighEntropy）具备 default-enable 条件；DomTokCollapse 也通过但缺独立验证数据。
 
 ### 5.5 状态
 
@@ -974,7 +981,7 @@ Full CANN T2W Flow:         PRODUCTION (3fc0ed5, RTF 0.65 < 1.0)
 
 ```
 Branch:    perf/ngl8-e2e-stage-profiling
-HEAD:      8ffa76c (docs: normalize KV cache A/B delta sign and workload scope)
+HEAD:      cefd096 (docs: record P11 closeout document checkpoint in audit log)
 Git:       clean
 NPU:       idle
 Processes: none
