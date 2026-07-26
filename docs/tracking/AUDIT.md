@@ -469,3 +469,26 @@
 - Git: clean (only untracked .claude/ + cann-recipes-infer + stage run dirs)
 - No runner active. NPU idle.
 - Next after compact: STATE_RECOVERY → P1 runner telemetry → Stage M1
+
+## 2026-07-26 11:30 | P1-COMMIT | RUNNER_TELEMETRY_ADAPTIVE_TIMEOUT
+
+- Commit: 0d93f1d feat(kv-cache): add mixed-workload runner with per-iteration telemetry + adaptive timeout
+- run_stage_mixed.sh: 406 lines, bash -n PASS, 25 error guard lines
+- 7-mode cycle: H→M→H→F→R→P→C
+- Per-iteration metadata: peak_rss_kb, peak_fd, peak_threads, hbm_usage_pct, cgroup_mem_bytes, wall_sec, cache_status, mode
+- Adaptive timeout: p95 × 1.5, clamped [180, 600], recalculated every 5 iters
+- Resource sampling: background sampler polls /proc/PID/status during execution
+- Code audit: PASS (all ls globs guarded, set -u only, no pipefail, python3 fallbacks, sampler race handled)
+- Stage M1: READY TO LAUNCH
+
+## 2026-07-26 11:30 | STAGE_M1 | LAUNCHED (v1 → prime timeout, v2 0d93f1d)
+
+- PID: 519291, run dir: stage_mixed_20260726_112936
+- v1: prime timeout at 180s (45+ chunks). Fixed: prime timeout → 600s (ce51043)
+- v2 relaunched 11:29 UTC. Prime HIT (old Stage B cache reused).
+- First cycle (7 modes): ALL PASS, 0 errors
+  - H: HIT (39.7s), M: MISS (84.8s), H: HIT (18.5s), F: NO_STATS (60.7s)
+  - R: HIT (27.5s), P: HIT (48.6s, same prefix), C: MISS (39.6s, corruption DETECTED ✅)
+- Adaptive timeout: 180s → 187s → 180s (stable near floor, p95 ~115s)
+- Resource sampling bug found (PID=timeout not binary, HBM grep fixed in b113687)
+- 41 iters at 30min, 0 errors, 0 timeouts, 0 crashes
