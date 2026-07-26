@@ -1,9 +1,9 @@
 # KV Cache Soak Status
 
 **Date:** 2026-07-26
-**Last update:** 11:15 UTC (Stage B complete + gate report)
+**Last update:** 11:20 UTC (pre-compact checkpoint — Stage B complete, CANNBot Phase 1 installed)
 **Soak started:** 2026-07-26 03:33 UTC
-**Current stage:** Stage B (6h) COMPLETE — Gate audit passed. Stage C pending gate review.
+**Current stage:** Stage B COMPLETE ✅ — Gate passed (13/14). Stage M1 mixed-workload NEXT (pending runner telemetry).
 
 ---
 
@@ -16,30 +16,30 @@
 
 ## Stage Progress
 
-| Stage | Duration | Nominal Name | Status | Started | Completed | Verdict | Evidence |
-|-------|----------|-------------|--------|---------|-----------|---------|----------|
-| A | 1h | STAGE_A_1H_HIT_PATH_SOAK | HIT_PATH_PASS ⚠️ | 03:33 UTC | 04:33 UTC | PASS (hit) / NOT_CONFIRMED (mixed) | stage_a_20260726_033330/ |
-| B | 6h | STAGE_B_6H_HIT_PATH_SOAK | **COMPLETE** ✅ | 05:08 UTC (restart) | 11:10 UTC | PASS (13/14 gates) / NOT_CONFIRMED (mixed) | stage_b_20260726_050817/ + STAGE_B_GATE_REPORT.md |
-| C | 24h | PENDING | PENDING_GATE_REVIEW | — | — | — | — |
-| D | 72h | PENDING | PENDING | — | — | — | — |
-| E | 168h | PENDING | PENDING | — | — | — | — |
+| Stage | Duration | Type | Status | Started | Completed | Verdict | Evidence |
+|-------|----------|------|--------|---------|-----------|---------|----------|
+| A | 1h | HIT_PATH | COMPLETE | 03:33 UTC | 04:33 UTC | PASS (hit) / NOT_CONFIRMED (mixed) | stage_a_20260726_033330/ |
+| B | 6h | HIT_PATH | **COMPLETE** ✅ | 05:08 UTC (restart) | 11:10 UTC | **PASS** (13/14 gates) / NOT_CONFIRMED (mixed) | stage_b_20260726_050817/ + STAGE_B_GATE_REPORT.md |
+| C (HIT) | 24h | HIT_PATH | **CANCELLED** | — | — | Replaced by M1 mixed-workload | — |
+| M1 | 1h | MIXED | PENDING | — | — | Prerequisites: runner telemetry | KV_CACHE_MIXED_WORKLOAD_PLAN.md |
+| M6 | 6h | MIXED | PENDING | — | — | After M1 gate | — |
+| C (MIXED) | 24h | MIXED | PENDING | — | — | After M6 gate | — |
+| D | 72h | MIXED | PENDING | — | — | After C gate | — |
+| E | 168h | MIXED | PENDING | — | — | After D gate | — |
 
-### Stage A (1h) — Corrected Verdict (FINAL)
+### Stage A (1h) — Final
 
-**Classification** (99 iterations, closure confirmed):
+**Classification** (99 iterations):
 - cache HIT: 94 (94.9%)
 - cache MISS: 0 (0%)
 - TIMEOUT (180s): 5 (5.1%)
 
 **STAGE_A_HIT_PATH_SOAK = PASS** ✅
-- 94 consecutive cache HITs
-- prefill p50=36.8ms, p95=38.4ms, min=36.2ms, max=42.9ms
-- 0 crashes, 0 CANN errors, 0 temp file leaks
+- 94 consecutive cache HITs, prefill p50=36.8ms, 0 crashes, 0 leaks
 
 **STAGE_A_MIXED_WORKLOAD_GATE = NOT_CONFIRMED** ⚠️
-- Only hit-path validated. No miss/rebuild/ON-OFF/prefix variation.
 
-### Stage B (6h) — COMPLETE — STAGE_B_6H_HIT_PATH_SOAK = PASS ✅
+### Stage B (6h) — COMPLETE ✅
 
 - **Run dir**: `p3-soak/stage_b_20260726_050817/`
 - **Duration**: 21,669s (6h 1min), target 21,600s
@@ -51,41 +51,33 @@
 - **Prefill drift**: +0.00% (flat)
 - **All 15 timeouts**: HARNESS_TIMEOUT_LONG_VALID_OUTPUT (180s budget, not pipeline defect)
 
-**Gate evaluation**: 13 PASS, 0 FAIL, 1 DESIGN_LIMIT (resource metrics not collected), 1 PENDING (doc update)
+**Gate evaluation**: 13 PASS, 0 FAIL, 1 DESIGN_LIMIT (GATE_10: resource metrics not collected), 1 PENDING → now done (GATE_14)
 **Full report**: `p3-soak/STAGE_B_GATE_REPORT.md`
+**Audit tool**: `scripts/kv-cache-production/audit_stage_b.py`
+**Commit**: f136961
 
-**Coverage**: HIT_PATH_ONLY. MISS/rebuild/ON-OFF/prefix variation NOT tested.
-**Mixed workload plan**: `KV_CACHE_MIXED_WORKLOAD_PLAN.md`
+**Coverage**: HIT_PATH_ONLY. MISS/rebuild/ON-OFF/prefix variation/restart/corruption NOT tested.
 
-### Stage C (24h) — Gate Requirements (15 items)
+### Stage M1 (1h Mixed) — PENDING
 
-Stage C will NOT auto-start. Before launch:
-1. runner exit_code=0
-2. DONE file present
-3. raw data rows complete, no duplicates
-4. iteration classification closed (hit+miss+rebuild+control+timeout = total)
-5. all timeouts classified, unclassified_timeout=0
-6. crash=0
-7. CANN runtime error=0
-8. rc0_without_audio=0
-9. temp/thread/process leak=0
-10. RSS/HBM/FD/thread trend flat (no monotonic growth)
-11. latency stable (no unexplained drift)
-12. prefill missing cases explained
-13. Stage B report generated and committed
-14. STATUS/HANDOFF/AUDIT updated
-15. GATE_STATUS file reviewed
+**Plan**: `KV_CACHE_MIXED_WORKLOAD_PLAN.md`
+**7 modes**: HIT, MISS, REBUILD, CACHE_OFF, DIFFERENT_PREFIX, RESTART, CORRUPTION
+**Prerequisites** (BLOCKING):
+1. Runner telemetry: per-iteration RSS/HBM/FD/thread collection
+2. Adaptive timeout: p99 historical + safety margin
+3. Code audit + bash syntax check
+4. Commit
 
 ---
 
-## Current State Terminology (CORRECTED)
+## Current State Terminology
 
 | What to write | What NOT to write |
 |--------------|-------------------|
-| STAGE_B_HIT_PATH_SOAK: RUNNING | Stage B: PASS / mixed workload passed |
-| CACHE_HIT_COVERAGE: 70/70 requests reaching cache lookup | 100% request success |
-| REQUEST_SUCCESS: not yet determined (4 timeouts) | All requests successful |
-| STAGE_B_MIXED_WORKLOAD: NOT_TESTED / NOT_CONFIRMED | Mixed workload validated |
+| STAGE_B_HIT_PATH_SOAK: PASS (532/532 HIT, 0 crash) | Stage B all-clear / production-ready |
+| STAGE_B_MIXED_WORKLOAD: NOT_CONFIRMED | Mixed workload validated |
+| STAGE_M1: PENDING (blocked on runner telemetry) | Ready to start |
+| KV_CACHE_PRODUCTION: OPT_IN_READY / DEFAULT_OFF | DEFAULT_ON |
 
 ## Production Status
 
@@ -93,10 +85,22 @@ Stage C will NOT auto-start. Before launch:
 KV_CACHE_PRODUCTION: OPT_IN_READY / DEFAULT_OFF
 ```
 
-**Rationale**: P1 storage semantics + P2 boundary gates + Stage A+B hit-path soak all pass.
-Mixed workload soak (miss/rebuild/control) NOT confirmed.
-Stage B 6h running. Minimum 72h mixed-workload soak needed before DEFAULT_ON consideration.
+**Rationale**: P1 storage + P2 boundary gates + Stage A+B hit-path soak all pass.
+Mixed workload (miss/rebuild/ON-OFF/prefix/restart/corruption) NOT confirmed.
+Minimum 72h mixed-workload soak needed before DEFAULT_ON consideration.
 **Do NOT claim DEFAULT_ON.**
+
+---
+
+## CANNBot Phase 1
+
+| Item | Status |
+|------|--------|
+| Skills discoverable | 17 |
+| Core profiling skills | 6 installed |
+| Agents | 6 SOTA subagents |
+| CLAUDE.md | Restored regular file (NOT symlink) |
+| .claude/CLAUDE.md | Plugin symlink retained |
 
 ---
 
@@ -110,4 +114,4 @@ Read-only. No modification of runner files or binary.
 
 ---
 
-**最后更新:** 2026-07-26 06:00 UTC (state recovery + offline audit)
+**最后更新:** 2026-07-26 11:20 UTC (pre-compact checkpoint)
