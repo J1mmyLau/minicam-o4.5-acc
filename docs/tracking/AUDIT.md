@@ -456,3 +456,16 @@
 - GATE_13: PASS (STAGE_B_GATE_REPORT.md written)
 - GATE_14: PENDING (doc updates in progress)
 - Verdict: STAGE_B_6H_HIT_PATH_SOAK = PASS
+
+## 2026-07-26 11:20 | CHECKPOINT | PRE_COMPACT_POST_STAGE_B_CANNBOT_PHASE1
+
+- HEAD: f136961, branch: perf/kv-cache-production-gates
+- Stage B: COMPLETE (532 HIT, 0 MISS, 15 TIMEOUT, 13/14 gates PASS)
+- CANNBot Phase 1: INSTALLED (17 skills, 6 agents discoverable)
+- CLAUDE.md: RESTORED regular file from git (was overwritten by install-helper symlink)
+- .claude/CLAUDE.md: retained as plugin AGENTS.md symlink
+- Stage C HIT_PATH: CANCELLED (replaced by Stage M1 mixed-workload)
+- Stage M1: PENDING (blocked on runner telemetry + adaptive timeout)
+- Git: clean (only untracked .claude/ + cann-recipes-infer + stage run dirs)
+- No runner active. NPU idle.
+- Next after compact: STATE_RECOVERY → P1 runner telemetry → Stage M1
