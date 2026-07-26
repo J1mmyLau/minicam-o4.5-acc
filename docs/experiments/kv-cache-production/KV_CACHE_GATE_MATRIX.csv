@@ -1,0 +1,20 @@
+gate_id,phase,category,condition,expected_behavior,status,pass_fail,evidence_path,notes
+G1,P2,cache_key,同一static prefix命中,MUST: cache_hit=1 reused_tokens=62 request_fa改善,PENDING,,,baseline验证 — 复现P5结果
+G2,P2,cache_key,不同system prompt,MUST: cache miss 或不同cache key,PENDING,,,cache key必须包含system prompt identity
+G3,P2,cache_key,不同chat template,MUST: cache miss,PENDING,,,cache key必须包含template identity
+G4,P2,cache_key,不同model,MUST: cache miss 不得崩溃或错误反序列化,PENDING,,,
+G5,P2,cache_key,不同tokenizer,MUST: cache miss,PENDING,,,cache key必须包含tokenizer identity
+G6,P2,cache_key,不同RoPE/context config,MUST: cache miss,PENDING,,,cache key必须包含RoPE参数和context参数
+G7a,P2,corruption,cache file truncated,MUST: safe miss 不得CANN crash,PENDING,,,
+G7b,P2,corruption,cache file bit-flipped,MUST: safe miss 或检测到损坏,PENDING,,,
+G7c,P2,corruption,cache header error,MUST: safe miss,PENDING,,,by cache format version mismatch
+G7d,P2,corruption,cache version mismatch,MUST: safe miss,PENDING,,,未来cache format升级
+G7e,P2,corruption,cache checksum error,MUST: safe miss 不得crash,PENDING,,,
+G8a,P2,concurrency,进程重启后cache复用,MUST: cache_hit 与首次使用一致,PENDING,,,
+G8b,P2,concurrency,双进程同时prime,MUST: 仅一个进程写入 另一个等待或获取完整文件,PENDING,,,
+G8c,P2,concurrency,多线程读取,MUST: cache_hit正常,PENDING,,,
+G8d,P2,concurrency,reader/writer竞争,MUST: 读进程获取完整文件,PENDING,,,
+G8e,P2,concurrency,cache文件替换期间读取,MUST: 不获取半文件,PENDING,,,atomic rename确保
+G8f,P2,concurrency,cache miss fallback,MUST: 正确退化到正常prefill 指标与baseline一致,PENDING,,,
+G8g,P2,concurrency,只读目录写入cache,MUST: 明确错误日志 降级到cache miss,PENDING,,,
+G8h,P2,concurrency,磁盘空间不足写入cache,MUST: 明确错误日志 降级 不crash,PENDING,,,
