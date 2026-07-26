@@ -492,3 +492,20 @@
 - Adaptive timeout: 180s → 187s → 180s (stable near floor, p95 ~115s)
 - Resource sampling bug found (PID=timeout not binary, HBM grep fixed in b113687)
 - 41 iters at 30min, 0 errors, 0 timeouts, 0 crashes
+
+## 2026-07-26 12:30 | STAGE_M1 | COMPLETE — PASS (12/12 gates)
+
+- Duration: 3,641s (1h 0min 41s), 81 iterations, PID 519291
+- Per-mode: H:24(24 HIT), M:12(12 MISS), F:12(12 NO_STATS), R:11(11 HIT), P:11(11 HIT), C:11(11 MISS)
+- Corruption detection: 100% (11/11 mode C → MISS → rebuild)
+- ON/OFF control: correct (12 OFF→NO_STATS, 11 Re-ON→HIT)
+- 2 timeouts: iter 44 (mode=M, 184s), iter 66 (mode=H, 184s) — both HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+- 0 crashes, 0 CANN errors, 0 temp leaks, cache size stable 9,143,932 bytes
+- Classification: 46 HIT + 23 MISS + 12 NO_STATS = 81 ✅ CLOSED
+- Wall times: p50=36.6s, p95=87.8s, max=184.3s, min=15.4s
+- Adaptive timeout: stable at 187s (from floor 180s)
+- Mode P limitation: same system prompt → same cache key (multi-key isolation NOT_TESTED)
+- Resource sampling: v1 PID bug (fixed in b113687, not active in this run)
+- Commit: 058ae94 (audit entries), report: STAGE_M1_GATE_REPORT.md
+- Verdict: STAGE_M1_1H_MIXED_WORKLOAD_SOAK = PASS ✅
+- Next: Stage M6 (6h mixed) with fixed resource sampling
