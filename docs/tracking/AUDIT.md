@@ -509,3 +509,31 @@
 - Commit: 058ae94 (audit entries), report: STAGE_M1_GATE_REPORT.md
 - Verdict: STAGE_M1_1H_MIXED_WORKLOAD_SOAK = PASS ✅
 - Next: Stage M6 (6h mixed) with fixed resource sampling
+
+## 2026-07-26 12:45 | AUDIT | M1 TIMEOUT CLASSIFICATION + MISS_REBUILD CORRECTION
+
+- P0: Timeout audit. iter 44 = MODEL_GENERATION_DEGENERATION (repetitive "对对对…", 112 WAVs, SAVE at t=9s). iter 66 = HARNESS_TIMEOUT_LONG_VALID_OUTPUT (normal long response, 115 WAVs). 0 UNKNOWN.
+- P1: MISS_REBUILD gap resolved. Initial "11/12" was FALSE — emoji in cache log lines caused `grep` (without -a) to fail. `grep -a "KV cache SAVED"` confirms 12/12 mode=M iterations have SAVE. Root cause: emoji grep false-negative bug.
+- P2: Multi-prefix code audit. omni.cpp:219-220 confirms system prompt text in FNV-1a cache key hash. Binary has single hardcoded prompt → SINGLE_SLOT_CACHE_LIMITATION. Empirical multi-key test requires binary modifications.
+- Fix: Use `grep -a` for all cache log grepping in future audits.
+
+## 2026-07-26 13:00 | COMMIT | M1 GATE REPORT CORRECTIONS (d0999ab)
+
+- Commit d0999ab: P3 M1 gate report corrections
+- Fix mode M row: 12/12 MISS→rebuild (was false "11/12")
+- Add §6 Production Gate Categories: CORE_MIXED_PATHS (PASS), MULTI_PREFIX_ISOLATION (DESIGN_VERIFIED), TIMEOUT_ROBUSTNESS (PASS), RESOURCE_TELEMETRY (DESIGN_LIMIT)
+- Add timeout classification: iter 44=MODEL_GENERATION_DEGENERATION, iter 66=HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+- Add §5.3 Emoji Grep False-Negative Bug documentation
+- Verdict updated with per-category pass/fail status
+
+## 2026-07-26 13:05 | CHECKPOINT | PRE-COMPACT — P3+P4 COMPLETE
+
+- P3: M1 gate report fully corrected and committed (d0999ab)
+- P4: Pre-compact checkpoint — STATUS.md, HANDOFF.md, NEXT_ACTION.md, AUDIT.md, KV_CACHE_SOAK_STATUS.md updated
+- HEAD: d0999ab (M1 report corrections)
+- Commit chain: 001ed88 → b2e45ce → 58c1fd9 → 42a2aa0 → 56929e4 → f136961 → 0d93f1d → b113687 → ce51043 → 058ae94 → d0999ab
+- M1 final state: CORE_MIXED_PATHS=PASS, MULTI_PREFIX=DESIGN_VERIFIED, TIMEOUT_ROBUSTNESS=PASS, RESOURCE_TELEMETRY=DESIGN_LIMIT
+- No active runner. NPU idle.
+- Next after /compact: launch Stage M6 (6h mixed, OMNI_MIXED_DURATION=21600 OMNI_MIXED_STAGE=M6)
+- M6 script: docs/experiments/kv-cache-production/p3-soak/run_stage_mixed.sh (b113687, fixed resource sampling)
+- Audit rule: ALL cache log greps MUST use `grep -a` for emoji-containing lines
