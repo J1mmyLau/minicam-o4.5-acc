@@ -248,18 +248,35 @@ NEEDS_MORE_EVIDENCE 等状态时，必须自动执行下一项，不得停止汇
 
 ---
 
-# CURRENT PHASE: Post-E2E-Baseline
+# CURRENT PHASE: KV Cache Production Gates
 
-F003 FIXED。F004 VALIDATED。F005 PROTECTION_IMPLEMENTED/RECALL_LIMITED。
-E2E Baseline DONE。Chunking REJECTED。
-Production config: ngl=8 hybrid（Talker ngl=8, Flow CANN, Vocoder CPU, F005 opt-in）。
+Closed from: `perf/ngl8-e2e-stage-profiling` (tag: `ngl8-e2e-closeout-20260726`, HEAD: `a70c085`)
+Current branch: `perf/kv-cache-production-gates`
+Worktree: `/workspace/llama.cpp-omni-kvcache-prod`
+
+Baseline conclusions (DO NOT MODIFY):
+- T2W lifecycle VALIDATED (91e5674, P9: 150/150, 0 rc0_without_audio)
+- KV cache functional PASS (62 reused tokens, cache_miss=0)
+- KV cache performance PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD (30 pairs, 9642ms p50, CI [8742,11470])
+- KV cache production OPT_IN_READY / DEFAULT_OFF
+- General production readiness NOT_YET_APPROVED (8 boundary conditions NOT_TESTED)
 
 当前任务优先级：
-1. F005 recall 提升 — 扩大异常样本集，tune 熵阈值
-2. F005 retry/fallback 生产开关策略 — recall ≥60% 后可默认开启
-3. ngl=8 production config 文档化
-4. E2E baseline LLM 瓶颈分析 — LLM 占 FA 69%，寻找优化方向
+1. P0: Phase initialization — 创建计划文档、gate matrix、soak status
+2. P1: Production-grade cache file storage — 可配置路径、原子写入、锁、损坏恢复、cache key coverage
+3. P2: 8 项边界条件 Gate matrix — 逐项测试，不靠代码审计判定
+4. P3: 分级稳定性长测 — 1h→6h→24h→72h→168h，逐级 Gate
+5. P4: DEFAULT_ON / OPT_IN 最终决策
+6. P5: 状态与提交
+
+禁止：
+- 修改旧 closeout 分支
+- 覆盖已有实验报告
+- 在完成全部 Gate 前宣称 DEFAULT_ON
+- 从 168h 直接开始（必须先过 1h/6h/24h/72h Gate）
+- 前台阻塞长时间运行
+- 仅凭代码审计判定边界测试 PASS
 
 最终停止条件：
-A. 成功完成全部 Gate
+A. 全部 Gate 通过 + 生产决策文档化
 B. 外部硬阻塞（缺失文件/凭据/硬件故障/权限不足）
