@@ -1,0 +1,55 @@
+0.01.439.970 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.01.981.562 W llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+0.02.303.840 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+vision_model_loader: model name:   
+vision_model_loader: description:  image encoder for MiniCPM-V
+vision_model_loader: GGUF version: 3
+vision_model_loader: alignment:    32
+vision_model_loader: n_tensors:    455
+vision_model_loader: n_kv:         20
+
+vision_ctx: vision using CANN0 backend
+load_hparams: model_type:         0
+load_hparams: n_embd:             1152
+load_hparams: n_head:             16
+load_hparams: n_ff:               4304
+load_hparams: n_layer:            27
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- vision hparams ---
+load_hparams: image_size:         448
+load_hparams: patch_size:         14
+load_hparams: minicpmv_version:   100045
+load_hparams: proj_scale_factor:  0
+load_hparams: n_wa_pattern:       0
+load_hparams: insert_layer_id:     0
+
+load_hparams: model size:         1044.36 MiB
+load_hparams: metadata size:      0.16 MiB
+load_tensors: ffn up/down are swapped
+alloc_compute_meta:      CANN0 compute buffer size =   100.30 MiB
+alloc_compute_meta:        CPU compute buffer size =    18.30 MiB
+vision_set_batch_encode: vision batch encode disabled
+init tts....init t2w....flowGGUFModelLoader: init_backend device=gpu, gpu_idx=0, backend=CANN0
+voc_hg2_model: CPU backend using 8 threads
+<user>
+<assistant>0.08.502.813 I TTS condition graph: initialized (vocab=152064, hidden=768)
+=== F005 Retry Statistics ===
+  total_chunks:           1
+  degeneration_detected:  0
+  retry_attempted:        0
+  retry_recovered:        0
+  retry_exhausted:        0
+  output_blocked:         0
+  retry_recovery_rate:    0%
+==============================
+=== KV Cache Reuse Statistics ===
+  cache_hits:       1
+  cache_misses:     0
+  tokens_reused:    62
+=================================
+Waiting for audio generation to complete...
+Audio generation completed.
+audition_whisper_free_kv_cache: KV cache freed
+Token2Wav (C++): session released
