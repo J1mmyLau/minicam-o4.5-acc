@@ -122,20 +122,371 @@ static int g_kv_cache_hits = 0;
 static int g_kv_cache_misses = 0;
 static int g_kv_cache_tokens_reused = 0;
 
-static std::string kv_cache_get_model_hash(const std::string & model_path) {
-    struct stat st;
-    if (stat(model_path.c_str(), &st) == 0) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%lx-%lx",
-                 (unsigned long)st.st_size, (unsigned long)st.st_mtime);
-        return std::string(buf);
+// ─── P1 KV Cache Production: file format, safe I/O, cache key ────────────────
+
+// Forward declaration (defined later in this file)
+void print_with_timestamp(const char* format, ...);
+
+#define KV_CACHE_MAGIC      0x4B434D4F  // "OMKC" little-endian
+#define KV_CACHE_VERSION    1
+#define KV_CACHE_HEADER_SIZE 24
+
+// Simple FNV-1a 64-bit hash for cache key construction
+static uint64_t kv_cache_fnv1a_64(const void *data, size_t len, uint64_t hash = 0xcbf29ce484222325ULL) {
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint64_t)p[i];
+        hash *= 0x100000001b3ULL;
     }
-    return "no-model";
+    return hash;
 }
 
-static std::string kv_cache_get_path(const std::string & model_hash) {
-    return "/tmp/omni_kvcache_" + model_hash + ".bin";
+static uint64_t kv_cache_fnv1a_str(const std::string &s, uint64_t hash = 0xcbf29ce484222325ULL) {
+    return kv_cache_fnv1a_64(s.data(), s.size(), hash);
 }
+
+// Simple CRC-32 (IEEE 802.3 polynomial) for file integrity
+static uint32_t kv_cache_crc32(const void *data, size_t len) {
+    static uint32_t table[256];
+    static bool table_init = false;
+    if (!table_init) {
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t crc = i;
+            for (int j = 0; j < 8; j++) {
+                crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320U : 0);
+            }
+            table[i] = crc;
+        }
+        table_init = true;
+    }
+    uint32_t crc = 0xFFFFFFFFU;
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        crc = (crc >> 8) ^ table[(crc ^ p[i]) & 0xFF];
+    }
+    return crc ^ 0xFFFFFFFFU;
+}
+
+// Compute cache key from all relevant configuration components
+// This determines whether a cached state is valid for the current run
+static std::string kv_cache_compute_key(
+    const std::string & model_path,
+    const common_params & params,
+    const std::string & system_prompt_text
+) {
+    // Build a composite key string from all cache-relevant configuration
+    std::string key_input;
+
+    // Model identity: file size + first 64KB hash + last 64KB hash
+    struct stat st;
+    if (stat(model_path.c_str(), &st) == 0) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "m%lx:%lx:", (unsigned long)st.st_size, (unsigned long)st.st_mtime);
+        key_input += buf;
+        // Partial file hash for stronger model identity
+        FILE *mf = fopen(model_path.c_str(), "rb");
+        if (mf) {
+            uint8_t head[65536];
+            size_t n_head = fread(head, 1, sizeof(head), mf);
+            uint64_t hh = kv_cache_fnv1a_64(head, n_head);
+            char hbuf[20];
+            snprintf(hbuf, sizeof(hbuf), "%016lx:", (unsigned long)hh);
+            key_input += hbuf;
+            // Tail hash
+            if (st.st_size > 65536) {
+                fseek(mf, (long)(st.st_size - 65536), SEEK_SET);
+                size_t n_tail = fread(head, 1, sizeof(head), mf);
+                uint64_t th = kv_cache_fnv1a_64(head, n_tail);
+                snprintf(hbuf, sizeof(hbuf), "%016lx:", (unsigned long)th);
+                key_input += hbuf;
+            }
+            fclose(mf);
+        }
+    } else {
+        key_input += "nomodel:";
+    }
+
+    // Model/context parameters that affect KV cache shape
+    char pbuf[256];
+    snprintf(pbuf, sizeof(pbuf), "c%d:b%d:ub%d:",
+             params.n_ctx, params.n_batch, params.n_ubatch);
+    key_input += pbuf;
+
+    // ROPE parameters (from model)
+    key_input += "r:"; // placeholder — RoPE params can be added if exposed
+
+    // System prompt identity (hash the text)
+    if (!system_prompt_text.empty()) {
+        uint64_t ph = kv_cache_fnv1a_str(system_prompt_text);
+        snprintf(pbuf, sizeof(pbuf), "s%016lx:", (unsigned long)ph);
+        key_input += pbuf;
+    }
+
+    // Chat template identity (from params or default)
+    // Use model path as proxy for template
+    key_input += "t:" + model_path + ":";
+
+    // Cache format version — bump when header/layout changes
+    snprintf(pbuf, sizeof(pbuf), "v%d", KV_CACHE_VERSION);
+    key_input += pbuf;
+
+    // Final hash
+    uint64_t h = kv_cache_fnv1a_str(key_input);
+    char result[20];
+    snprintf(result, sizeof(result), "%016lx", (unsigned long)h);
+    return std::string(result);
+}
+
+// Get cache directory from OMNI_KV_CACHE_PATH, or default
+static std::string kv_cache_get_dir() {
+    const char *v = getenv("OMNI_KV_CACHE_PATH");
+    if (v && v[0]) return std::string(v);
+    // Default: /tmp/omni-kvcache
+    return "/tmp/omni-kvcache";
+}
+
+// Build full cache file path from cache key
+static std::string kv_cache_get_path(const std::string & cache_key) {
+    std::string dir = kv_cache_get_dir();
+    return dir + "/omni_kvcache_" + cache_key + ".bin";
+}
+
+// ─── Safe save with atomic rename + header + checksum ───────────────────────
+
+// Returns data_size on success, 0 on failure
+static size_t kv_cache_safe_save(
+    struct llama_context * ctx,
+    const std::string & final_path,
+    const std::string & cache_key,
+    int seq_id
+) {
+    std::string dir;
+    size_t last_slash = final_path.rfind('/');
+    if (last_slash != std::string::npos) {
+        dir = final_path.substr(0, last_slash);
+    }
+
+    // Ensure directory exists
+    if (!dir.empty()) {
+        cross_platform_mkdir_p(dir);
+    }
+
+    // Step 1: Save llama state to temp file
+    std::string tmp_state = final_path + ".state." + std::to_string(getpid());
+    size_t saved = llama_state_seq_save_file(ctx, tmp_state.c_str(), (llama_seq_id)seq_id, nullptr, 0);
+    if (saved == 0) {
+        print_with_timestamp("🔁 KV cache: state save returned 0 bytes\n");
+        unlink(tmp_state.c_str());
+        return 0;
+    }
+
+    // Step 2: Read state back to compute checksum
+    std::vector<uint8_t> state_data(saved);
+    FILE *fs = fopen(tmp_state.c_str(), "rb");
+    if (!fs) {
+        print_with_timestamp("🔁 KV cache: cannot open temp state file for checksum\n");
+        unlink(tmp_state.c_str());
+        return 0;
+    }
+    size_t nread = fread(state_data.data(), 1, saved, fs);
+    fclose(fs);
+    unlink(tmp_state.c_str()); // No longer needed
+
+    if (nread != saved) {
+        print_with_timestamp("🔁 KV cache: temp state read mismatch (%zu != %zu)\n", nread, saved);
+        return 0;
+    }
+
+    // Step 3: Build composite file (header + state data)
+    uint64_t key_hash = kv_cache_fnv1a_str(cache_key);
+    uint32_t data_crc = kv_cache_crc32(state_data.data(), saved);
+    uint32_t data_size = (uint32_t)saved;
+
+    // Write to temp file, then atomic rename
+    std::string tmp_composite = final_path + ".tmp." + std::to_string(getpid());
+    FILE *fc = fopen(tmp_composite.c_str(), "wb");
+    if (!fc) {
+        print_with_timestamp("🔁 KV cache: cannot open composite temp file for write: %s (errno=%d)\n",
+                           tmp_composite.c_str(), errno);
+        return 0;
+    }
+
+    // Header
+    uint32_t magic = KV_CACHE_MAGIC;
+    uint32_t version = KV_CACHE_VERSION;
+    fwrite(&magic, sizeof(magic), 1, fc);
+    fwrite(&version, sizeof(version), 1, fc);
+    fwrite(&key_hash, sizeof(key_hash), 1, fc);
+    fwrite(&data_crc, sizeof(data_crc), 1, fc);
+    fwrite(&data_size, sizeof(data_size), 1, fc);
+    // Data
+    fwrite(state_data.data(), 1, saved, fc);
+    fflush(fc);
+    int fd = fileno(fc);
+    if (fd >= 0) {
+        fsync(fd);
+    }
+    fclose(fc);
+
+    // Step 4: Atomic rename
+    if (rename(tmp_composite.c_str(), final_path.c_str()) != 0) {
+        print_with_timestamp("🔁 KV cache: atomic rename failed: %s → %s (errno=%d)\n",
+                           tmp_composite.c_str(), final_path.c_str(), errno);
+        unlink(tmp_composite.c_str());
+        return 0;
+    }
+
+    // Step 5: Clean up any stale temp files in the directory
+    if (!dir.empty()) {
+        DIR *dp = opendir(dir.c_str());
+        if (dp) {
+            struct dirent *de;
+            while ((de = readdir(dp)) != nullptr) {
+                std::string name(de->d_name);
+                if (name.find(".tmp.") != std::string::npos ||
+                    name.find(".state.") != std::string::npos) {
+                    // Only clean old temp files (not ours — ours is already renamed)
+                    std::string full = dir + "/" + name;
+                    struct stat tst;
+                    if (stat(full.c_str(), &tst) == 0) {
+                        time_t age = time(nullptr) - tst.st_mtime;
+                        if (age > 300) { // 5 minutes old
+                            unlink(full.c_str());
+                        }
+                    }
+                }
+            }
+            closedir(dp);
+        }
+    }
+
+    return saved;
+}
+
+// ─── Safe load with header validation + checksum ────────────────────────────
+
+// Returns number of positions loaded, 0 on failure (cache miss / corruption)
+static size_t kv_cache_safe_load(
+    struct llama_context * ctx,
+    const std::string & filepath,
+    const std::string & expected_key,
+    int dest_seq_id,
+    int * out_n_positions
+) {
+    *out_n_positions = 0;
+
+    FILE *f = fopen(filepath.c_str(), "rb");
+    if (!f) return 0;
+
+    // Read header
+    uint32_t magic, version;
+    uint64_t key_hash;
+    uint32_t data_crc, data_size;
+
+    bool header_ok = true;
+    header_ok &= (fread(&magic, sizeof(magic), 1, f) == 1);
+    header_ok &= (fread(&version, sizeof(version), 1, f) == 1);
+    header_ok &= (fread(&key_hash, sizeof(key_hash), 1, f) == 1);
+    header_ok &= (fread(&data_crc, sizeof(data_crc), 1, f) == 1);
+    header_ok &= (fread(&data_size, sizeof(data_size), 1, f) == 1);
+
+    if (!header_ok) {
+        print_with_timestamp("🔁 KV cache: truncated header in %s\n", filepath.c_str());
+        fclose(f);
+        return 0;
+    }
+
+    // Validate magic
+    if (magic != KV_CACHE_MAGIC) {
+        print_with_timestamp("🔁 KV cache: bad magic 0x%08x (expected 0x%08x) in %s\n",
+                           magic, KV_CACHE_MAGIC, filepath.c_str());
+        fclose(f);
+        return 0;
+    }
+
+    // Validate version
+    if (version != KV_CACHE_VERSION) {
+        print_with_timestamp("🔁 KV cache: version mismatch (file=%u, expected=%u) in %s\n",
+                           version, KV_CACHE_VERSION, filepath.c_str());
+        fclose(f);
+        return 0;
+    }
+
+    // Validate cache key
+    uint64_t expected_key_hash = kv_cache_fnv1a_str(expected_key);
+    if (key_hash != expected_key_hash) {
+        print_with_timestamp("🔁 KV cache: key mismatch (file=0x%016lx, expected=0x%016lx) — different config\n",
+                           (unsigned long)key_hash, (unsigned long)expected_key_hash);
+        fclose(f);
+        return 0;
+    }
+
+    // Validate data size (sanity check: 9MB typical, refuse > 1GB)
+    if (data_size == 0 || data_size > 1024 * 1024 * 1024) {
+        print_with_timestamp("🔁 KV cache: implausible data size %u in %s\n", data_size, filepath.c_str());
+        fclose(f);
+        return 0;
+    }
+
+    // Read data
+    std::vector<uint8_t> state_data(data_size);
+    size_t nread = fread(state_data.data(), 1, data_size, f);
+    fclose(f);
+
+    if (nread != data_size) {
+        print_with_timestamp("🔁 KV cache: truncated data (%zu != %u) in %s\n",
+                           nread, data_size, filepath.c_str());
+        return 0;
+    }
+
+    // Validate checksum
+    uint32_t computed_crc = kv_cache_crc32(state_data.data(), data_size);
+    if (computed_crc != data_crc) {
+        print_with_timestamp("🔁 KV cache: checksum mismatch (computed=0x%08x, stored=0x%08x) in %s — corrupt\n",
+                           computed_crc, data_crc, filepath.c_str());
+        return 0;
+    }
+
+    // Write state data to temp file for llama_state_seq_load_file
+    std::string tmp_load = filepath + ".load." + std::to_string(getpid());
+    FILE *ft = fopen(tmp_load.c_str(), "wb");
+    if (!ft) {
+        print_with_timestamp("🔁 KV cache: cannot create temp load file: %s\n", tmp_load.c_str());
+        return 0;
+    }
+    fwrite(state_data.data(), 1, data_size, ft);
+    fclose(ft);
+
+    // Load state from temp file
+    size_t n_tokens_out = 0;
+    size_t loaded = llama_state_seq_load_file(
+        ctx, tmp_load.c_str(), (llama_seq_id)dest_seq_id,
+        nullptr, 0, &n_tokens_out);
+
+    unlink(tmp_load.c_str());
+
+    if (loaded == 0) {
+        print_with_timestamp("🔁 KV cache: llama_state_seq_load_file returned 0\n");
+        return 0;
+    }
+
+    // Determine position count
+    int loaded_pos = (int)n_tokens_out;
+    if (loaded_pos == 0 && loaded > 0) {
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem) {
+            llama_pos pos_max = llama_memory_seq_pos_max(mem, 0);
+            if (pos_max >= 0) {
+                loaded_pos = (int)pos_max + 1;
+            }
+        }
+    }
+
+    *out_n_positions = loaded_pos;
+    return loaded;
+}
+
+// ─── End of P1 helpers ──────────────────────────────────────────────────────
 
 static void kv_cache_print_stats() {
     if (!g_kv_cache_reuse_enabled) return;
@@ -11150,31 +11501,23 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         // tc-todo
         // llama_kv_cache_clear(ctx_omni->ctx_llama);
 
-        // ─── P4 KV Cache Reuse: load cached system prompt ─────────────────
+        // ─── P1 KV Cache Reuse: safe load cached system prompt ───────────
         bool kv_cache_loaded = false;
         std::string kv_cache_path_for_save;
+        std::string kv_cache_key;
         if (g_kv_cache_reuse_enabled && ctx_omni->params && !ctx_omni->async) {
-            std::string model_hash = kv_cache_get_model_hash(ctx_omni->params->model.path);
-            kv_cache_path_for_save = kv_cache_get_path(model_hash);
+            // Build system prompt text for cache key
+            std::string sp_text = voice_clone_prompt + assistant_prompt;
+            kv_cache_key = kv_cache_compute_key(
+                ctx_omni->params->model.path, *ctx_omni->params, sp_text);
+            kv_cache_path_for_save = kv_cache_get_path(kv_cache_key);
 
             struct stat cache_st;
             if (stat(kv_cache_path_for_save.c_str(), &cache_st) == 0) {
-                size_t n_tokens_out = 0;
-                size_t loaded = llama_state_seq_load_file(
-                    ctx_omni->ctx_llama, kv_cache_path_for_save.c_str(),
-                    0, nullptr, 0, &n_tokens_out);
-                // n_tokens_out may be 0 if saved with empty token list;
-                // fall back to seq_pos_max to get actual position count
-                int loaded_pos = (int)n_tokens_out;
-                if (loaded_pos == 0 && loaded > 0) {
-                    llama_memory_t mem = llama_get_memory(ctx_omni->ctx_llama);
-                    if (mem) {
-                        llama_pos pos_max = llama_memory_seq_pos_max(mem, 0);
-                        if (pos_max >= 0) {
-                            loaded_pos = (int)pos_max + 1;
-                        }
-                    }
-                }
+                int loaded_pos = 0;
+                size_t loaded = kv_cache_safe_load(
+                    ctx_omni->ctx_llama, kv_cache_path_for_save,
+                    kv_cache_key, 0, &loaded_pos);
                 if (loaded > 0 && loaded_pos > 0) {
                     ctx_omni->n_past = loaded_pos;
                     ctx_omni->n_keep = ctx_omni->n_past;
@@ -11182,13 +11525,32 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                     g_kv_cache_hits++;
                     g_kv_cache_tokens_reused += loaded_pos;
                     kv_cache_loaded = true;
-                    print_with_timestamp("🔁 KV cache HIT: loaded %d positions (%zu bytes) from %s, skipping system prompt prefill\n",
-                                       loaded_pos, loaded, kv_cache_path_for_save.c_str());
+                    print_with_timestamp("🔁 KV cache HIT: loaded %d positions (%zu bytes) from %s (key=%s)\n",
+                                       loaded_pos, loaded, kv_cache_path_for_save.c_str(), kv_cache_key.c_str());
                     sliding_window_register_system_prompt(ctx_omni);
                     goto kv_cache_system_prompt_done;
                 } else {
-                    print_with_timestamp("🔁 KV cache file found but load returned %zu bytes (n_tokens=%zu), recomputing\n",
-                                       loaded, n_tokens_out);
+                    // Corrupt or mismatched cache — delete it so next run can recreate
+                    print_with_timestamp("🔁 KV cache: load failed — removing stale cache file %s\n",
+                                       kv_cache_path_for_save.c_str());
+                    unlink(kv_cache_path_for_save.c_str());
+                    // Also clean up any leftover temp files
+                    std::string dir = kv_cache_get_dir();
+                    DIR *dp = opendir(dir.c_str());
+                    if (dp) {
+                        struct dirent *de;
+                        std::string prefix = "omni_kvcache_" + kv_cache_key;
+                        while ((de = readdir(dp)) != nullptr) {
+                            std::string name(de->d_name);
+                            if (name.find(prefix) != std::string::npos &&
+                                (name.find(".tmp.") != std::string::npos ||
+                                 name.find(".state.") != std::string::npos ||
+                                 name.find(".load.") != std::string::npos)) {
+                                unlink((dir + "/" + name).c_str());
+                            }
+                        }
+                        closedir(dp);
+                    }
                 }
             }
         }
@@ -11332,18 +11694,18 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
             }
         }
 
-        // ─── P4 KV Cache Reuse: save freshly computed system prompt ──────
+        // ─── P1 KV Cache Reuse: safe save freshly computed system prompt ──
         kv_cache_system_prompt_done:
         if (g_kv_cache_reuse_enabled && !kv_cache_loaded && !kv_cache_path_for_save.empty() && ctx_omni->n_past > 0) {
-            size_t saved = llama_state_seq_save_file(
-                ctx_omni->ctx_llama, kv_cache_path_for_save.c_str(),
-                0, nullptr, 0);
+            size_t saved = kv_cache_safe_save(
+                ctx_omni->ctx_llama, kv_cache_path_for_save,
+                kv_cache_key, 0);
             if (saved > 0) {
-                print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d)\n",
-                                   saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past);
+                print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d, key=%s)\n",
+                                   saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past, kv_cache_key.c_str());
             } else {
-                print_with_timestamp("🔁 KV cache SAVE FAILED: %s (returned %zu bytes)\n",
-                                   kv_cache_path_for_save.c_str(), saved);
+                print_with_timestamp("🔁 KV cache SAVE FAILED: %s (key=%s) — continuing without cache\n",
+                                   kv_cache_path_for_save.c_str(), kv_cache_key.c_str());
             }
         }
 
