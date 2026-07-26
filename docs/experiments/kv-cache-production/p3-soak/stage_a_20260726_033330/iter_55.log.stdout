@@ -1,0 +1,1223 @@
+=== Model Paths ===
+  Base dir:   /workspace/models/MiniCPM-o-4_5-gguf
+  LLM:        /workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-Q4_K_M.gguf [OK]
+  Vision:     /workspace/models/MiniCPM-o-4_5-gguf/vision/MiniCPM-o-4_5-vision-F16.gguf [OK]
+  Audio:      /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf [OK]
+  TTS:        /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-tts-F16.gguf [OK]
+  Projector:  /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf [OK]
+===================
+=== Initializing Omni Context ===
+  Media type: 2 (omni: audio+vision)
+  TTS enabled: yes
+  Context size: 4096
+  GPU layers: 0
+  Vision backend: metal
+  Vision batch encode: disabled
+  TTS bin dir: /workspace/models/MiniCPM-o-4_5-gguf/tts
+  Ref audio: tools/omni/assets/default_ref_audio/default_ref_audio.wav
+03:58:06.189 === omni_init start
+03:58:06.189 media_type = 2, duplex_mode = 0, base_output_dir = ./tools/omni/output
+03:58:06.189 === omni_init: loading new LLM model
+03:58:08.304 === omni_init: loading TTS model
+03:58:08.304 TTS model: loading with n_gpu_layers=0
+03:58:08.687 TTS sampler: temp=0.80, top_p=0.85, top_k=25, rep_penalty=1.05
+03:58:08.687 TTS: loading weights from GGUF (emb_code, emb_text, projector_semantic, head_code)...
+03:58:09.279 TTS: head_code shape: dim0=6562, dim1=768, will transpose to [6562, 768]
+03:58:09.287 TTS: head_code loaded, verifying first few values:
+03:58:09.288   head_code_weight[0] = 0.01361084 (expect ~0.01385498)
+03:58:09.288   head_code_weight[1] = -0.01660156 (expect ~-0.01647949)
+03:58:09.288   head_code_weight[768] = 0.04101562 (this is weight[1, 0], expect ~0.04150391)
+03:58:09.351 TTS: weights loaded successfully
+03:58:09.351 Projector: loading from /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf
+03:58:09.360 Projector: loaded successfully
+03:58:09.360 === omni_init: loading APM model
+03:58:09.736 APM: init from /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf
+03:58:10.618 Token2Wav: found models in /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf
+03:58:10.618 Token2Wav: all model files found, initializing session...
+03:58:10.618 Token2Wav: CANN flow-only mode — deferring init to worker thread
+03:58:10.618 Token2Wav: CANN流跨线程需算子适配，vocoder暂用CPU
+03:58:10.618 Token2Wav: using prompt_cache from /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf/prompt_cache.gguf
+03:58:10.618 Token2Wav: init deferred to worker thread
+03:58:10.618 Token2Wav: initialized successfully
+03:58:10.618 Python T2W: script_dir=./tools/omni/pyt2w, model_dir=./tools/omni/pyt2w/token2wav
+03:58:10.618 Token2Wav: 使用 C++ 实现
+03:58:10.618 === omni_init success: ctx_llama = 0xaaaafe9d7d70
+=== Running test case ===
+  Audio prefix: /workspace/llama.cpp-omni-kvcache-prod/tools/omni/assets/test_case/omni_test_case/omni_test_case_
+  Count: 1
+  Start index: 0
+03:58:10.618 stream_prefill: n_past = 0
+ voice_clone_prompt = <|im_start|>system
+模仿音频样本的音色并生成新的内容。
+<|audio_start|>
+ assistant_prompt = <|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。<|im_end|>
+<|im_start|>user
+
+03:58:10.654 🔁 KV cache HIT: loaded 62 positions (9143908 bytes) from /tmp/omni-kvcache/omni_kvcache_e2b568b6078ce027.bin (key=e2b568b6078ce027)
+03:58:10.654 [SW] system_prompt registered: preserve_length=62 (will be protected from sliding)
+03:58:10.654 
+
+c++ finish stream_prefill(index=0). n_past=62, n_keep=62, n_ctx=4096
+
+prefill 0 (audio+vision) : 0.0364902 s
+03:58:10.654 📍 stream_decode 开始: n_past=62, n_keep=62, n_ctx=4096, duplex_mode=0
+03:58:10.655 stream_decode: create tts thread (simplex mode)
+03:58:10.655 TTS: 创建单工模式输出目录: ./tools/omni/output/round_000
+03:58:10.655 stream_decode: create t2w thread
+03:58:10.655 wait prefill done
+03:58:10.655 📍 [单工TTS] 添加 assistant prompt: "<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<|tts_bos|>", n_past=62
+03:58:10.655 T2W thread (C++) started
+03:58:10.655 [token2wav] worker-thread init: flow=gpu voc=cpu
+03:58:10.655 TTS thread started
+03:58:11.743 [token2wav] worker-thread init complete
+03:58:12.165 📍 [单工TTS] assistant prompt 完成, n_past=72
+03:58:12.165 LLM decode: max_tgt_len = 4096, n_predict = -1, n_ctx = 4096
+03:58:14.257 LLM->TTS: text='我们已经来到了第二十题，题目是，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[97639 99461 107988 99802 94498 33872 3837 106367 20412 3837]
+03:58:14.257 TTS<-LLM: chunk_idx=0, text='我们已经来到了第二十题，题目是，', n_tokens=10, hidden_size=40960, token_ids=[97639 99461 107988 99802 94498 33872 3837 106367 20412 3837]
+03:58:14.257 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:14.257 TTS: before empty check - response.empty=0, response='我们已经来到了第二十题，题目是，', llm_finish=0
+03:58:14.257 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:14.257 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:14.258 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:14.384 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_0/merged_embeddings.txt
+03:58:14.384 TTS Simplex: generating audio tokens for chunk 0 (n_tokens=10, tts_n_embd=768)
+03:58:14.384 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=0, new_size=11)
+03:58:14.384 TTS Simplex: first chunk - cleared KV cache
+03:58:14.384 TTS Simplex: first chunk - cleared tts_all_generated_tokens and tts_token_buffer
+03:58:14.532 TTS Simplex: prefill completed, n_past_tts=11
+03:58:14.532 TTS Simplex: sampler created
+03:58:14.532 TTS simplex: is_audio_bos=true (first audio token)
+03:58:14.730 TTS Simplex Phase1: token 1/500: rel_id=2065
+03:58:14.781 TTS Simplex Phase1: token 2/500: rel_id=2915
+03:58:14.832 TTS Simplex Phase1: token 3/500: rel_id=704
+03:58:14.881 TTS Simplex Phase1: token 4/500: rel_id=2127
+03:58:14.930 TTS Simplex Phase1: token 5/500: rel_id=110
+03:58:15.908 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+03:58:15.909 TTS Simplex Phase1: token 25/500: rel_id=295
+03:58:15.909 T2W线程(C++): 轮次切换 (-1 -> 0)，更新输出目录
+03:58:15.909 T2W线程(C++): 新输出目录 ./tools/omni/output/round_000/tts_wav
+03:58:16.470 🎉 首响时间 (First Audio Response): 5815ms (decode_to_first_audio) | 5851ms (request_to_first_audio)
+03:58:16.470 T2W线程: wav_0.wav | 0.84s audio | 559.9ms inference | RTF=0.67 | t=5815ms | queue_wait=0.3ms
+03:58:16.955 TTS Simplex Phase1: EOS token at step 45
+03:58:16.955 TTS Simplex: chunk 结束，tts_token_buffer 剩余 19 tokens (保留等下一个 chunk)
+03:58:16.955 TTS Simplex: generated 44 audio tokens for chunk 0
+03:58:16.955 TTS Simplex: chunk 0 first tokens: [2065 2915 704 2127 110 ], last tokens: [1295 3482 3320 1520 2031 ]
+03:58:16.955 TTS Simplex: updated tts_n_past_accumulated=55, total_generated_tokens=44
+03:58:17.026 LLM->TTS: text='下面哪个国家的首都不是在首都圈内的', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100431 104673 99599 9370 106114 99520 18493 106114 100044 102595]
+03:58:17.026 TTS<-LLM: chunk_idx=1, text='下面哪个国家的首都不是在首都圈内的', n_tokens=10, hidden_size=40960, token_ids=[100431 104673 99599 9370 106114 99520 18493 106114 100044 102595]
+03:58:17.026 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:17.026 TTS: before empty check - response.empty=0, response='下面哪个国家的首都不是在首都圈内�', llm_finish=0
+03:58:17.026 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:17.026 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:17.026 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:17.039 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_1/merged_embeddings.txt
+03:58:17.039 TTS Simplex: generating audio tokens for chunk 1 (n_tokens=10, tts_n_embd=768)
+03:58:17.039 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=1, new_size=11)
+03:58:17.039 TTS Simplex: chunk 1 - keeping KV cache, n_past_tts=55
+03:58:17.174 TTS Simplex: prefill completed, n_past_tts=66
+03:58:17.174 TTS Simplex: sampler created
+03:58:17.211 TTS Simplex Phase1: token 1/500: rel_id=2004
+03:58:17.247 TTS Simplex Phase1: token 2/500: rel_id=2193
+03:58:17.284 TTS Simplex Phase1: token 3/500: rel_id=2688
+03:58:17.321 TTS Simplex Phase1: token 4/500: rel_id=2753
+03:58:17.357 TTS Simplex Phase1: token 5/500: rel_id=1642
+03:58:17.394 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 6, buffer=25)
+03:58:18.116 T2W线程: wav_1.wav | 1.00s audio | 721.9ms inference | RTF=0.72 | t=7461ms | queue_wait=0.0ms
+03:58:18.165 TTS Simplex Phase1: token 25/500: rel_id=4677
+03:58:18.474 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 31, buffer=25)
+03:58:18.934 T2W线程: wav_2.wav | 1.00s audio | 458.4ms inference | RTF=0.46 | t=8279ms | queue_wait=0.0ms
+03:58:19.460 TTS Simplex Phase1: token 50/500: rel_id=2502
+03:58:19.631 LLM->TTS: text='某个城市，而是位于一个比较偏僻的', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[106168 99490 3837 103955 103987 46944 99792 99835 118134 9370]
+03:58:19.772 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 56, buffer=25)
+03:58:20.256 T2W线程: wav_3.wav | 1.00s audio | 483.5ms inference | RTF=0.48 | t=9601ms | queue_wait=0.0ms
+03:58:20.862 TTS Simplex Phase1: token 75/500: rel_id=4915
+03:58:21.118 TTS Simplex Phase1: EOS token at step 80
+03:58:21.118 TTS Simplex: chunk 结束，tts_token_buffer 剩余 23 tokens (保留等下一个 chunk)
+03:58:21.118 TTS Simplex: generated 79 audio tokens for chunk 1
+03:58:21.118 TTS Simplex: chunk 1 first tokens: [2004 2193 2688 2753 1642 ], last tokens: [4915 4466 5108 125 5872 ]
+03:58:21.118 TTS Simplex: updated tts_n_past_accumulated=145, total_generated_tokens=123
+03:58:21.119 TTS<-LLM: chunk_idx=2, text='某个城市，而是位于一个比较偏僻的', n_tokens=10, hidden_size=40960, token_ids=[106168 99490 3837 103955 103987 46944 99792 99835 118134 9370]
+03:58:21.119 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:21.119 TTS: before empty check - response.empty=0, response='某个城市，而是位于一个比较偏僻的', llm_finish=0
+03:58:21.119 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:21.119 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:21.119 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:21.132 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_2/merged_embeddings.txt
+03:58:21.132 TTS Simplex: generating audio tokens for chunk 2 (n_tokens=10, tts_n_embd=768)
+03:58:21.132 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=2, new_size=11)
+03:58:21.132 TTS Simplex: chunk 2 - keeping KV cache, n_past_tts=145
+03:58:21.299 TTS Simplex: prefill completed, n_past_tts=156
+03:58:21.299 TTS Simplex: sampler created
+03:58:21.362 TTS Simplex Phase1: token 1/500: rel_id=6021
+03:58:21.425 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 2, buffer=25)
+03:58:21.425 TTS Simplex Phase1: token 2/500: rel_id=5968
+03:58:21.483 TTS Simplex Phase1: token 3/500: rel_id=954
+03:58:21.544 TTS Simplex Phase1: token 4/500: rel_id=707
+03:58:21.606 TTS Simplex Phase1: token 5/500: rel_id=728
+03:58:21.973 T2W线程: wav_4.wav | 1.00s audio | 547.5ms inference | RTF=0.55 | t=11319ms | queue_wait=0.0ms
+03:58:22.752 TTS Simplex Phase1: token 25/500: rel_id=4317
+03:58:22.871 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 27, buffer=25)
+03:58:23.074 LLM->TTS: text='地区呢？A 选项是瑞典，它的', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100361 101036 11319 32 220 109487 20412 110055 3837 104121]
+03:58:23.626 T2W线程: wav_5.wav | 1.00s audio | 754.5ms inference | RTF=0.75 | t=12971ms | queue_wait=0.0ms
+03:58:24.130 TTS Simplex Phase1: token 50/500: rel_id=1701
+03:58:24.232 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 52, buffer=25)
+03:58:24.761 T2W线程: wav_6.wav | 1.00s audio | 528.3ms inference | RTF=0.53 | t=14107ms | queue_wait=0.0ms
+03:58:25.080 TTS Simplex Phase1: token 75/500: rel_id=1295
+03:58:25.155 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 77, buffer=25)
+03:58:25.274 TTS Simplex Phase1: EOS token at step 81
+03:58:25.274 TTS Simplex: chunk 结束，tts_token_buffer 剩余 3 tokens (保留等下一个 chunk)
+03:58:25.274 TTS Simplex: generated 80 audio tokens for chunk 2
+03:58:25.274 TTS Simplex: chunk 2 first tokens: [6021 5968 954 707 728 ], last tokens: [1050 2499 83 2867 2166 ]
+03:58:25.274 TTS Simplex: updated tts_n_past_accumulated=236, total_generated_tokens=203
+03:58:25.274 TTS<-LLM: chunk_idx=3, text='地区呢？A 选项是瑞典，它的', n_tokens=10, hidden_size=40960, token_ids=[100361 101036 11319 32 220 109487 20412 110055 3837 104121]
+03:58:25.274 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:25.274 TTS: before empty check - response.empty=0, response='地区呢？A 选项是瑞典，它的', llm_finish=0
+03:58:25.274 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:25.274 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:25.274 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:25.287 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_3/merged_embeddings.txt
+03:58:25.287 TTS Simplex: generating audio tokens for chunk 3 (n_tokens=10, tts_n_embd=768)
+03:58:25.287 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=3, new_size=11)
+03:58:25.287 TTS Simplex: chunk 3 - keeping KV cache, n_past_tts=236
+03:58:25.429 TTS Simplex: prefill completed, n_past_tts=247
+03:58:25.429 TTS Simplex: sampler created
+03:58:25.482 TTS Simplex Phase1: token 1/500: rel_id=3840
+03:58:25.534 TTS Simplex Phase1: token 2/500: rel_id=4974
+03:58:25.582 TTS Simplex Phase1: token 3/500: rel_id=4668
+03:58:25.634 TTS Simplex Phase1: token 4/500: rel_id=4567
+03:58:25.686 TTS Simplex Phase1: token 5/500: rel_id=6255
+03:58:25.696 LLM->TTS: text='首都是斯德哥尔摩，这个城市', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[59975 100132 99295 99462 99826 99079 100487 3837 99487 99490]
+03:58:25.702 T2W线程: wav_7.wav | 1.00s audio | 546.5ms inference | RTF=0.55 | t=15048ms | queue_wait=0.0ms
+03:58:26.579 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 22, buffer=25)
+03:58:26.741 TTS Simplex Phase1: token 25/500: rel_id=4663
+03:58:27.401 T2W线程: wav_8.wav | 1.00s audio | 821.6ms inference | RTF=0.82 | t=16746ms | queue_wait=0.0ms
+03:58:27.990 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 47, buffer=25)
+03:58:28.153 TTS Simplex Phase1: token 50/500: rel_id=4110
+03:58:28.708 LLM->TTS: text='位于瑞典的中西部，虽然不算特别偏', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[103987 110055 9370 15946 104938 3837 103925 106161 100654 99835]
+03:58:28.737 TTS Simplex Phase1: EOS token at step 63
+03:58:28.737 TTS Simplex: chunk 结束，tts_token_buffer 剩余 15 tokens (保留等下一个 chunk)
+03:58:28.737 TTS Simplex: generated 62 audio tokens for chunk 3
+03:58:28.737 TTS Simplex: chunk 3 first tokens: [3840 4974 4668 4567 6255 ], last tokens: [6021 3708 1613 4123 6309 ]
+03:58:28.737 TTS Simplex: updated tts_n_past_accumulated=309, total_generated_tokens=265
+03:58:28.738 TTS<-LLM: chunk_idx=4, text='首都是斯德哥尔摩，这个城市', n_tokens=10, hidden_size=40960, token_ids=[59975 100132 99295 99462 99826 99079 100487 3837 99487 99490]
+03:58:28.738 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:28.738 TTS: before empty check - response.empty=0, response='首都是斯德哥尔摩，这个城市', llm_finish=0
+03:58:28.738 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:28.738 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:28.738 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:28.751 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_4/merged_embeddings.txt
+03:58:28.751 TTS Simplex: generating audio tokens for chunk 4 (n_tokens=10, tts_n_embd=768)
+03:58:28.751 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=4, new_size=11)
+03:58:28.751 TTS Simplex: chunk 4 - keeping KV cache, n_past_tts=309
+03:58:28.770 T2W线程: wav_9.wav | 1.00s audio | 779.1ms inference | RTF=0.78 | t=18115ms | queue_wait=0.0ms
+03:58:28.905 TTS Simplex: prefill completed, n_past_tts=320
+03:58:28.905 TTS Simplex: sampler created
+03:58:28.963 TTS Simplex Phase1: token 1/500: rel_id=5329
+03:58:29.021 TTS Simplex Phase1: token 2/500: rel_id=4606
+03:58:29.079 TTS Simplex Phase1: token 3/500: rel_id=2753
+03:58:29.136 TTS Simplex Phase1: token 4/500: rel_id=1113
+03:58:29.193 TTS Simplex Phase1: token 5/500: rel_id=294
+03:58:29.482 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 10, buffer=25)
+03:58:30.197 T2W线程: wav_10.wav | 1.00s audio | 714.2ms inference | RTF=0.71 | t=19542ms | queue_wait=0.0ms
+03:58:30.262 TTS Simplex Phase1: token 25/500: rel_id=389
+03:58:30.670 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 35, buffer=25)
+03:58:31.331 T2W线程: wav_11.wav | 1.00s audio | 660.8ms inference | RTF=0.66 | t=20676ms | queue_wait=0.0ms
+03:58:31.589 LLM->TTS: text='僻，但也不在最中心的区域，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[118134 3837 77288 99744 18493 31235 99488 9370 101065 3837]
+03:58:31.602 TTS Simplex Phase1: token 50/500: rel_id=1892
+03:58:32.016 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 60, buffer=25)
+03:58:32.103 TTS Simplex Phase1: EOS token at step 63
+03:58:32.103 TTS Simplex: chunk 结束，tts_token_buffer 剩余 2 tokens (保留等下一个 chunk)
+03:58:32.103 TTS Simplex: generated 62 audio tokens for chunk 4
+03:58:32.103 TTS Simplex: chunk 4 first tokens: [5329 4606 2753 1113 294 ], last tokens: [4972 2003 1945 1950 5835 ]
+03:58:32.103 TTS Simplex: updated tts_n_past_accumulated=382, total_generated_tokens=327
+03:58:32.103 TTS<-LLM: chunk_idx=5, text='位于瑞典的中西部，虽然不算特别偏', n_tokens=10, hidden_size=40960, token_ids=[103987 110055 9370 15946 104938 3837 103925 106161 100654 99835]
+03:58:32.103 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:32.103 TTS: before empty check - response.empty=0, response='位于瑞典的中西部，虽然不算特别偏', llm_finish=0
+03:58:32.103 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:32.103 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:32.104 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:32.116 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_5/merged_embeddings.txt
+03:58:32.116 TTS Simplex: generating audio tokens for chunk 5 (n_tokens=10, tts_n_embd=768)
+03:58:32.116 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=5, new_size=11)
+03:58:32.116 TTS Simplex: chunk 5 - keeping KV cache, n_past_tts=382
+03:58:32.321 TTS Simplex: prefill completed, n_past_tts=393
+03:58:32.321 TTS Simplex: sampler created
+03:58:32.402 TTS Simplex Phase1: token 1/500: rel_id=5838
+03:58:32.483 TTS Simplex Phase1: token 2/500: rel_id=2922
+03:58:32.560 TTS Simplex Phase1: token 3/500: rel_id=1464
+03:58:32.634 TTS Simplex Phase1: token 4/500: rel_id=2112
+03:58:32.715 TTS Simplex Phase1: token 5/500: rel_id=303
+03:58:32.843 T2W线程: wav_12.wav | 1.00s audio | 825.2ms inference | RTF=0.83 | t=22188ms | queue_wait=0.0ms
+03:58:33.964 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 23, buffer=25)
+03:58:34.102 TTS Simplex Phase1: token 25/500: rel_id=1847
+03:58:35.055 T2W线程: wav_13.wav | 1.00s audio | 1089.4ms inference | RTF=1.09 | t=24400ms | queue_wait=0.0ms
+03:58:35.447 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 48, buffer=25)
+03:58:35.552 TTS Simplex Phase1: token 50/500: rel_id=5074
+03:58:35.579 LLM->TTS: text='不过瑞典的首都圈确实是以斯德哥', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100632 110055 9370 106114 100044 102068 105599 99295 99462 99826]
+03:58:36.239 T2W线程: wav_14.wav | 1.00s audio | 792.1ms inference | RTF=0.79 | t=25584ms | queue_wait=0.0ms
+03:58:36.553 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 73, buffer=25)
+03:58:36.611 TTS Simplex Phase1: token 75/500: rel_id=3887
+03:58:36.643 TTS Simplex Phase1: EOS token at step 77
+03:58:36.643 TTS Simplex: chunk 结束，tts_token_buffer 剩余 3 tokens (保留等下一个 chunk)
+03:58:36.643 TTS Simplex: generated 76 audio tokens for chunk 5
+03:58:36.643 TTS Simplex: chunk 5 first tokens: [5838 2922 1464 2112 303 ], last tokens: [2583 5341 6070 3887 3002 ]
+03:58:36.643 TTS Simplex: updated tts_n_past_accumulated=469, total_generated_tokens=403
+03:58:36.644 TTS<-LLM: chunk_idx=6, text='僻，但也不在最中心的区域，', n_tokens=10, hidden_size=40960, token_ids=[118134 3837 77288 99744 18493 31235 99488 9370 101065 3837]
+03:58:36.644 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:36.644 TTS: before empty check - response.empty=0, response='僻，但也不在最中心的区域，', llm_finish=0
+03:58:36.644 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:36.644 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:36.644 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:36.657 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_6/merged_embeddings.txt
+03:58:36.657 TTS Simplex: generating audio tokens for chunk 6 (n_tokens=10, tts_n_embd=768)
+03:58:36.657 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=6, new_size=11)
+03:58:36.657 TTS Simplex: chunk 6 - keeping KV cache, n_past_tts=469
+03:58:36.846 TTS Simplex: prefill completed, n_past_tts=480
+03:58:36.846 TTS Simplex: sampler created
+03:58:36.916 TTS Simplex Phase1: token 1/500: rel_id=4726
+03:58:36.990 TTS Simplex Phase1: token 2/500: rel_id=4314
+03:58:37.062 TTS Simplex Phase1: token 3/500: rel_id=2175
+03:58:37.135 TTS Simplex Phase1: token 4/500: rel_id=1452
+03:58:37.207 TTS Simplex Phase1: token 5/500: rel_id=2186
+03:58:37.598 T2W线程: wav_15.wav | 1.00s audio | 1044.3ms inference | RTF=1.04 | t=26944ms | queue_wait=0.1ms
+03:58:38.307 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 22, buffer=25)
+03:58:38.495 TTS Simplex Phase1: token 25/500: rel_id=4643
+03:58:39.381 T2W线程: wav_16.wav | 1.00s audio | 1074.0ms inference | RTF=1.07 | t=28727ms | queue_wait=0.0ms
+03:58:39.929 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 47, buffer=25)
+03:58:40.112 TTS Simplex Phase1: token 50/500: rel_id=2186
+03:58:40.401 LLM->TTS: text='尔摩为核心，所以它属于首都圈内的', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99079 100487 103125 3837 99999 99652 100409 106114 100044 102595]
+03:58:40.709 T2W线程: wav_17.wav | 1.00s audio | 778.8ms inference | RTF=0.78 | t=30054ms | queue_wait=0.0ms
+03:58:40.948 TTS Simplex Phase1: EOS token at step 71
+03:58:40.948 TTS Simplex: chunk 结束，tts_token_buffer 剩余 23 tokens (保留等下一个 chunk)
+03:58:40.948 TTS Simplex: generated 70 audio tokens for chunk 6
+03:58:40.948 TTS Simplex: chunk 6 first tokens: [4726 4314 2175 1452 2186 ], last tokens: [4434 4513 2562 4587 6177 ]
+03:58:40.948 TTS Simplex: updated tts_n_past_accumulated=550, total_generated_tokens=473
+03:58:40.948 TTS<-LLM: chunk_idx=7, text='不过瑞典的首都圈确实是以斯德哥', n_tokens=10, hidden_size=40960, token_ids=[100632 110055 9370 106114 100044 102068 105599 99295 99462 99826]
+03:58:40.948 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:40.948 TTS: before empty check - response.empty=0, response='不过瑞典的首都圈确实是以斯德哥', llm_finish=0
+03:58:40.948 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:40.948 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:40.949 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:40.961 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_7/merged_embeddings.txt
+03:58:40.961 TTS Simplex: generating audio tokens for chunk 7 (n_tokens=10, tts_n_embd=768)
+03:58:40.961 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=7, new_size=11)
+03:58:40.961 TTS Simplex: chunk 7 - keeping KV cache, n_past_tts=550
+03:58:41.145 TTS Simplex: prefill completed, n_past_tts=561
+03:58:41.145 TTS Simplex: sampler created
+03:58:41.231 TTS Simplex Phase1: token 1/500: rel_id=3936
+03:58:41.302 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 2, buffer=25)
+03:58:41.302 TTS Simplex Phase1: token 2/500: rel_id=4439
+03:58:41.377 TTS Simplex Phase1: token 3/500: rel_id=68
+03:58:41.453 TTS Simplex Phase1: token 4/500: rel_id=546
+03:58:41.525 TTS Simplex Phase1: token 5/500: rel_id=6298
+03:58:42.171 T2W线程: wav_18.wav | 1.00s audio | 868.5ms inference | RTF=0.87 | t=31516ms | queue_wait=0.0ms
+03:58:42.901 TTS Simplex Phase1: token 25/500: rel_id=3648
+03:58:43.047 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 27, buffer=25)
+03:58:43.833 T2W线程: wav_19.wav | 1.00s audio | 785.2ms inference | RTF=0.79 | t=33178ms | queue_wait=0.0ms
+03:58:44.142 LLM->TTS: text='城市。B 选项是挪威，它的首', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99490 1773 33 220 109487 20412 117451 3837 104121 59975]
+03:58:44.228 TTS Simplex Phase1: token 50/500: rel_id=5167
+03:58:44.288 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 52, buffer=25)
+03:58:44.906 T2W线程: wav_20.wav | 1.00s audio | 617.8ms inference | RTF=0.62 | t=34251ms | queue_wait=0.0ms
+03:58:45.029 TTS Simplex Phase1: token 75/500: rel_id=5319
+03:58:45.088 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 77, buffer=25)
+03:58:45.151 TTS Simplex Phase1: EOS token at step 80
+03:58:45.151 TTS Simplex: chunk 结束，tts_token_buffer 剩余 2 tokens (保留等下一个 chunk)
+03:58:45.151 TTS Simplex: generated 79 audio tokens for chunk 7
+03:58:45.151 TTS Simplex: chunk 7 first tokens: [3936 4439 68 546 6298 ], last tokens: [5319 5247 5989 3875 161 ]
+03:58:45.151 TTS Simplex: updated tts_n_past_accumulated=640, total_generated_tokens=552
+03:58:45.152 TTS<-LLM: chunk_idx=8, text='尔摩为核心，所以它属于首都圈内的', n_tokens=10, hidden_size=40960, token_ids=[99079 100487 103125 3837 99999 99652 100409 106114 100044 102595]
+03:58:45.152 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:45.152 TTS: before empty check - response.empty=0, response='尔摩为核心，所以它属于首都圈内的', llm_finish=0
+03:58:45.152 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:45.152 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:45.152 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:45.165 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_8/merged_embeddings.txt
+03:58:45.165 TTS Simplex: generating audio tokens for chunk 8 (n_tokens=10, tts_n_embd=768)
+03:58:45.165 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=8, new_size=11)
+03:58:45.165 TTS Simplex: chunk 8 - keeping KV cache, n_past_tts=640
+03:58:45.340 TTS Simplex: prefill completed, n_past_tts=651
+03:58:45.340 TTS Simplex: sampler created
+03:58:45.408 TTS Simplex Phase1: token 1/500: rel_id=3481
+03:58:45.478 TTS Simplex Phase1: token 2/500: rel_id=1294
+03:58:45.544 TTS Simplex Phase1: token 3/500: rel_id=1294
+03:58:45.607 TTS Simplex Phase1: token 4/500: rel_id=809
+03:58:45.667 TTS Simplex Phase1: token 5/500: rel_id=5401
+03:58:45.673 T2W线程: wav_21.wav | 1.00s audio | 584.3ms inference | RTF=0.58 | t=35018ms | queue_wait=0.0ms
+03:58:46.842 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 23, buffer=25)
+03:58:46.978 TTS Simplex Phase1: token 25/500: rel_id=2657
+03:58:47.923 T2W线程: wav_22.wav | 1.00s audio | 1079.5ms inference | RTF=1.08 | t=37268ms | queue_wait=0.0ms
+03:58:48.113 LLM->TTS: text='都是奥斯陆，这个城市位于挪威的东南', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100132 115933 97145 3837 99487 99490 103987 117451 9370 102937]
+03:58:48.316 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 48, buffer=25)
+03:58:48.398 TTS Simplex Phase1: token 50/500: rel_id=5078
+03:58:48.931 T2W线程: wav_23.wav | 1.00s audio | 614.7ms inference | RTF=0.61 | t=38276ms | queue_wait=0.0ms
+03:58:49.379 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 73, buffer=25)
+03:58:49.382 TTS Simplex Phase1: EOS token at step 74
+03:58:49.382 TTS Simplex: chunk 结束，tts_token_buffer 剩余 0 tokens (保留等下一个 chunk)
+03:58:49.382 TTS Simplex: generated 73 audio tokens for chunk 8
+03:58:49.382 TTS Simplex: chunk 8 first tokens: [3481 1294 1294 809 5401 ], last tokens: [1619 1943 5345 5968 6049 ]
+03:58:49.382 TTS Simplex: updated tts_n_past_accumulated=724, total_generated_tokens=625
+03:58:49.383 TTS<-LLM: chunk_idx=9, text='城市。B 选项是挪威，它的首', n_tokens=10, hidden_size=40960, token_ids=[99490 1773 33 220 109487 20412 117451 3837 104121 59975]
+03:58:49.383 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:49.383 TTS: before empty check - response.empty=0, response='城市。B 选项是挪威，它的首', llm_finish=0
+03:58:49.383 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:49.383 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:49.383 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:49.396 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_9/merged_embeddings.txt
+03:58:49.396 TTS Simplex: generating audio tokens for chunk 9 (n_tokens=10, tts_n_embd=768)
+03:58:49.396 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=9, new_size=11)
+03:58:49.396 TTS Simplex: chunk 9 - keeping KV cache, n_past_tts=724
+03:58:49.608 TTS Simplex: prefill completed, n_past_tts=735
+03:58:49.608 TTS Simplex: sampler created
+03:58:49.689 TTS Simplex Phase1: token 1/500: rel_id=3135
+03:58:49.770 TTS Simplex Phase1: token 2/500: rel_id=707
+03:58:49.848 TTS Simplex Phase1: token 3/500: rel_id=1367
+03:58:49.927 TTS Simplex Phase1: token 4/500: rel_id=1845
+03:58:50.006 TTS Simplex Phase1: token 5/500: rel_id=315
+03:58:50.161 T2W线程: wav_24.wav | 1.00s audio | 780.5ms inference | RTF=0.78 | t=39506ms | queue_wait=0.0ms
+03:58:51.429 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+03:58:51.429 TTS Simplex Phase1: token 25/500: rel_id=3682
+03:58:52.513 T2W线程: wav_25.wav | 1.00s audio | 1082.6ms inference | RTF=1.08 | t=41858ms | queue_wait=0.0ms
+03:58:53.109 LLM->TTS: text='部，靠近海岸，属于首都圈，所以', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[32948 3837 106963 107983 3837 100409 106114 100044 3837 99999]
+03:58:53.124 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 50, buffer=25)
+03:58:53.124 TTS Simplex Phase1: token 50/500: rel_id=2482
+03:58:53.608 TTS Simplex Phase1: EOS token at step 61
+03:58:53.608 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+03:58:53.608 TTS Simplex: generated 60 audio tokens for chunk 9
+03:58:53.608 TTS Simplex: chunk 9 first tokens: [3135 707 1367 1845 315 ], last tokens: [3060 64 3669 991 1430 ]
+03:58:53.608 TTS Simplex: updated tts_n_past_accumulated=795, total_generated_tokens=685
+03:58:53.609 TTS<-LLM: chunk_idx=10, text='都是奥斯陆，这个城市位于挪威的东南', n_tokens=10, hidden_size=40960, token_ids=[100132 115933 97145 3837 99487 99490 103987 117451 9370 102937]
+03:58:53.609 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:53.609 TTS: before empty check - response.empty=0, response='都是奥斯陆，这个城市位于挪威的东�', llm_finish=0
+03:58:53.609 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:53.609 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:53.609 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:53.623 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_10/merged_embeddings.txt
+03:58:53.623 TTS Simplex: generating audio tokens for chunk 10 (n_tokens=10, tts_n_embd=768)
+03:58:53.623 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=10, new_size=11)
+03:58:53.623 TTS Simplex: chunk 10 - keeping KV cache, n_past_tts=795
+03:58:53.836 T2W线程: wav_26.wav | 1.00s audio | 710.9ms inference | RTF=0.71 | t=43181ms | queue_wait=0.0ms
+03:58:53.855 TTS Simplex: prefill completed, n_past_tts=806
+03:58:53.855 TTS Simplex: sampler created
+03:58:53.915 TTS Simplex Phase1: token 1/500: rel_id=629
+03:58:53.974 TTS Simplex Phase1: token 2/500: rel_id=2897
+03:58:54.035 TTS Simplex Phase1: token 3/500: rel_id=5830
+03:58:54.091 TTS Simplex Phase1: token 4/500: rel_id=5102
+03:58:54.150 TTS Simplex Phase1: token 5/500: rel_id=4568
+03:58:54.844 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+03:58:55.597 TTS Simplex Phase1: token 25/500: rel_id=1439
+03:58:55.732 T2W线程: wav_27.wav | 1.00s audio | 886.9ms inference | RTF=0.89 | t=45077ms | queue_wait=0.0ms
+03:58:56.548 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+03:58:56.777 LLM->TTS: text='奥斯陆也是首都圈内的城市。C ', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[115933 97145 100000 106114 100044 102595 99490 1773 34 220]
+03:58:57.006 TTS Simplex Phase1: token 50/500: rel_id=2032
+03:58:57.214 T2W线程: wav_28.wav | 1.00s audio | 664.7ms inference | RTF=0.66 | t=46559ms | queue_wait=0.1ms
+03:58:57.525 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 65, buffer=25)
+03:58:57.661 TTS Simplex Phase1: EOS token at step 70
+03:58:57.661 TTS Simplex: chunk 结束，tts_token_buffer 剩余 4 tokens (保留等下一个 chunk)
+03:58:57.661 TTS Simplex: generated 69 audio tokens for chunk 10
+03:58:57.661 TTS Simplex: chunk 10 first tokens: [629 2897 5830 5102 4568 ], last tokens: [4428 5989 3872 3644 5830 ]
+03:58:57.661 TTS Simplex: updated tts_n_past_accumulated=875, total_generated_tokens=754
+03:58:57.662 TTS<-LLM: chunk_idx=11, text='部，靠近海岸，属于首都圈，所以', n_tokens=10, hidden_size=40960, token_ids=[32948 3837 106963 107983 3837 100409 106114 100044 3837 99999]
+03:58:57.662 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:58:57.662 TTS: before empty check - response.empty=0, response='部，靠近海岸，属于首都圈，所以', llm_finish=0
+03:58:57.662 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:58:57.662 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:58:57.662 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:58:57.675 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_11/merged_embeddings.txt
+03:58:57.675 TTS Simplex: generating audio tokens for chunk 11 (n_tokens=10, tts_n_embd=768)
+03:58:57.675 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=11, new_size=11)
+03:58:57.675 TTS Simplex: chunk 11 - keeping KV cache, n_past_tts=875
+03:58:57.859 TTS Simplex: prefill completed, n_past_tts=886
+03:58:57.859 TTS Simplex: sampler created
+03:58:57.911 TTS Simplex Phase1: token 1/500: rel_id=4592
+03:58:57.962 TTS Simplex Phase1: token 2/500: rel_id=2672
+03:58:58.015 TTS Simplex Phase1: token 3/500: rel_id=4130
+03:58:58.063 TTS Simplex Phase1: token 4/500: rel_id=4130
+03:58:58.074 T2W线程: wav_29.wav | 1.00s audio | 547.7ms inference | RTF=0.55 | t=47419ms | queue_wait=0.0ms
+03:58:58.111 TTS Simplex Phase1: token 5/500: rel_id=5345
+03:58:58.842 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 21, buffer=25)
+03:58:59.036 TTS Simplex Phase1: token 25/500: rel_id=2198
+03:58:59.498 T2W线程: wav_30.wav | 1.00s audio | 655.2ms inference | RTF=0.66 | t=48843ms | queue_wait=0.0ms
+03:59:00.254 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 46, buffer=25)
+03:59:00.385 LLM->TTS: text='选项是丹麦，它的首都是哥本哈', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[109487 20412 114669 3837 104121 59975 100132 99826 21894 98671]
+03:59:00.474 TTS Simplex Phase1: token 50/500: rel_id=2439
+03:59:00.876 T2W线程: wav_31.wav | 1.00s audio | 621.8ms inference | RTF=0.62 | t=50221ms | queue_wait=0.0ms
+03:59:01.313 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 71, buffer=25)
+03:59:01.463 TTS Simplex Phase1: token 75/500: rel_id=6048
+03:59:01.710 TTS Simplex Phase1: EOS token at step 82
+03:59:01.710 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+03:59:01.710 TTS Simplex: generated 81 audio tokens for chunk 11
+03:59:01.710 TTS Simplex: chunk 11 first tokens: [4592 2672 4130 4130 5345 ], last tokens: [613 629 1373 1842 315 ]
+03:59:01.710 TTS Simplex: updated tts_n_past_accumulated=967, total_generated_tokens=835
+03:59:01.711 TTS<-LLM: chunk_idx=12, text='奥斯陆也是首都圈内的城市。C ', n_tokens=10, hidden_size=40960, token_ids=[115933 97145 100000 106114 100044 102595 99490 1773 34 220]
+03:59:01.711 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:01.711 TTS: before empty check - response.empty=0, response='奥斯陆也是首都圈内的城市。C ', llm_finish=0
+03:59:01.711 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:01.711 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:01.712 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:01.724 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_12/merged_embeddings.txt
+03:59:01.724 TTS Simplex: generating audio tokens for chunk 12 (n_tokens=10, tts_n_embd=768)
+03:59:01.724 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=12, new_size=11)
+03:59:01.724 TTS Simplex: chunk 12 - keeping KV cache, n_past_tts=967
+03:59:01.947 T2W线程: wav_32.wav | 1.00s audio | 633.9ms inference | RTF=0.63 | t=51293ms | queue_wait=0.0ms
+03:59:01.956 TTS Simplex: prefill completed, n_past_tts=978
+03:59:01.956 TTS Simplex: sampler created
+03:59:02.035 TTS Simplex Phase1: token 1/500: rel_id=3644
+03:59:02.112 TTS Simplex Phase1: token 2/500: rel_id=5824
+03:59:02.186 TTS Simplex Phase1: token 3/500: rel_id=5406
+03:59:02.258 TTS Simplex Phase1: token 4/500: rel_id=3840
+03:59:02.331 TTS Simplex Phase1: token 5/500: rel_id=3101
+03:59:03.079 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+03:59:03.860 TTS Simplex Phase1: token 25/500: rel_id=1520
+03:59:03.956 T2W线程: wav_33.wav | 1.00s audio | 876.0ms inference | RTF=0.88 | t=53301ms | queue_wait=0.1ms
+03:59:04.973 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+03:59:05.168 LLM->TTS: text='根，这个城市位于丹麦的南部，是', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99408 3837 99487 99490 103987 114669 9370 106835 3837 20412]
+03:59:05.546 TTS Simplex Phase1: token 50/500: rel_id=6048
+03:59:05.587 T2W线程: wav_34.wav | 1.00s audio | 614.0ms inference | RTF=0.61 | t=54932ms | queue_wait=0.1ms
+03:59:06.247 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 65, buffer=25)
+03:59:06.663 TTS Simplex Phase1: token 75/500: rel_id=5322
+03:59:06.707 TTS Simplex Phase1: EOS token at step 77
+03:59:06.707 TTS Simplex: chunk 结束，tts_token_buffer 剩余 11 tokens (保留等下一个 chunk)
+03:59:06.707 TTS Simplex: generated 76 audio tokens for chunk 12
+03:59:06.707 TTS Simplex: chunk 12 first tokens: [3644 5824 5406 3840 3101 ], last tokens: [63 113 147 5322 1626 ]
+03:59:06.707 TTS Simplex: updated tts_n_past_accumulated=1054, total_generated_tokens=911
+03:59:06.708 TTS<-LLM: chunk_idx=13, text='选项是丹麦，它的首都是哥本哈', n_tokens=10, hidden_size=40960, token_ids=[109487 20412 114669 3837 104121 59975 100132 99826 21894 98671]
+03:59:06.708 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:06.708 TTS: before empty check - response.empty=0, response='选项是丹麦，它的首都是哥本哈', llm_finish=0
+03:59:06.708 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:06.708 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:06.708 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:06.721 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_13/merged_embeddings.txt
+03:59:06.721 TTS Simplex: generating audio tokens for chunk 13 (n_tokens=10, tts_n_embd=768)
+03:59:06.721 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=13, new_size=11)
+03:59:06.721 TTS Simplex: chunk 13 - keeping KV cache, n_past_tts=1054
+03:59:06.815 T2W线程: wav_35.wav | 1.00s audio | 567.9ms inference | RTF=0.57 | t=56160ms | queue_wait=0.0ms
+03:59:06.944 TTS Simplex: prefill completed, n_past_tts=1065
+03:59:06.944 TTS Simplex: sampler created
+03:59:07.009 TTS Simplex Phase1: token 1/500: rel_id=497
+03:59:07.067 TTS Simplex Phase1: token 2/500: rel_id=1964
+03:59:07.129 TTS Simplex Phase1: token 3/500: rel_id=4235
+03:59:07.195 TTS Simplex Phase1: token 4/500: rel_id=6048
+03:59:07.256 TTS Simplex Phase1: token 5/500: rel_id=5319
+03:59:07.787 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 14, buffer=25)
+03:59:08.579 T2W线程: wav_36.wav | 1.00s audio | 790.7ms inference | RTF=0.79 | t=57924ms | queue_wait=0.0ms
+03:59:08.646 TTS Simplex Phase1: token 25/500: rel_id=5643
+03:59:09.680 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 39, buffer=25)
+03:59:09.889 LLM->TTS: text='丹麦最大的城市，也是首都圈的核心，所以', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[114669 104003 99490 3837 100000 106114 100044 104867 3837 99999]
+03:59:10.180 TTS Simplex Phase1: token 50/500: rel_id=6258
+03:59:10.252 T2W线程: wav_37.wav | 1.00s audio | 571.2ms inference | RTF=0.57 | t=59597ms | queue_wait=0.0ms
+03:59:10.660 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 64, buffer=25)
+03:59:11.041 TTS Simplex Phase1: token 75/500: rel_id=632
+03:59:11.249 T2W线程: wav_38.wav | 1.00s audio | 588.1ms inference | RTF=0.59 | t=60594ms | queue_wait=0.0ms
+03:59:11.614 TTS Simplex Phase1: EOS token at step 88
+03:59:11.614 TTS Simplex: chunk 结束，tts_token_buffer 剩余 23 tokens (保留等下一个 chunk)
+03:59:11.614 TTS Simplex: generated 87 audio tokens for chunk 13
+03:59:11.614 TTS Simplex: chunk 13 first tokens: [497 1964 4235 6048 5319 ], last tokens: [1598 1525 2031 81 4772 ]
+03:59:11.614 TTS Simplex: updated tts_n_past_accumulated=1152, total_generated_tokens=998
+03:59:11.615 TTS<-LLM: chunk_idx=14, text='根，这个城市位于丹麦的南部，是', n_tokens=10, hidden_size=40960, token_ids=[99408 3837 99487 99490 103987 114669 9370 106835 3837 20412]
+03:59:11.615 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:11.615 TTS: before empty check - response.empty=0, response='根，这个城市位于丹麦的南部，是', llm_finish=0
+03:59:11.615 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:11.615 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:11.615 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:11.628 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_14/merged_embeddings.txt
+03:59:11.628 TTS Simplex: generating audio tokens for chunk 14 (n_tokens=10, tts_n_embd=768)
+03:59:11.628 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=14, new_size=11)
+03:59:11.628 TTS Simplex: chunk 14 - keeping KV cache, n_past_tts=1152
+03:59:11.854 TTS Simplex: prefill completed, n_past_tts=1163
+03:59:11.854 TTS Simplex: sampler created
+03:59:11.932 TTS Simplex Phase1: token 1/500: rel_id=5077
+03:59:12.005 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 2, buffer=25)
+03:59:12.005 TTS Simplex Phase1: token 2/500: rel_id=1440
+03:59:12.080 TTS Simplex Phase1: token 3/500: rel_id=1431
+03:59:12.157 TTS Simplex Phase1: token 4/500: rel_id=2
+03:59:12.241 TTS Simplex Phase1: token 5/500: rel_id=1010
+03:59:12.877 T2W线程: wav_39.wav | 1.00s audio | 870.8ms inference | RTF=0.87 | t=62222ms | queue_wait=0.0ms
+03:59:13.876 TTS Simplex Phase1: token 25/500: rel_id=2490
+03:59:14.034 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 27, buffer=25)
+03:59:14.791 T2W线程: wav_40.wav | 1.00s audio | 755.5ms inference | RTF=0.76 | t=64136ms | queue_wait=0.0ms
+03:59:15.186 LLM->TTS: text='哥本哈根当然是首都圈内的城市。', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99826 21894 98671 99408 109656 106114 100044 102595 99490 1773]
+03:59:15.483 TTS Simplex Phase1: token 50/500: rel_id=303
+03:59:15.574 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 52, buffer=25)
+03:59:16.124 TTS Simplex Phase1: EOS token at step 64
+03:59:16.124 TTS Simplex: chunk 结束，tts_token_buffer 剩余 11 tokens (保留等下一个 chunk)
+03:59:16.124 TTS Simplex: generated 63 audio tokens for chunk 14
+03:59:16.124 TTS Simplex: chunk 14 first tokens: [5077 1440 1431 2 1010 ], last tokens: [64 29 3669 1479 731 ]
+03:59:16.124 TTS Simplex: updated tts_n_past_accumulated=1226, total_generated_tokens=1061
+03:59:16.125 TTS<-LLM: chunk_idx=15, text='丹麦最大的城市，也是首都圈的核心，所以', n_tokens=10, hidden_size=40960, token_ids=[114669 104003 99490 3837 100000 106114 100044 104867 3837 99999]
+03:59:16.125 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:16.125 TTS: before empty check - response.empty=0, response='丹麦最大的城市，也是首都圈的核心�', llm_finish=0
+03:59:16.125 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:16.125 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:16.125 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:16.138 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_15/merged_embeddings.txt
+03:59:16.138 TTS Simplex: generating audio tokens for chunk 15 (n_tokens=10, tts_n_embd=768)
+03:59:16.138 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=15, new_size=11)
+03:59:16.138 TTS Simplex: chunk 15 - keeping KV cache, n_past_tts=1226
+03:59:16.160 T2W线程: wav_41.wav | 1.00s audio | 585.3ms inference | RTF=0.59 | t=65505ms | queue_wait=0.0ms
+03:59:16.332 TTS Simplex: prefill completed, n_past_tts=1237
+03:59:16.332 TTS Simplex: sampler created
+03:59:16.413 TTS Simplex Phase1: token 1/500: rel_id=1460
+03:59:16.489 TTS Simplex Phase1: token 2/500: rel_id=1800
+03:59:16.566 TTS Simplex Phase1: token 3/500: rel_id=6258
+03:59:16.645 TTS Simplex Phase1: token 4/500: rel_id=2148
+03:59:16.726 TTS Simplex Phase1: token 5/500: rel_id=1431
+03:59:17.471 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 14, buffer=25)
+03:59:18.383 T2W线程: wav_42.wav | 1.00s audio | 912.0ms inference | RTF=0.91 | t=67729ms | queue_wait=0.0ms
+03:59:18.402 TTS Simplex Phase1: token 25/500: rel_id=5918
+03:59:19.517 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 39, buffer=25)
+03:59:19.722 LLM->TTS: text='D 选项是冰岛，它的首都是', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[35 220 109487 20412 100038 99825 3837 104121 59975 100132]
+03:59:20.157 TTS Simplex Phase1: token 50/500: rel_id=5260
+03:59:20.213 T2W线程: wav_43.wav | 1.00s audio | 695.8ms inference | RTF=0.70 | t=69558ms | queue_wait=0.0ms
+03:59:20.830 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 64, buffer=25)
+03:59:21.405 TTS Simplex Phase1: token 75/500: rel_id=5831
+03:59:21.454 T2W线程: wav_44.wav | 1.00s audio | 622.8ms inference | RTF=0.62 | t=70799ms | queue_wait=0.0ms
+03:59:21.700 TTS Simplex Phase1: EOS token at step 82
+03:59:21.700 TTS Simplex: chunk 结束，tts_token_buffer 剩余 17 tokens (保留等下一个 chunk)
+03:59:21.700 TTS Simplex: generated 81 audio tokens for chunk 15
+03:59:21.700 TTS Simplex: chunk 15 first tokens: [1460 1800 6258 2148 1431 ], last tokens: [312 6055 903 4457 2286 ]
+03:59:21.700 TTS Simplex: updated tts_n_past_accumulated=1318, total_generated_tokens=1142
+03:59:21.700 TTS<-LLM: chunk_idx=16, text='哥本哈根当然是首都圈内的城市。', n_tokens=10, hidden_size=40960, token_ids=[99826 21894 98671 99408 109656 106114 100044 102595 99490 1773]
+03:59:21.700 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:21.700 TTS: before empty check - response.empty=0, response='哥本哈根当然是首都圈内的城市。', llm_finish=0
+03:59:21.700 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:21.700 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:21.701 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:21.714 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_16/merged_embeddings.txt
+03:59:21.714 TTS Simplex: generating audio tokens for chunk 16 (n_tokens=10, tts_n_embd=768)
+03:59:21.714 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=16, new_size=11)
+03:59:21.714 TTS Simplex: chunk 16 - keeping KV cache, n_past_tts=1318
+03:59:21.948 TTS Simplex: prefill completed, n_past_tts=1329
+03:59:21.948 TTS Simplex: sampler created
+03:59:22.007 TTS Simplex Phase1: token 1/500: rel_id=2206
+03:59:22.063 TTS Simplex Phase1: token 2/500: rel_id=380
+03:59:22.121 TTS Simplex Phase1: token 3/500: rel_id=4860
+03:59:22.178 TTS Simplex Phase1: token 4/500: rel_id=2676
+03:59:22.235 TTS Simplex Phase1: token 5/500: rel_id=495
+03:59:22.408 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 8, buffer=25)
+03:59:22.979 T2W线程: wav_45.wav | 1.00s audio | 570.5ms inference | RTF=0.57 | t=72324ms | queue_wait=0.0ms
+03:59:23.536 TTS Simplex Phase1: token 25/500: rel_id=1373
+03:59:24.067 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 33, buffer=25)
+03:59:24.207 LLM->TTS: text='雷克雅未克，这个城市位于冰', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[96465 99316 71025 38342 99316 3837 99487 99490 103987 100038]
+03:59:24.626 T2W线程: wav_46.wav | 1.00s audio | 559.0ms inference | RTF=0.56 | t=73971ms | queue_wait=0.0ms
+03:59:24.934 TTS Simplex Phase1: token 50/500: rel_id=4299
+03:59:25.315 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 58, buffer=25)
+03:59:25.875 T2W线程: wav_47.wav | 1.00s audio | 559.4ms inference | RTF=0.56 | t=75221ms | queue_wait=0.0ms
+03:59:26.063 TTS Simplex Phase1: token 75/500: rel_id=2282
+03:59:26.182 TTS Simplex Phase1: EOS token at step 79
+03:59:26.182 TTS Simplex: chunk 结束，tts_token_buffer 剩余 20 tokens (保留等下一个 chunk)
+03:59:26.182 TTS Simplex: generated 78 audio tokens for chunk 16
+03:59:26.182 TTS Simplex: chunk 16 first tokens: [2206 380 4860 2676 495 ], last tokens: [3813 2282 4378 3666 4396 ]
+03:59:26.182 TTS Simplex: updated tts_n_past_accumulated=1407, total_generated_tokens=1220
+03:59:26.183 TTS<-LLM: chunk_idx=17, text='D 选项是冰岛，它的首都是', n_tokens=10, hidden_size=40960, token_ids=[35 220 109487 20412 100038 99825 3837 104121 59975 100132]
+03:59:26.183 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:26.183 TTS: before empty check - response.empty=0, response='D 选项是冰岛，它的首都是', llm_finish=0
+03:59:26.183 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:26.183 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:26.183 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:26.195 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_17/merged_embeddings.txt
+03:59:26.195 TTS Simplex: generating audio tokens for chunk 17 (n_tokens=10, tts_n_embd=768)
+03:59:26.195 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=17, new_size=11)
+03:59:26.195 TTS Simplex: chunk 17 - keeping KV cache, n_past_tts=1407
+03:59:26.410 TTS Simplex: prefill completed, n_past_tts=1418
+03:59:26.410 TTS Simplex: sampler created
+03:59:26.476 TTS Simplex Phase1: token 1/500: rel_id=4760
+03:59:26.541 TTS Simplex Phase1: token 2/500: rel_id=79
+03:59:26.605 TTS Simplex Phase1: token 3/500: rel_id=64
+03:59:26.671 TTS Simplex Phase1: token 4/500: rel_id=113
+03:59:26.736 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 5, buffer=25)
+03:59:26.736 TTS Simplex Phase1: token 5/500: rel_id=5241
+03:59:27.458 T2W线程: wav_48.wav | 1.00s audio | 720.4ms inference | RTF=0.72 | t=76803ms | queue_wait=0.0ms
+03:59:28.187 TTS Simplex Phase1: token 25/500: rel_id=2085
+03:59:28.555 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 30, buffer=25)
+03:59:29.102 LLM->TTS: text='岛的西南部，靠近大西洋，虽然', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99825 9370 105325 32948 3837 106963 26288 113455 3837 103925]
+03:59:29.226 T2W线程: wav_49.wav | 1.00s audio | 670.2ms inference | RTF=0.67 | t=78571ms | queue_wait=0.0ms
+03:59:29.577 TTS Simplex Phase1: token 50/500: rel_id=1914
+03:59:29.769 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 55, buffer=25)
+03:59:29.850 TTS Simplex Phase1: EOS token at step 58
+03:59:29.850 TTS Simplex: chunk 结束，tts_token_buffer 剩余 2 tokens (保留等下一个 chunk)
+03:59:29.850 TTS Simplex: generated 57 audio tokens for chunk 17
+03:59:29.850 TTS Simplex: chunk 17 first tokens: [4760 79 64 113 5241 ], last tokens: [494 602 1952 1948 3645 ]
+03:59:29.850 TTS Simplex: updated tts_n_past_accumulated=1475, total_generated_tokens=1277
+03:59:29.851 TTS<-LLM: chunk_idx=18, text='雷克雅未克，这个城市位于冰', n_tokens=10, hidden_size=40960, token_ids=[96465 99316 71025 38342 99316 3837 99487 99490 103987 100038]
+03:59:29.851 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:29.851 TTS: before empty check - response.empty=0, response='雷克雅未克，这个城市位于冰', llm_finish=0
+03:59:29.851 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:29.851 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:29.851 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:29.864 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_18/merged_embeddings.txt
+03:59:29.864 TTS Simplex: generating audio tokens for chunk 18 (n_tokens=10, tts_n_embd=768)
+03:59:29.864 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=18, new_size=11)
+03:59:29.864 TTS Simplex: chunk 18 - keeping KV cache, n_past_tts=1475
+03:59:30.130 TTS Simplex: prefill completed, n_past_tts=1486
+03:59:30.130 TTS Simplex: sampler created
+03:59:30.208 TTS Simplex Phase1: token 1/500: rel_id=5835
+03:59:30.281 TTS Simplex Phase1: token 2/500: rel_id=5835
+03:59:30.355 TTS Simplex Phase1: token 3/500: rel_id=3648
+03:59:30.388 T2W线程: wav_50.wav | 1.00s audio | 618.1ms inference | RTF=0.62 | t=79733ms | queue_wait=0.0ms
+03:59:30.427 TTS Simplex Phase1: token 4/500: rel_id=1869
+03:59:30.495 TTS Simplex Phase1: token 5/500: rel_id=300
+03:59:31.555 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 23, buffer=25)
+03:59:31.650 TTS Simplex Phase1: token 25/500: rel_id=3884
+03:59:32.167 T2W线程: wav_51.wav | 1.00s audio | 611.9ms inference | RTF=0.61 | t=81513ms | queue_wait=0.0ms
+03:59:32.202 LLM->TTS: text='不是在冰岛的最中心，但冰', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99520 18493 100038 99825 9370 31235 99488 3837 77288 100038]
+03:59:32.802 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 48, buffer=25)
+03:59:32.896 TTS Simplex Phase1: token 50/500: rel_id=5094
+03:59:33.400 T2W线程: wav_52.wav | 1.00s audio | 597.5ms inference | RTF=0.60 | t=82745ms | queue_wait=0.0ms
+03:59:33.880 TTS Simplex Phase1: EOS token at step 70
+03:59:33.881 TTS Simplex: chunk 结束，tts_token_buffer 剩余 21 tokens (保留等下一个 chunk)
+03:59:33.881 TTS Simplex: generated 69 audio tokens for chunk 18
+03:59:33.881 TTS Simplex: chunk 18 first tokens: [5835 5835 3648 1869 300 ], last tokens: [3315 2827 218 2976 3837 ]
+03:59:33.881 TTS Simplex: updated tts_n_past_accumulated=1555, total_generated_tokens=1346
+03:59:33.881 TTS<-LLM: chunk_idx=19, text='岛的西南部，靠近大西洋，虽然', n_tokens=10, hidden_size=40960, token_ids=[99825 9370 105325 32948 3837 106963 26288 113455 3837 103925]
+03:59:33.881 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:33.881 TTS: before empty check - response.empty=0, response='岛的西南部，靠近大西洋，虽然', llm_finish=0
+03:59:33.881 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:33.881 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:33.882 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:33.894 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_19/merged_embeddings.txt
+03:59:33.894 TTS Simplex: generating audio tokens for chunk 19 (n_tokens=10, tts_n_embd=768)
+03:59:33.894 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=19, new_size=11)
+03:59:33.894 TTS Simplex: chunk 19 - keeping KV cache, n_past_tts=1555
+03:59:34.103 TTS Simplex: prefill completed, n_past_tts=1566
+03:59:34.103 TTS Simplex: sampler created
+03:59:34.160 TTS Simplex Phase1: token 1/500: rel_id=981
+03:59:34.214 TTS Simplex Phase1: token 2/500: rel_id=524
+03:59:34.271 TTS Simplex Phase1: token 3/500: rel_id=4232
+03:59:34.327 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 4, buffer=25)
+03:59:34.327 TTS Simplex Phase1: token 4/500: rel_id=3746
+03:59:34.388 TTS Simplex Phase1: token 5/500: rel_id=6048
+03:59:35.051 T2W线程: wav_53.wav | 1.00s audio | 723.3ms inference | RTF=0.72 | t=84396ms | queue_wait=0.0ms
+03:59:35.669 TTS Simplex Phase1: token 25/500: rel_id=602
+03:59:35.951 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 29, buffer=25)
+03:59:36.529 T2W线程: wav_54.wav | 1.00s audio | 576.5ms inference | RTF=0.58 | t=85874ms | queue_wait=0.0ms
+03:59:36.626 LLM->TTS: text='岛的国土非常小，雷克雅未', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99825 9370 103318 99491 30709 3837 96465 99316 71025 38342]
+03:59:37.270 TTS Simplex Phase1: token 50/500: rel_id=3645
+03:59:37.467 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 54, buffer=25)
+03:59:38.040 T2W线程: wav_55.wav | 1.00s audio | 572.2ms inference | RTF=0.57 | t=87385ms | queue_wait=0.0ms
+03:59:38.298 TTS Simplex Phase1: EOS token at step 71
+03:59:38.298 TTS Simplex: chunk 结束，tts_token_buffer 剩余 16 tokens (保留等下一个 chunk)
+03:59:38.298 TTS Simplex: generated 70 audio tokens for chunk 19
+03:59:38.298 TTS Simplex: chunk 19 first tokens: [981 524 4232 3746 6048 ], last tokens: [6157 3890 2194 4753 4678 ]
+03:59:38.298 TTS Simplex: updated tts_n_past_accumulated=1636, total_generated_tokens=1416
+03:59:38.299 TTS<-LLM: chunk_idx=20, text='不是在冰岛的最中心，但冰', n_tokens=10, hidden_size=40960, token_ids=[99520 18493 100038 99825 9370 31235 99488 3837 77288 100038]
+03:59:38.299 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:38.299 TTS: before empty check - response.empty=0, response='不是在冰岛的最中心，但冰', llm_finish=0
+03:59:38.299 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:38.299 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:38.299 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:38.311 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_20/merged_embeddings.txt
+03:59:38.311 TTS Simplex: generating audio tokens for chunk 20 (n_tokens=10, tts_n_embd=768)
+03:59:38.311 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=20, new_size=11)
+03:59:38.311 TTS Simplex: chunk 20 - keeping KV cache, n_past_tts=1636
+03:59:38.523 TTS Simplex: prefill completed, n_past_tts=1647
+03:59:38.523 TTS Simplex: sampler created
+03:59:38.574 TTS Simplex Phase1: token 1/500: rel_id=5667
+03:59:38.624 TTS Simplex Phase1: token 2/500: rel_id=5019
+03:59:38.675 TTS Simplex Phase1: token 3/500: rel_id=4696
+03:59:38.726 TTS Simplex Phase1: token 4/500: rel_id=116
+03:59:38.776 TTS Simplex Phase1: token 5/500: rel_id=1703
+03:59:39.078 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 9, buffer=25)
+03:59:39.707 T2W线程: wav_56.wav | 1.00s audio | 627.6ms inference | RTF=0.63 | t=89052ms | queue_wait=0.0ms
+03:59:40.381 TTS Simplex Phase1: token 25/500: rel_id=4311
+03:59:41.056 LLM->TTS: text='克实际上是冰岛唯一的真正大城市，也是冰', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99316 114675 100038 99825 106610 100690 109307 3837 100000 100038]
+03:59:41.081 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 34, buffer=25)
+03:59:41.676 T2W线程: wav_57.wav | 1.00s audio | 594.0ms inference | RTF=0.59 | t=91021ms | queue_wait=0.0ms
+03:59:41.901 TTS Simplex Phase1: token 50/500: rel_id=272
+03:59:42.343 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 59, buffer=25)
+03:59:42.700 TTS Simplex Phase1: EOS token at step 67
+03:59:42.700 TTS Simplex: chunk 结束，tts_token_buffer 剩余 7 tokens (保留等下一个 chunk)
+03:59:42.700 TTS Simplex: generated 66 audio tokens for chunk 20
+03:59:42.700 TTS Simplex: chunk 20 first tokens: [5667 5019 4696 116 1703 ], last tokens: [4513 2508 4778 4507 4398 ]
+03:59:42.700 TTS Simplex: updated tts_n_past_accumulated=1713, total_generated_tokens=1482
+03:59:42.700 TTS<-LLM: chunk_idx=21, text='岛的国土非常小，雷克雅未', n_tokens=10, hidden_size=40960, token_ids=[99825 9370 103318 99491 30709 3837 96465 99316 71025 38342]
+03:59:42.700 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:42.700 TTS: before empty check - response.empty=0, response='岛的国土非常小，雷克雅未', llm_finish=0
+03:59:42.700 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:42.700 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:42.701 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:42.714 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_21/merged_embeddings.txt
+03:59:42.714 TTS Simplex: generating audio tokens for chunk 21 (n_tokens=10, tts_n_embd=768)
+03:59:42.714 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=21, new_size=11)
+03:59:42.714 TTS Simplex: chunk 21 - keeping KV cache, n_past_tts=1713
+03:59:42.920 T2W线程: wav_58.wav | 1.00s audio | 576.7ms inference | RTF=0.58 | t=92265ms | queue_wait=0.0ms
+03:59:42.945 TTS Simplex: prefill completed, n_past_tts=1724
+03:59:42.945 TTS Simplex: sampler created
+03:59:42.995 TTS Simplex Phase1: token 1/500: rel_id=2032
+03:59:43.045 TTS Simplex Phase1: token 2/500: rel_id=1951
+03:59:43.093 TTS Simplex Phase1: token 3/500: rel_id=5838
+03:59:43.143 TTS Simplex Phase1: token 4/500: rel_id=5835
+03:59:43.191 TTS Simplex Phase1: token 5/500: rel_id=5838
+03:59:43.821 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 18, buffer=25)
+03:59:44.176 TTS Simplex Phase1: token 25/500: rel_id=573
+03:59:44.372 T2W线程: wav_59.wav | 1.00s audio | 550.0ms inference | RTF=0.55 | t=93717ms | queue_wait=0.0ms
+03:59:44.632 LLM->TTS: text='岛的绝对中心，所以它属于首都圈', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99825 9370 101244 99488 3837 99999 99652 100409 106114 100044]
+03:59:45.065 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 43, buffer=25)
+03:59:45.409 TTS Simplex Phase1: token 50/500: rel_id=575
+03:59:45.656 T2W线程: wav_60.wav | 1.00s audio | 589.6ms inference | RTF=0.59 | t=95001ms | queue_wait=0.0ms
+03:59:46.062 TTS Simplex Phase1: EOS token at step 64
+03:59:46.062 TTS Simplex: chunk 结束，tts_token_buffer 剩余 20 tokens (保留等下一个 chunk)
+03:59:46.062 TTS Simplex: generated 63 audio tokens for chunk 21
+03:59:46.062 TTS Simplex: chunk 21 first tokens: [2032 1951 5838 5835 5838 ], last tokens: [5986 32 4850 420 162 ]
+03:59:46.062 TTS Simplex: updated tts_n_past_accumulated=1787, total_generated_tokens=1545
+03:59:46.063 TTS<-LLM: chunk_idx=22, text='克实际上是冰岛唯一的真正大城市，也是冰', n_tokens=10, hidden_size=40960, token_ids=[99316 114675 100038 99825 106610 100690 109307 3837 100000 100038]
+03:59:46.063 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:46.063 TTS: before empty check - response.empty=0, response='克实际上是冰岛唯一的真正大城市，�', llm_finish=0
+03:59:46.063 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:46.063 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:46.063 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:46.075 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_22/merged_embeddings.txt
+03:59:46.075 TTS Simplex: generating audio tokens for chunk 22 (n_tokens=10, tts_n_embd=768)
+03:59:46.075 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=22, new_size=11)
+03:59:46.075 TTS Simplex: chunk 22 - keeping KV cache, n_past_tts=1787
+03:59:46.304 TTS Simplex: prefill completed, n_past_tts=1798
+03:59:46.304 TTS Simplex: sampler created
+03:59:46.358 TTS Simplex Phase1: token 1/500: rel_id=3006
+03:59:46.412 TTS Simplex Phase1: token 2/500: rel_id=4769
+03:59:46.465 TTS Simplex Phase1: token 3/500: rel_id=1466
+03:59:46.518 TTS Simplex Phase1: token 4/500: rel_id=1946
+03:59:46.572 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 5, buffer=25)
+03:59:46.572 TTS Simplex Phase1: token 5/500: rel_id=719
+03:59:47.127 T2W线程: wav_61.wav | 1.00s audio | 554.2ms inference | RTF=0.55 | t=96472ms | queue_wait=0.0ms
+03:59:47.653 TTS Simplex Phase1: token 25/500: rel_id=5100
+03:59:47.912 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 30, buffer=25)
+03:59:47.933 LLM->TTS: text='内的城市。所以，四个国家的首都，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[102595 99490 1773 99999 3837 100802 99599 9370 106114 3837]
+03:59:48.495 T2W线程: wav_62.wav | 1.00s audio | 581.9ms inference | RTF=0.58 | t=97840ms | queue_wait=0.0ms
+03:59:48.966 TTS Simplex Phase1: token 50/500: rel_id=5667
+03:59:49.231 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 55, buffer=25)
+03:59:49.833 T2W线程: wav_63.wav | 1.00s audio | 600.9ms inference | RTF=0.60 | t=99178ms | queue_wait=0.0ms
+03:59:50.325 TTS Simplex Phase1: token 75/500: rel_id=4154
+03:59:50.593 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 80, buffer=25)
+03:59:50.702 TTS Simplex Phase1: EOS token at step 83
+03:59:50.702 TTS Simplex: chunk 结束，tts_token_buffer 剩余 2 tokens (保留等下一个 chunk)
+03:59:50.702 TTS Simplex: generated 82 audio tokens for chunk 22
+03:59:50.702 TTS Simplex: chunk 22 first tokens: [3006 4769 1466 1946 719 ], last tokens: [5238 5260 3875 1598 1735 ]
+03:59:50.702 TTS Simplex: updated tts_n_past_accumulated=1880, total_generated_tokens=1627
+03:59:50.703 TTS<-LLM: chunk_idx=23, text='岛的绝对中心，所以它属于首都圈', n_tokens=10, hidden_size=40960, token_ids=[99825 9370 101244 99488 3837 99999 99652 100409 106114 100044]
+03:59:50.703 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:50.703 TTS: before empty check - response.empty=0, response='岛的绝对中心，所以它属于首都圈', llm_finish=0
+03:59:50.703 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:50.703 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:50.703 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:50.716 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_23/merged_embeddings.txt
+03:59:50.716 TTS Simplex: generating audio tokens for chunk 23 (n_tokens=10, tts_n_embd=768)
+03:59:50.716 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=23, new_size=11)
+03:59:50.716 TTS Simplex: chunk 23 - keeping KV cache, n_past_tts=1880
+03:59:50.998 TTS Simplex: prefill completed, n_past_tts=1891
+03:59:50.998 TTS Simplex: sampler created
+03:59:51.097 TTS Simplex Phase1: token 1/500: rel_id=3651
+03:59:51.186 TTS Simplex Phase1: token 2/500: rel_id=5838
+03:59:51.274 T2W线程: wav_64.wav | 1.00s audio | 678.9ms inference | RTF=0.68 | t=100619ms | queue_wait=0.0ms
+03:59:51.276 TTS Simplex Phase1: token 3/500: rel_id=5835
+03:59:51.380 TTS Simplex Phase1: token 4/500: rel_id=5838
+03:59:51.460 TTS Simplex Phase1: token 5/500: rel_id=5109
+03:59:52.827 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 23, buffer=25)
+03:59:52.987 TTS Simplex Phase1: token 25/500: rel_id=1281
+03:59:53.603 T2W线程: wav_65.wav | 1.00s audio | 775.4ms inference | RTF=0.78 | t=102948ms | queue_wait=0.0ms
+03:59:53.648 LLM->TTS: text='A、B、C、D，哪一个不在', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[32 5373 33 5373 34 5373 35 3837 115752 102972]
+03:59:54.442 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 48, buffer=25)
+03:59:54.529 TTS Simplex Phase1: token 50/500: rel_id=2032
+03:59:55.018 T2W线程: wav_66.wav | 1.00s audio | 575.0ms inference | RTF=0.58 | t=104363ms | queue_wait=0.0ms
+03:59:55.521 TTS Simplex Phase1: EOS token at step 71
+03:59:55.521 TTS Simplex: chunk 结束，tts_token_buffer 剩余 22 tokens (保留等下一个 chunk)
+03:59:55.521 TTS Simplex: generated 70 audio tokens for chunk 23
+03:59:55.521 TTS Simplex: chunk 23 first tokens: [3651 5838 5835 5838 5109 ], last tokens: [2187 6085 5509 5212 6048 ]
+03:59:55.521 TTS Simplex: updated tts_n_past_accumulated=1961, total_generated_tokens=1697
+03:59:55.522 TTS<-LLM: chunk_idx=24, text='内的城市。所以，四个国家的首都，', n_tokens=10, hidden_size=40960, token_ids=[102595 99490 1773 99999 3837 100802 99599 9370 106114 3837]
+03:59:55.522 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:59:55.522 TTS: before empty check - response.empty=0, response='内的城市。所以，四个国家的首都，', llm_finish=0
+03:59:55.522 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:59:55.522 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:59:55.522 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:59:55.535 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_24/merged_embeddings.txt
+03:59:55.535 TTS Simplex: generating audio tokens for chunk 24 (n_tokens=10, tts_n_embd=768)
+03:59:55.535 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=24, new_size=11)
+03:59:55.535 TTS Simplex: chunk 24 - keeping KV cache, n_past_tts=1961
+03:59:55.852 TTS Simplex: prefill completed, n_past_tts=1972
+03:59:55.852 TTS Simplex: sampler created
+03:59:55.935 TTS Simplex Phase1: token 1/500: rel_id=6292
+03:59:56.013 TTS Simplex Phase1: token 2/500: rel_id=2178
+03:59:56.097 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 3, buffer=25)
+03:59:56.097 TTS Simplex Phase1: token 3/500: rel_id=1457
+03:59:56.192 TTS Simplex Phase1: token 4/500: rel_id=2102
+03:59:56.272 TTS Simplex Phase1: token 5/500: rel_id=1862
+03:59:56.830 T2W线程: wav_67.wav | 1.00s audio | 732.4ms inference | RTF=0.73 | t=106175ms | queue_wait=0.1ms
+03:59:57.644 TTS Simplex Phase1: token 25/500: rel_id=4542
+03:59:57.851 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 28, buffer=25)
+03:59:58.326 LLM->TTS: text='首都圈内呢？其实它们都在首都圈', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[106114 100044 31843 101036 11319 101045 104017 102070 106114 100044]
+03:59:58.559 T2W线程: wav_68.wav | 1.00s audio | 707.0ms inference | RTF=0.71 | t=107904ms | queue_wait=0.0ms
+03:59:59.113 TTS Simplex Phase1: token 50/500: rel_id=3645
+03:59:59.260 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 53, buffer=25)
+03:59:59.878 T2W线程: wav_69.wav | 1.00s audio | 617.2ms inference | RTF=0.62 | t=109223ms | queue_wait=0.0ms
+04:00:00.386 TTS Simplex Phase1: token 75/500: rel_id=2585
+04:00:00.566 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 78, buffer=25)
+04:00:01.209 T2W线程: wav_70.wav | 1.00s audio | 642.4ms inference | RTF=0.64 | t=110554ms | queue_wait=0.0ms
+04:00:01.235 TTS Simplex Phase1: EOS token at step 91
+04:00:01.235 TTS Simplex: chunk 结束，tts_token_buffer 剩余 12 tokens (保留等下一个 chunk)
+04:00:01.235 TTS Simplex: generated 90 audio tokens for chunk 24
+04:00:01.235 TTS Simplex: chunk 24 first tokens: [6292 2178 1457 2102 1862 ], last tokens: [315 4403 2225 6048 5319 ]
+04:00:01.235 TTS Simplex: updated tts_n_past_accumulated=2062, total_generated_tokens=1787
+04:00:01.236 TTS<-LLM: chunk_idx=25, text='A、B、C、D，哪一个不在', n_tokens=10, hidden_size=40960, token_ids=[32 5373 33 5373 34 5373 35 3837 115752 102972]
+04:00:01.236 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:01.236 TTS: before empty check - response.empty=0, response='A、B、C、D，哪一个不在', llm_finish=0
+04:00:01.236 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:01.236 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:01.236 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:01.249 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_25/merged_embeddings.txt
+04:00:01.249 TTS Simplex: generating audio tokens for chunk 25 (n_tokens=10, tts_n_embd=768)
+04:00:01.249 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=25, new_size=11)
+04:00:01.249 TTS Simplex: chunk 25 - keeping KV cache, n_past_tts=2062
+04:00:01.522 TTS Simplex: prefill completed, n_past_tts=2073
+04:00:01.522 TTS Simplex: sampler created
+04:00:01.610 TTS Simplex Phase1: token 1/500: rel_id=848
+04:00:01.699 TTS Simplex Phase1: token 2/500: rel_id=710
+04:00:01.792 TTS Simplex Phase1: token 3/500: rel_id=1376
+04:00:01.882 TTS Simplex Phase1: token 4/500: rel_id=873
+04:00:01.972 TTS Simplex Phase1: token 5/500: rel_id=300
+04:00:02.699 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 13, buffer=25)
+04:00:03.469 T2W线程: wav_71.wav | 1.00s audio | 769.6ms inference | RTF=0.77 | t=112814ms | queue_wait=0.0ms
+04:00:03.725 TTS Simplex Phase1: token 25/500: rel_id=1464
+04:00:04.489 LLM->TTS: text='内，但题目问的是哪一个不是在首都', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[31843 3837 77288 106367 56007 100146 115752 99520 18493 106114]
+04:00:04.637 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 38, buffer=25)
+04:00:05.225 T2W线程: wav_72.wav | 1.00s audio | 587.1ms inference | RTF=0.59 | t=114570ms | queue_wait=0.0ms
+04:00:05.303 TTS Simplex Phase1: token 50/500: rel_id=3651
+04:00:05.971 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 63, buffer=25)
+04:00:06.027 TTS Simplex Phase1: EOS token at step 65
+04:00:06.027 TTS Simplex: chunk 结束，tts_token_buffer 剩余 1 tokens (保留等下一个 chunk)
+04:00:06.027 TTS Simplex: generated 64 audio tokens for chunk 25
+04:00:06.027 TTS Simplex: chunk 25 first tokens: [848 710 1376 873 300 ], last tokens: [2005 1978 1950 4218 1704 ]
+04:00:06.027 TTS Simplex: updated tts_n_past_accumulated=2137, total_generated_tokens=1851
+04:00:06.028 TTS<-LLM: chunk_idx=26, text='首都圈内呢？其实它们都在首都圈', n_tokens=10, hidden_size=40960, token_ids=[106114 100044 31843 101036 11319 101045 104017 102070 106114 100044]
+04:00:06.028 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:06.028 TTS: before empty check - response.empty=0, response='首都圈内呢？其实它们都在首都圈', llm_finish=0
+04:00:06.028 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:06.028 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:06.028 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:06.041 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_26/merged_embeddings.txt
+04:00:06.041 TTS Simplex: generating audio tokens for chunk 26 (n_tokens=10, tts_n_embd=768)
+04:00:06.041 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=26, new_size=11)
+04:00:06.041 TTS Simplex: chunk 26 - keeping KV cache, n_past_tts=2137
+04:00:06.370 TTS Simplex: prefill completed, n_past_tts=2148
+04:00:06.370 TTS Simplex: sampler created
+04:00:06.420 T2W线程: wav_73.wav | 1.00s audio | 447.9ms inference | RTF=0.45 | t=115765ms | queue_wait=0.1ms
+04:00:06.460 TTS Simplex Phase1: token 1/500: rel_id=2031
+04:00:06.548 TTS Simplex Phase1: token 2/500: rel_id=4218
+04:00:06.637 TTS Simplex Phase1: token 3/500: rel_id=4218
+04:00:06.724 TTS Simplex Phase1: token 4/500: rel_id=1483
+04:00:06.813 TTS Simplex Phase1: token 5/500: rel_id=3669
+04:00:08.499 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 24, buffer=25)
+04:00:08.583 TTS Simplex Phase1: token 25/500: rel_id=2231
+04:00:09.287 T2W线程: wav_74.wav | 1.00s audio | 786.8ms inference | RTF=0.79 | t=118632ms | queue_wait=0.0ms
+04:00:09.473 LLM->TTS: text='圈内的某个城市，而是位于一个比较偏', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100044 102595 106168 99490 3837 103955 103987 46944 99792 99835]
+04:00:10.164 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 49, buffer=25)
+04:00:10.217 TTS Simplex Phase1: token 50/500: rel_id=3645
+04:00:10.748 T2W线程: wav_75.wav | 1.00s audio | 582.9ms inference | RTF=0.58 | t=120093ms | queue_wait=0.0ms
+04:00:11.509 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 74, buffer=25)
+04:00:11.560 TTS Simplex Phase1: token 75/500: rel_id=5650
+04:00:11.789 TTS Simplex Phase1: EOS token at step 80
+04:00:11.789 TTS Simplex: chunk 结束，tts_token_buffer 剩余 5 tokens (保留等下一个 chunk)
+04:00:11.789 TTS Simplex: generated 79 audio tokens for chunk 26
+04:00:11.789 TTS Simplex: chunk 26 first tokens: [2031 4218 4218 1483 3669 ], last tokens: [5650 4446 5188 89 5971 ]
+04:00:11.789 TTS Simplex: updated tts_n_past_accumulated=2227, total_generated_tokens=1930
+04:00:11.790 TTS<-LLM: chunk_idx=27, text='内，但题目问的是哪一个不是在首都', n_tokens=10, hidden_size=40960, token_ids=[31843 3837 77288 106367 56007 100146 115752 99520 18493 106114]
+04:00:11.790 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:11.790 TTS: before empty check - response.empty=0, response='内，但题目问的是哪一个不是在首都', llm_finish=0
+04:00:11.790 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:11.790 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:11.790 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:11.803 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_27/merged_embeddings.txt
+04:00:11.803 TTS Simplex: generating audio tokens for chunk 27 (n_tokens=10, tts_n_embd=768)
+04:00:11.803 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=27, new_size=11)
+04:00:11.803 TTS Simplex: chunk 27 - keeping KV cache, n_past_tts=2227
+04:00:12.127 T2W线程: wav_76.wav | 1.00s audio | 617.1ms inference | RTF=0.62 | t=121472ms | queue_wait=0.0ms
+04:00:12.138 TTS Simplex: prefill completed, n_past_tts=2238
+04:00:12.138 TTS Simplex: sampler created
+04:00:12.231 TTS Simplex Phase1: token 1/500: rel_id=6048
+04:00:12.320 TTS Simplex Phase1: token 2/500: rel_id=846
+04:00:12.412 TTS Simplex Phase1: token 3/500: rel_id=629
+04:00:12.505 TTS Simplex Phase1: token 4/500: rel_id=1369
+04:00:12.591 TTS Simplex Phase1: token 5/500: rel_id=309
+04:00:13.911 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 20, buffer=25)
+04:00:14.340 TTS Simplex Phase1: token 25/500: rel_id=2085
+04:00:14.600 T2W线程: wav_77.wav | 1.00s audio | 688.0ms inference | RTF=0.69 | t=123945ms | queue_wait=0.0ms
+04:00:15.081 LLM->TTS: text='僻的地区。如果我们从地理角度理解，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[118134 9370 100361 1773 109198 45181 102752 100884 101128 3837]
+04:00:15.618 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 45, buffer=25)
+04:00:15.893 TTS Simplex Phase1: token 50/500: rel_id=140
+04:00:16.202 T2W线程: wav_78.wav | 1.00s audio | 583.7ms inference | RTF=0.58 | t=125547ms | queue_wait=0.0ms
+04:00:16.823 TTS Simplex Phase1: EOS token at step 68
+04:00:16.823 TTS Simplex: chunk 结束，tts_token_buffer 剩余 22 tokens (保留等下一个 chunk)
+04:00:16.823 TTS Simplex: generated 67 audio tokens for chunk 27
+04:00:16.823 TTS Simplex: chunk 27 first tokens: [6048 846 629 1369 309 ], last tokens: [5101 1059 90 4843 714 ]
+04:00:16.823 TTS Simplex: updated tts_n_past_accumulated=2305, total_generated_tokens=1997
+04:00:16.823 TTS<-LLM: chunk_idx=28, text='圈内的某个城市，而是位于一个比较偏', n_tokens=10, hidden_size=40960, token_ids=[100044 102595 106168 99490 3837 103955 103987 46944 99792 99835]
+04:00:16.823 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:16.823 TTS: before empty check - response.empty=0, response='圈内的某个城市，而是位于一个比较�', llm_finish=0
+04:00:16.823 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:16.823 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:16.824 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:16.837 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_28/merged_embeddings.txt
+04:00:16.837 TTS Simplex: generating audio tokens for chunk 28 (n_tokens=10, tts_n_embd=768)
+04:00:16.837 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=28, new_size=11)
+04:00:16.837 TTS Simplex: chunk 28 - keeping KV cache, n_past_tts=2305
+04:00:17.130 TTS Simplex: prefill completed, n_past_tts=2316
+04:00:17.130 TTS Simplex: sampler created
+04:00:17.206 TTS Simplex Phase1: token 1/500: rel_id=2166
+04:00:17.295 TTS Simplex Phase1: token 2/500: rel_id=2185
+04:00:17.375 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 3, buffer=25)
+04:00:17.375 TTS Simplex Phase1: token 3/500: rel_id=3644
+04:00:17.454 TTS Simplex Phase1: token 4/500: rel_id=5976
+04:00:17.536 TTS Simplex Phase1: token 5/500: rel_id=6048
+04:00:18.124 T2W线程: wav_79.wav | 1.00s audio | 747.7ms inference | RTF=0.75 | t=127469ms | queue_wait=0.0ms
+04:00:19.396 TTS Simplex Phase1: token 25/500: rel_id=4460
+04:00:19.682 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 28, buffer=25)
+04:00:19.968 LLM->TTS: text='斯德哥尔摩虽然在中西部，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99295 99462 99826 99079 100487 103925 18493 15946 104938 3837]
+04:00:20.331 T2W线程: wav_80.wav | 1.00s audio | 648.7ms inference | RTF=0.65 | t=129676ms | queue_wait=0.0ms
+04:00:21.044 TTS Simplex Phase1: token 50/500: rel_id=6070
+04:00:21.205 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 53, buffer=25)
+04:00:21.794 T2W线程: wav_81.wav | 1.00s audio | 588.6ms inference | RTF=0.59 | t=131140ms | queue_wait=0.0ms
+04:00:22.447 TTS Simplex Phase1: token 75/500: rel_id=4858
+04:00:22.506 TTS Simplex Phase1: EOS token at step 77
+04:00:22.506 TTS Simplex: chunk 结束，tts_token_buffer 剩余 23 tokens (保留等下一个 chunk)
+04:00:22.506 TTS Simplex: generated 76 audio tokens for chunk 28
+04:00:22.506 TTS Simplex: chunk 28 first tokens: [2166 2185 3644 5976 6048 ], last tokens: [4130 6317 5669 4858 978 ]
+04:00:22.506 TTS Simplex: updated tts_n_past_accumulated=2392, total_generated_tokens=2073
+04:00:22.507 TTS<-LLM: chunk_idx=29, text='僻的地区。如果我们从地理角度理解，', n_tokens=10, hidden_size=40960, token_ids=[118134 9370 100361 1773 109198 45181 102752 100884 101128 3837]
+04:00:22.507 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:22.507 TTS: before empty check - response.empty=0, response='僻的地区。如果我们从地理角度理解�', llm_finish=0
+04:00:22.507 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:22.507 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:22.507 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:22.520 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_29/merged_embeddings.txt
+04:00:22.520 TTS Simplex: generating audio tokens for chunk 29 (n_tokens=10, tts_n_embd=768)
+04:00:22.520 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=29, new_size=11)
+04:00:22.520 TTS Simplex: chunk 29 - keeping KV cache, n_past_tts=2392
+04:00:22.843 TTS Simplex: prefill completed, n_past_tts=2403
+04:00:22.844 TTS Simplex: sampler created
+04:00:22.934 TTS Simplex Phase1: token 1/500: rel_id=207
+04:00:23.028 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 2, buffer=25)
+04:00:23.028 TTS Simplex Phase1: token 2/500: rel_id=4835
+04:00:23.125 TTS Simplex Phase1: token 3/500: rel_id=2648
+04:00:23.216 TTS Simplex Phase1: token 4/500: rel_id=2166
+04:00:23.317 TTS Simplex Phase1: token 5/500: rel_id=1926
+04:00:23.825 T2W线程: wav_82.wav | 1.00s audio | 797.2ms inference | RTF=0.80 | t=133171ms | queue_wait=0.0ms
+04:00:25.236 TTS Simplex Phase1: token 25/500: rel_id=4778
+04:00:25.421 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 27, buffer=25)
+04:00:26.066 LLM->TTS: text='但周围还有很多城市和区域组成首都圈，', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[77288 102385 109016 99490 33108 101065 101286 106114 100044 3837]
+04:00:26.149 T2W线程: wav_83.wav | 1.00s audio | 727.3ms inference | RTF=0.73 | t=135494ms | queue_wait=0.0ms
+04:00:26.960 TTS Simplex Phase1: token 50/500: rel_id=5080
+04:00:27.066 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 52, buffer=25)
+04:00:27.550 T2W线程: wav_84.wav | 1.00s audio | 483.1ms inference | RTF=0.48 | t=136895ms | queue_wait=0.0ms
+04:00:28.333 TTS Simplex Phase1: token 75/500: rel_id=629
+04:00:28.441 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 77, buffer=25)
+04:00:28.444 TTS Simplex Phase1: EOS token at step 78
+04:00:28.444 TTS Simplex: chunk 结束，tts_token_buffer 剩余 0 tokens (保留等下一个 chunk)
+04:00:28.444 TTS Simplex: generated 77 audio tokens for chunk 29
+04:00:28.444 TTS Simplex: chunk 29 first tokens: [207 4835 2648 2166 1926 ], last tokens: [113 1223 629 387 306 ]
+04:00:28.444 TTS Simplex: updated tts_n_past_accumulated=2480, total_generated_tokens=2150
+04:00:28.445 TTS<-LLM: chunk_idx=30, text='斯德哥尔摩虽然在中西部，', n_tokens=10, hidden_size=40960, token_ids=[99295 99462 99826 99079 100487 103925 18493 15946 104938 3837]
+04:00:28.445 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:28.445 TTS: before empty check - response.empty=0, response='斯德哥尔摩虽然在中西部，', llm_finish=0
+04:00:28.445 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:28.445 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:28.445 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:28.458 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_30/merged_embeddings.txt
+04:00:28.458 TTS Simplex: generating audio tokens for chunk 30 (n_tokens=10, tts_n_embd=768)
+04:00:28.458 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=30, new_size=11)
+04:00:28.458 TTS Simplex: chunk 30 - keeping KV cache, n_past_tts=2480
+04:00:28.806 TTS Simplex: prefill completed, n_past_tts=2491
+04:00:28.806 TTS Simplex: sampler created
+04:00:28.905 TTS Simplex Phase1: token 1/500: rel_id=5828
+04:00:29.007 TTS Simplex Phase1: token 2/500: rel_id=3641
+04:00:29.113 TTS Simplex Phase1: token 3/500: rel_id=1692
+04:00:29.146 T2W线程: wav_85.wav | 1.00s audio | 704.8ms inference | RTF=0.70 | t=138492ms | queue_wait=0.0ms
+04:00:29.207 TTS Simplex Phase1: token 4/500: rel_id=80
+04:00:29.299 TTS Simplex Phase1: token 5/500: rel_id=1294
+04:00:30.933 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+04:00:30.933 TTS Simplex Phase1: token 25/500: rel_id=1272
+04:00:31.336 LLM->TTS: text='所以它不算偏僻。而雷克雅', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99999 99652 106161 99835 118134 1773 68536 96465 99316 71025]
+04:00:31.518 T2W线程: wav_86.wav | 1.00s audio | 584.1ms inference | RTF=0.58 | t=140863ms | queue_wait=0.0ms
+04:00:32.338 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 50, buffer=25)
+04:00:32.338 TTS Simplex Phase1: token 50/500: rel_id=3912
+04:00:32.826 TTS Simplex Phase1: EOS token at step 59
+04:00:32.826 TTS Simplex: chunk 结束，tts_token_buffer 剩余 8 tokens (保留等下一个 chunk)
+04:00:32.826 TTS Simplex: generated 58 audio tokens for chunk 30
+04:00:32.826 TTS Simplex: chunk 30 first tokens: [5828 3641 1692 80 1294 ], last tokens: [951 6051 1451 5777 6422 ]
+04:00:32.826 TTS Simplex: updated tts_n_past_accumulated=2549, total_generated_tokens=2208
+04:00:32.827 TTS<-LLM: chunk_idx=31, text='但周围还有很多城市和区域组成首都圈，', n_tokens=10, hidden_size=40960, token_ids=[77288 102385 109016 99490 33108 101065 101286 106114 100044 3837]
+04:00:32.827 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:32.827 TTS: before empty check - response.empty=0, response='但周围还有很多城市和区域组成首都�', llm_finish=0
+04:00:32.827 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:32.827 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:32.827 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:32.840 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_31/merged_embeddings.txt
+04:00:32.840 TTS Simplex: generating audio tokens for chunk 31 (n_tokens=10, tts_n_embd=768)
+04:00:32.840 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=31, new_size=11)
+04:00:32.840 TTS Simplex: chunk 31 - keeping KV cache, n_past_tts=2549
+04:00:32.962 T2W线程: wav_87.wav | 1.00s audio | 623.6ms inference | RTF=0.62 | t=142307ms | queue_wait=0.0ms
+04:00:33.155 TTS Simplex: prefill completed, n_past_tts=2560
+04:00:33.155 TTS Simplex: sampler created
+04:00:33.252 TTS Simplex Phase1: token 1/500: rel_id=4509
+04:00:33.345 TTS Simplex Phase1: token 2/500: rel_id=4435
+04:00:33.436 TTS Simplex Phase1: token 3/500: rel_id=2751
+04:00:33.524 TTS Simplex Phase1: token 4/500: rel_id=5344
+04:00:33.618 TTS Simplex Phase1: token 5/500: rel_id=2175
+04:00:34.698 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 17, buffer=25)
+04:00:35.436 TTS Simplex Phase1: token 25/500: rel_id=221
+04:00:35.538 T2W线程: wav_88.wav | 1.00s audio | 838.4ms inference | RTF=0.84 | t=144883ms | queue_wait=0.0ms
+04:00:35.967 LLM->TTS: text='未克虽然在西南部，但它是冰', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[38342 99316 103925 18493 105325 32948 3837 77288 105226 100038]
+04:00:36.602 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 42, buffer=25)
+04:00:37.084 TTS Simplex Phase1: token 50/500: rel_id=524
+04:00:37.240 T2W线程: wav_89.wav | 1.00s audio | 637.4ms inference | RTF=0.64 | t=146585ms | queue_wait=0.0ms
+04:00:38.067 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 67, buffer=25)
+04:00:38.553 TTS Simplex Phase1: token 75/500: rel_id=2183
+04:00:38.788 T2W线程: wav_90.wav | 1.00s audio | 720.2ms inference | RTF=0.72 | t=148133ms | queue_wait=0.0ms
+04:00:38.939 TTS Simplex Phase1: EOS token at step 82
+04:00:38.939 TTS Simplex: chunk 结束，tts_token_buffer 剩余 14 tokens (保留等下一个 chunk)
+04:00:38.940 TTS Simplex: generated 81 audio tokens for chunk 31
+04:00:38.940 TTS Simplex: chunk 31 first tokens: [4509 4435 2751 5344 2175 ], last tokens: [3108 983 3503 5203 6048 ]
+04:00:38.940 TTS Simplex: updated tts_n_past_accumulated=2641, total_generated_tokens=2289
+04:00:38.940 TTS<-LLM: chunk_idx=32, text='所以它不算偏僻。而雷克雅', n_tokens=10, hidden_size=40960, token_ids=[99999 99652 106161 99835 118134 1773 68536 96465 99316 71025]
+04:00:38.940 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:38.940 TTS: before empty check - response.empty=0, response='所以它不算偏僻。而雷克雅', llm_finish=0
+04:00:38.940 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:38.940 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:38.941 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:38.953 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_32/merged_embeddings.txt
+04:00:38.953 TTS Simplex: generating audio tokens for chunk 32 (n_tokens=10, tts_n_embd=768)
+04:00:38.953 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=32, new_size=11)
+04:00:38.953 TTS Simplex: chunk 32 - keeping KV cache, n_past_tts=2641
+04:00:39.301 TTS Simplex: prefill completed, n_past_tts=2652
+04:00:39.301 TTS Simplex: sampler created
+04:00:39.391 TTS Simplex Phase1: token 1/500: rel_id=3132
+04:00:39.481 TTS Simplex Phase1: token 2/500: rel_id=626
+04:00:39.574 TTS Simplex Phase1: token 3/500: rel_id=638
+04:00:39.663 TTS Simplex Phase1: token 4/500: rel_id=2085
+04:00:39.753 TTS Simplex Phase1: token 5/500: rel_id=630
+04:00:40.309 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 11, buffer=25)
+04:00:41.124 T2W线程: wav_91.wav | 1.00s audio | 814.8ms inference | RTF=0.81 | t=150469ms | queue_wait=0.0ms
+04:00:41.632 TTS Simplex Phase1: token 25/500: rel_id=5588
+04:00:42.379 LLM->TTS: text='岛的唯一大城市，所以也不算偏僻', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99825 9370 102157 109307 3837 99999 99744 69103 99835 118134]
+04:00:42.469 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 36, buffer=25)
+04:00:43.033 T2W线程: wav_92.wav | 1.00s audio | 563.1ms inference | RTF=0.56 | t=152378ms | queue_wait=0.0ms
+04:00:43.297 TTS Simplex Phase1: token 50/500: rel_id=1295
+04:00:43.941 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 61, buffer=25)
+04:00:44.122 TTS Simplex Phase1: EOS token at step 65
+04:00:44.122 TTS Simplex: chunk 结束，tts_token_buffer 剩余 3 tokens (保留等下一个 chunk)
+04:00:44.122 TTS Simplex: generated 64 audio tokens for chunk 32
+04:00:44.122 TTS Simplex: chunk 32 first tokens: [3132 626 638 2085 630 ], last tokens: [3836 6050 6067 5905 2195 ]
+04:00:44.122 TTS Simplex: updated tts_n_past_accumulated=2716, total_generated_tokens=2353
+04:00:44.122 TTS<-LLM: chunk_idx=33, text='未克虽然在西南部，但它是冰', n_tokens=10, hidden_size=40960, token_ids=[38342 99316 103925 18493 105325 32948 3837 77288 105226 100038]
+04:00:44.122 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:44.122 TTS: before empty check - response.empty=0, response='未克虽然在西南部，但它是冰', llm_finish=0
+04:00:44.122 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:44.122 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:44.122 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:44.135 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_33/merged_embeddings.txt
+04:00:44.135 TTS Simplex: generating audio tokens for chunk 33 (n_tokens=10, tts_n_embd=768)
+04:00:44.135 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=33, new_size=11)
+04:00:44.135 TTS Simplex: chunk 33 - keeping KV cache, n_past_tts=2716
+04:00:44.506 TTS Simplex: prefill completed, n_past_tts=2727
+04:00:44.506 TTS Simplex: sampler created
+04:00:44.610 TTS Simplex Phase1: token 1/500: rel_id=5093
+04:00:44.619 T2W线程: wav_93.wav | 1.00s audio | 677.7ms inference | RTF=0.68 | t=153964ms | queue_wait=0.0ms
+04:00:44.711 TTS Simplex Phase1: token 2/500: rel_id=420
+04:00:44.814 TTS Simplex Phase1: token 3/500: rel_id=162
+04:00:44.912 TTS Simplex Phase1: token 4/500: rel_id=2520
+04:00:45.013 TTS Simplex Phase1: token 5/500: rel_id=4603
+04:00:46.473 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 22, buffer=25)
+04:00:46.733 TTS Simplex Phase1: token 25/500: rel_id=6061
+04:00:46.958 LLM->TTS: text='。但是，如果我们把“首都圈”理解', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[1773 100131 3837 109198 99360 2073 106114 100044 854 101128]
+04:00:47.164 T2W线程: wav_94.wav | 1.00s audio | 690.2ms inference | RTF=0.69 | t=156509ms | queue_wait=0.2ms
+04:00:48.090 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 47, buffer=25)
+04:00:48.241 TTS Simplex Phase1: token 50/500: rel_id=3645
+04:00:48.467 TTS Simplex Phase1: EOS token at step 55
+04:00:48.467 TTS Simplex: chunk 结束，tts_token_buffer 剩余 7 tokens (保留等下一个 chunk)
+04:00:48.467 TTS Simplex: generated 54 audio tokens for chunk 33
+04:00:48.467 TTS Simplex: chunk 33 first tokens: [5093 420 162 2520 4603 ], last tokens: [3645 3651 3648 2112 1029 ]
+04:00:48.467 TTS Simplex: updated tts_n_past_accumulated=2781, total_generated_tokens=2407
+04:00:48.468 TTS<-LLM: chunk_idx=34, text='岛的唯一大城市，所以也不算偏僻', n_tokens=10, hidden_size=40960, token_ids=[99825 9370 102157 109307 3837 99999 99744 69103 99835 118134]
+04:00:48.468 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:48.468 TTS: before empty check - response.empty=0, response='岛的唯一大城市，所以也不算偏僻', llm_finish=0
+04:00:48.468 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:48.468 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:48.468 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:48.481 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_34/merged_embeddings.txt
+04:00:48.481 TTS Simplex: generating audio tokens for chunk 34 (n_tokens=10, tts_n_embd=768)
+04:00:48.481 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=34, new_size=11)
+04:00:48.481 TTS Simplex: chunk 34 - keeping KV cache, n_past_tts=2781
+04:00:48.696 T2W线程: wav_95.wav | 1.00s audio | 605.5ms inference | RTF=0.61 | t=158041ms | queue_wait=0.0ms
+04:00:48.861 TTS Simplex: prefill completed, n_past_tts=2792
+04:00:48.861 TTS Simplex: sampler created
+04:00:48.961 TTS Simplex Phase1: token 1/500: rel_id=4376
+04:00:49.063 TTS Simplex Phase1: token 2/500: rel_id=2189
+04:00:49.169 TTS Simplex Phase1: token 3/500: rel_id=1563
+04:00:49.271 TTS Simplex Phase1: token 4/500: rel_id=0
+04:00:49.371 TTS Simplex Phase1: token 5/500: rel_id=6085
+04:00:50.725 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 18, buffer=25)
+04:00:51.502 TTS Simplex Phase1: token 25/500: rel_id=2185
+04:00:51.548 T2W线程: wav_96.wav | 1.00s audio | 821.9ms inference | RTF=0.82 | t=160893ms | queue_wait=0.1ms
+04:00:51.887 LLM->TTS: text='为首都周围紧密相连的城市群，那么斯', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[17714 106114 102385 102821 111060 105961 99430 3837 100624 99295]
+04:00:52.614 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 43, buffer=25)
+04:00:52.986 TTS Simplex Phase1: token 50/500: rel_id=5835
+04:00:53.128 T2W线程: wav_97.wav | 1.00s audio | 513.2ms inference | RTF=0.51 | t=162473ms | queue_wait=0.1ms
+04:00:53.764 TTS Simplex Phase1: EOS token at step 66
+04:00:53.764 TTS Simplex: chunk 结束，tts_token_buffer 剩余 22 tokens (保留等下一个 chunk)
+04:00:53.764 TTS Simplex: generated 65 audio tokens for chunk 34
+04:00:53.764 TTS Simplex: chunk 34 first tokens: [4376 2189 1563 0 6085 ], last tokens: [566 32 1431 2166 1456 ]
+04:00:53.764 TTS Simplex: updated tts_n_past_accumulated=2857, total_generated_tokens=2472
+04:00:53.764 TTS<-LLM: chunk_idx=35, text='。但是，如果我们把“首都圈”理解', n_tokens=10, hidden_size=40960, token_ids=[1773 100131 3837 109198 99360 2073 106114 100044 854 101128]
+04:00:53.764 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:53.764 TTS: before empty check - response.empty=0, response='。但是，如果我们把“首都圈”理解', llm_finish=0
+04:00:53.764 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:53.764 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:53.765 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:53.777 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_35/merged_embeddings.txt
+04:00:53.777 TTS Simplex: generating audio tokens for chunk 35 (n_tokens=10, tts_n_embd=768)
+04:00:53.777 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=35, new_size=11)
+04:00:53.777 TTS Simplex: chunk 35 - keeping KV cache, n_past_tts=2857
+04:00:54.165 TTS Simplex: prefill completed, n_past_tts=2868
+04:00:54.165 TTS Simplex: sampler created
+04:00:54.279 TTS Simplex Phase1: token 1/500: rel_id=3476
+04:00:54.376 TTS Simplex Phase1: token 2/500: rel_id=4995
+04:00:54.474 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 3, buffer=25)
+04:00:54.474 TTS Simplex Phase1: token 3/500: rel_id=4734
+04:00:54.568 TTS Simplex Phase1: token 4/500: rel_id=5266
+04:00:54.671 TTS Simplex Phase1: token 5/500: rel_id=910
+04:00:55.049 T2W线程: wav_98.wav | 1.00s audio | 574.3ms inference | RTF=0.57 | t=164395ms | queue_wait=0.1ms
+04:00:56.626 TTS Simplex Phase1: token 25/500: rel_id=1464
+04:00:56.939 LLM->TTS: text='德哥尔摩所在的地区可能更靠近内陆', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99462 99826 99079 100487 108339 100361 87267 33126 106963 117021]
+04:00:56.958 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 28, buffer=25)
+04:00:57.593 T2W线程: wav_99.wav | 1.00s audio | 634.9ms inference | RTF=0.63 | t=166939ms | queue_wait=0.1ms
+04:00:58.146 TTS Simplex Phase1: token 50/500: rel_id=638
+04:00:58.308 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 53, buffer=25)
+04:00:58.822 T2W线程: wav_100.wav | 1.00s audio | 512.9ms inference | RTF=0.51 | t=168167ms | queue_wait=0.0ms
+04:00:59.420 TTS Simplex Phase1: EOS token at step 73
+04:00:59.420 TTS Simplex: chunk 结束，tts_token_buffer 剩余 19 tokens (保留等下一个 chunk)
+04:00:59.420 TTS Simplex: generated 72 audio tokens for chunk 35
+04:00:59.420 TTS Simplex: chunk 35 first tokens: [3476 4995 4734 5266 910 ], last tokens: [306 6560 6556 321 5569 ]
+04:00:59.420 TTS Simplex: updated tts_n_past_accumulated=2940, total_generated_tokens=2544
+04:00:59.420 TTS<-LLM: chunk_idx=36, text='为首都周围紧密相连的城市群，那么斯', n_tokens=10, hidden_size=40960, token_ids=[17714 106114 102385 102821 111060 105961 99430 3837 100624 99295]
+04:00:59.420 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:00:59.420 TTS: before empty check - response.empty=0, response='为首都周围紧密相连的城市群，那么�', llm_finish=0
+04:00:59.421 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:00:59.421 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:00:59.421 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:00:59.433 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_36/merged_embeddings.txt
+04:00:59.433 TTS Simplex: generating audio tokens for chunk 36 (n_tokens=10, tts_n_embd=768)
+04:00:59.433 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=36, new_size=11)
+04:00:59.433 TTS Simplex: chunk 36 - keeping KV cache, n_past_tts=2940
+04:00:59.879 TTS Simplex: prefill completed, n_past_tts=2951
+04:00:59.879 TTS Simplex: sampler created
+04:01:00.041 TTS Simplex Phase1: token 1/500: rel_id=3813
+04:01:00.201 TTS Simplex Phase1: token 2/500: rel_id=3100
+04:01:00.362 TTS Simplex Phase1: token 3/500: rel_id=4571
+04:01:00.506 TTS Simplex Phase1: token 4/500: rel_id=4459
+04:01:00.644 TTS Simplex Phase1: token 5/500: rel_id=4473
+04:01:00.782 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 6, buffer=25)
+04:01:01.312 T2W线程: wav_101.wav | 1.00s audio | 529.7ms inference | RTF=0.53 | t=170657ms | queue_wait=0.0ms
+04:01:02.125 LLM->TTS: text='，而雷克雅未克则更靠近', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[3837 68536 96465 99316 71025 38342 99316 46448 33126 106963]

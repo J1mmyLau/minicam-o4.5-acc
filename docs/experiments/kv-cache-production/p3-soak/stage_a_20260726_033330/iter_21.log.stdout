@@ -1,0 +1,493 @@
+=== Model Paths ===
+  Base dir:   /workspace/models/MiniCPM-o-4_5-gguf
+  LLM:        /workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-Q4_K_M.gguf [OK]
+  Vision:     /workspace/models/MiniCPM-o-4_5-gguf/vision/MiniCPM-o-4_5-vision-F16.gguf [OK]
+  Audio:      /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf [OK]
+  TTS:        /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-tts-F16.gguf [OK]
+  Projector:  /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf [OK]
+===================
+=== Initializing Omni Context ===
+  Media type: 2 (omni: audio+vision)
+  TTS enabled: yes
+  Context size: 4096
+  GPU layers: 0
+  Vision backend: metal
+  Vision batch encode: disabled
+  TTS bin dir: /workspace/models/MiniCPM-o-4_5-gguf/tts
+  Ref audio: tools/omni/assets/default_ref_audio/default_ref_audio.wav
+03:43:35.071 === omni_init start
+03:43:35.071 media_type = 2, duplex_mode = 0, base_output_dir = ./tools/omni/output
+03:43:35.071 === omni_init: loading new LLM model
+03:43:37.162 === omni_init: loading TTS model
+03:43:37.162 TTS model: loading with n_gpu_layers=0
+03:43:37.539 TTS sampler: temp=0.80, top_p=0.85, top_k=25, rep_penalty=1.05
+03:43:37.539 TTS: loading weights from GGUF (emb_code, emb_text, projector_semantic, head_code)...
+03:43:38.114 TTS: head_code shape: dim0=6562, dim1=768, will transpose to [6562, 768]
+03:43:38.122 TTS: head_code loaded, verifying first few values:
+03:43:38.122   head_code_weight[0] = 0.01361084 (expect ~0.01385498)
+03:43:38.122   head_code_weight[1] = -0.01660156 (expect ~-0.01647949)
+03:43:38.122   head_code_weight[768] = 0.04101562 (this is weight[1, 0], expect ~0.04150391)
+03:43:38.184 TTS: weights loaded successfully
+03:43:38.184 Projector: loading from /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf
+03:43:38.192 Projector: loaded successfully
+03:43:38.192 === omni_init: loading APM model
+03:43:38.471 APM: init from /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf
+03:43:39.351 Token2Wav: found models in /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf
+03:43:39.351 Token2Wav: all model files found, initializing session...
+03:43:39.352 Token2Wav: CANN flow-only mode — deferring init to worker thread
+03:43:39.352 Token2Wav: CANN流跨线程需算子适配，vocoder暂用CPU
+03:43:39.352 Token2Wav: using prompt_cache from /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf/prompt_cache.gguf
+03:43:39.352 Token2Wav: init deferred to worker thread
+03:43:39.352 Token2Wav: initialized successfully
+03:43:39.352 Python T2W: script_dir=./tools/omni/pyt2w, model_dir=./tools/omni/pyt2w/token2wav
+03:43:39.352 Token2Wav: 使用 C++ 实现
+03:43:39.352 === omni_init success: ctx_llama = 0xaaaad2f67a20
+=== Running test case ===
+  Audio prefix: /workspace/llama.cpp-omni-kvcache-prod/tools/omni/assets/test_case/omni_test_case/omni_test_case_
+  Count: 1
+  Start index: 0
+03:43:39.352 stream_prefill: n_past = 0
+ voice_clone_prompt = <|im_start|>system
+模仿音频样本的音色并生成新的内容。
+<|audio_start|>
+ assistant_prompt = <|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。<|im_end|>
+<|im_start|>user
+
+03:43:39.388 🔁 KV cache HIT: loaded 62 positions (9143908 bytes) from /tmp/omni-kvcache/omni_kvcache_e2b568b6078ce027.bin (key=e2b568b6078ce027)
+03:43:39.388 [SW] system_prompt registered: preserve_length=62 (will be protected from sliding)
+03:43:39.388 
+
+c++ finish stream_prefill(index=0). n_past=62, n_keep=62, n_ctx=4096
+
+prefill 0 (audio+vision) : 0.0364043 s
+03:43:39.388 📍 stream_decode 开始: n_past=62, n_keep=62, n_ctx=4096, duplex_mode=0
+03:43:39.388 stream_decode: create tts thread (simplex mode)
+03:43:39.388 TTS: 创建单工模式输出目录: ./tools/omni/output/round_000
+03:43:39.389 stream_decode: create t2w thread
+03:43:39.389 wait prefill done
+03:43:39.389 📍 [单工TTS] 添加 assistant prompt: "<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<|tts_bos|>", n_past=62
+03:43:39.389 T2W thread (C++) started
+03:43:39.389 [token2wav] worker-thread init: flow=gpu voc=cpu
+03:43:39.389 TTS thread started
+03:43:40.403 [token2wav] worker-thread init complete
+03:43:40.948 📍 [单工TTS] assistant prompt 完成, n_past=72
+03:43:40.948 LLM decode: max_tgt_len = 4096, n_predict = -1, n_ctx = 4096
+03:43:42.956 LLM->TTS: text='哎呀，你这问题问得真奇怪', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[110030 104256 3837 56568 43288 86119 56007 49828 88051 106097]
+03:43:42.956 TTS<-LLM: chunk_idx=0, text='哎呀，你这问题问得真奇怪', n_tokens=10, hidden_size=40960, token_ids=[110030 104256 3837 56568 43288 86119 56007 49828 88051 106097]
+03:43:42.956 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:43:42.956 TTS: before empty check - response.empty=0, response='哎呀，你这问题问得真奇怪', llm_finish=0
+03:43:42.956 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:43:42.956 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:43:42.957 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:43:43.062 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_0/merged_embeddings.txt
+03:43:43.062 TTS Simplex: generating audio tokens for chunk 0 (n_tokens=10, tts_n_embd=768)
+03:43:43.062 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=0, new_size=11)
+03:43:43.062 TTS Simplex: first chunk - cleared KV cache
+03:43:43.062 TTS Simplex: first chunk - cleared tts_all_generated_tokens and tts_token_buffer
+03:43:43.207 TTS Simplex: prefill completed, n_past_tts=11
+03:43:43.207 TTS Simplex: sampler created
+03:43:43.207 TTS simplex: is_audio_bos=true (first audio token)
+03:43:43.389 TTS Simplex Phase1: token 1/500: rel_id=1571
+03:43:43.429 TTS Simplex Phase1: token 2/500: rel_id=6486
+03:43:43.469 TTS Simplex Phase1: token 3/500: rel_id=6486
+03:43:43.510 TTS Simplex Phase1: token 4/500: rel_id=4299
+03:43:43.551 TTS Simplex Phase1: token 5/500: rel_id=4218
+03:43:44.485 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+03:43:44.485 TTS Simplex Phase1: token 25/500: rel_id=2827
+03:43:44.485 T2W线程(C++): 轮次切换 (-1 -> 0)，更新输出目录
+03:43:44.485 T2W线程(C++): 新输出目录 ./tools/omni/output/round_000/tts_wav
+03:43:44.917 🎉 首响时间 (First Audio Response): 5529ms (decode_to_first_audio) | 5565ms (request_to_first_audio)
+03:43:44.917 T2W线程: wav_0.wav | 0.84s audio | 431.2ms inference | RTF=0.51 | t=5529ms | queue_wait=0.0ms
+03:43:44.981 TTS Simplex Phase1: EOS token at step 36
+03:43:44.981 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+03:43:44.981 TTS Simplex: generated 35 audio tokens for chunk 0
+03:43:44.981 TTS Simplex: chunk 0 first tokens: [1571 6486 6486 4299 4218 ], last tokens: [404 1454 5101 4564 3750 ]
+03:43:44.981 TTS Simplex: updated tts_n_past_accumulated=46, total_generated_tokens=35
+03:43:45.620 LLM->TTS: text='啊！我可是个虚拟助手，没有实体', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[103924 6313 35946 103933 18947 106225 110498 3837 80443 101565]
+03:43:45.620 TTS<-LLM: chunk_idx=1, text='啊！我可是个虚拟助手，没有实体', n_tokens=10, hidden_size=40960, token_ids=[103924 6313 35946 103933 18947 106225 110498 3837 80443 101565]
+03:43:45.620 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:43:45.620 TTS: before empty check - response.empty=0, response='啊！我可是个虚拟助手，没有实体', llm_finish=0
+03:43:45.620 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:43:45.620 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:43:45.620 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:43:45.633 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_1/merged_embeddings.txt
+03:43:45.633 TTS Simplex: generating audio tokens for chunk 1 (n_tokens=10, tts_n_embd=768)
+03:43:45.633 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=1, new_size=11)
+03:43:45.633 TTS Simplex: chunk 1 - keeping KV cache, n_past_tts=46
+03:43:45.778 TTS Simplex: prefill completed, n_past_tts=57
+03:43:45.778 TTS Simplex: sampler created
+03:43:45.830 TTS Simplex Phase1: token 1/500: rel_id=2233
+03:43:45.881 TTS Simplex Phase1: token 2/500: rel_id=2408
+03:43:45.933 TTS Simplex Phase1: token 3/500: rel_id=2085
+03:43:45.984 TTS Simplex Phase1: token 4/500: rel_id=5973
+03:43:46.037 TTS Simplex Phase1: token 5/500: rel_id=5333
+03:43:46.542 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+03:43:47.013 T2W线程: wav_1.wav | 1.00s audio | 470.0ms inference | RTF=0.47 | t=7624ms | queue_wait=0.0ms
+03:43:47.039 TTS Simplex Phase1: token 25/500: rel_id=2056
+03:43:47.807 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+03:43:48.273 T2W线程: wav_2.wav | 1.00s audio | 464.7ms inference | RTF=0.46 | t=8884ms | queue_wait=0.0ms
+03:43:48.304 TTS Simplex Phase1: token 50/500: rel_id=404
+03:43:48.637 LLM->TTS: text='，所以当然没有身体啦！不过我能帮你', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[3837 99999 103942 80443 101099 104060 6313 100632 110913 108400]
+03:43:48.769 TTS Simplex Phase1: EOS token at step 62
+03:43:48.769 TTS Simplex: chunk 结束，tts_token_buffer 剩余 21 tokens (保留等下一个 chunk)
+03:43:48.769 TTS Simplex: generated 61 audio tokens for chunk 1
+03:43:48.769 TTS Simplex: chunk 1 first tokens: [2233 2408 2085 5973 5333 ], last tokens: [6048 4515 923 1217 1244 ]
+03:43:48.769 TTS Simplex: updated tts_n_past_accumulated=118, total_generated_tokens=96
+03:43:48.770 TTS<-LLM: chunk_idx=2, text='，所以当然没有身体啦！不过我能帮你', n_tokens=10, hidden_size=40960, token_ids=[3837 99999 103942 80443 101099 104060 6313 100632 110913 108400]
+03:43:48.770 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:43:48.770 TTS: before empty check - response.empty=0, response='，所以当然没有身体啦！不过我能帮�', llm_finish=0
+03:43:48.770 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:43:48.770 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:43:48.771 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:43:48.783 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_2/merged_embeddings.txt
+03:43:48.783 TTS Simplex: generating audio tokens for chunk 2 (n_tokens=10, tts_n_embd=768)
+03:43:48.783 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=2, new_size=11)
+03:43:48.783 TTS Simplex: chunk 2 - keeping KV cache, n_past_tts=118
+03:43:48.925 TTS Simplex: prefill completed, n_past_tts=129
+03:43:48.925 TTS Simplex: sampler created
+03:43:48.962 TTS Simplex Phase1: token 1/500: rel_id=1247
+03:43:48.998 TTS Simplex Phase1: token 2/500: rel_id=1948
+03:43:49.033 TTS Simplex Phase1: token 3/500: rel_id=4134
+03:43:49.070 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 4, buffer=25)
+03:43:49.070 TTS Simplex Phase1: token 4/500: rel_id=4218
+03:43:49.108 TTS Simplex Phase1: token 5/500: rel_id=2130
+03:43:49.544 T2W线程: wav_3.wav | 1.00s audio | 473.8ms inference | RTF=0.47 | t=10156ms | queue_wait=0.0ms
+03:43:49.869 TTS Simplex Phase1: token 25/500: rel_id=2192
+03:43:50.036 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 29, buffer=25)
+03:43:50.512 T2W线程: wav_4.wav | 1.00s audio | 474.9ms inference | RTF=0.47 | t=11124ms | queue_wait=0.0ms
+03:43:50.840 TTS Simplex Phase1: token 50/500: rel_id=704
+03:43:50.995 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 54, buffer=25)
+03:43:51.068 LLM->TTS: text='回答各种问题，需要帮忙的话尽管说哦', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[102104 100646 86119 3837 85106 106128 100363 104138 36587 104170]
+03:43:51.449 T2W线程: wav_5.wav | 1.00s audio | 452.7ms inference | RTF=0.45 | t=12060ms | queue_wait=0.0ms
+03:43:51.522 TTS Simplex Phase1: EOS token at step 68
+03:43:51.522 TTS Simplex: chunk 结束，tts_token_buffer 剩余 13 tokens (保留等下一个 chunk)
+03:43:51.522 TTS Simplex: generated 67 audio tokens for chunk 2
+03:43:51.522 TTS Simplex: chunk 2 first tokens: [1247 1948 4134 4218 2130 ], last tokens: [2432 5834 3647 5348 5600 ]
+03:43:51.522 TTS Simplex: updated tts_n_past_accumulated=196, total_generated_tokens=163
+03:43:51.522 TTS<-LLM: chunk_idx=3, text='回答各种问题，需要帮忙的话尽管说哦', n_tokens=10, hidden_size=40960, token_ids=[102104 100646 86119 3837 85106 106128 100363 104138 36587 104170]
+03:43:51.522 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+03:43:51.522 TTS: before empty check - response.empty=0, response='回答各种问题，需要帮忙的话尽管说�', llm_finish=0
+03:43:51.522 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+03:43:51.522 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+03:43:51.523 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+03:43:51.535 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_3/merged_embeddings.txt
+03:43:51.535 TTS Simplex: generating audio tokens for chunk 3 (n_tokens=10, tts_n_embd=768)
+03:43:51.535 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=3, new_size=11)
+03:43:51.535 TTS Simplex: chunk 3 - keeping KV cache, n_past_tts=196
+03:43:51.544 LLM: detected end token, set llm_generation_done=true
+03:43:51.544 LLM->TTS: text='！', n_tokens=1, hidden_size=4096, n_embd=4096, token_ids=[6313]
+03:43:51.544 📍 Decode 结束: n_past=114, 剩余空间=3982, 无需滑窗
+03:43:51.544 📍 轮次 1 结束，记录边界于 n_past=114
+03:43:51.664 TTS Simplex: prefill completed, n_past_tts=207
+03:43:51.664 TTS Simplex: sampler created
+03:43:51.703 TTS Simplex Phase1: token 1/500: rel_id=3421
+03:43:51.737 TTS Simplex Phase1: token 2/500: rel_id=4218
+03:43:51.768 TTS Simplex Phase1: token 3/500: rel_id=4134
+03:43:51.804 TTS Simplex Phase1: token 4/500: rel_id=5835
+03:43:51.837 TTS Simplex Phase1: token 5/500: rel_id=3972
+03:43:52.083 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 12, buffer=25)
+03:43:52.392 📍 为下一轮准备: eval <|im_end|>\n<|im_start|>user\n, n_past=119
+03:43:52.392 omni_stop_threads: stop signals sent (T2W kept alive for drain)
+03:43:52.523 T2W线程: wav_6.wav | 1.00s audio | 438.8ms inference | RTF=0.44 | t=13134ms | queue_wait=0.0ms
+03:43:52.532 TTS Simplex Phase1: token 25/500: rel_id=1479
+03:43:52.880 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 37, buffer=25)
+03:43:53.285 TTS Simplex Phase1: token 50/500: rel_id=1346
+03:43:53.328 T2W线程: wav_7.wav | 1.00s audio | 447.6ms inference | RTF=0.45 | t=13940ms | queue_wait=0.0ms
+03:43:53.646 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 62, buffer=25)
+03:43:54.057 TTS Simplex Phase1: token 75/500: rel_id=622
+03:43:54.234 T2W线程: wav_8.wav | 1.00s audio | 588.0ms inference | RTF=0.59 | t=14846ms | queue_wait=0.0ms
+03:43:54.435 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 87, buffer=25)
+03:43:54.631 TTS Simplex Phase1: EOS token at step 93
+03:43:54.631 TTS Simplex: chunk 结束，tts_token_buffer 剩余 5 tokens (保留等下一个 chunk)
+03:43:54.631 TTS Simplex: generated 92 audio tokens for chunk 3
+03:43:54.631 TTS Simplex: chunk 3 first tokens: [3421 4218 4134 5835 3972 ], last tokens: [5053 6157 5104 2222 1194 ]
+03:43:54.631 TTS Simplex: updated tts_n_past_accumulated=299, total_generated_tokens=255
+tts thread end
+03:43:54.633 T2W drain: waiting up to 10000ms for is_final processing...
+03:43:55.016 T2W线程: wav_9.wav | 1.00s audio | 580.1ms inference | RTF=0.58 | t=15627ms | queue_wait=0.0ms
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:4303::5543:.55016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+.03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 016T2W(C++): EOS drain — buffer empty (wav_count=10)
+ T2W drain: complete (wav_count=10)
+03:43:55.016 T2W terminal: AUDIO_SUCCESS (10 WAV(s))
+03:43:55.016 T2W(C++): EOS drain — buffer empty (wav_count=10)
+03:43:55.016 T2W(C++) 线程: 停止
