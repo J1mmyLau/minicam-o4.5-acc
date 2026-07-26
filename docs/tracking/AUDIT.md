@@ -537,3 +537,14 @@
 - Next after /compact: launch Stage M6 (6h mixed, OMNI_MIXED_DURATION=21600 OMNI_MIXED_STAGE=M6)
 - M6 script: docs/experiments/kv-cache-production/p3-soak/run_stage_mixed.sh (b113687, fixed resource sampling)
 - Audit rule: ALL cache log greps MUST use `grep -a` for emoji-containing lines
+
+## 2026-07-26 12:50 | START | STAGE M6 LAUNCHED
+
+- Run dir: `p3-soak/stage_mixed_20260726_125045/`
+- Duration: 21,600s (~6.0h), target completion ~18:50 UTC
+- Runner PID: 634479, binary PID: 634496
+- Prime timeout: 600s. Prime completed in ~21s (91e3932 bytes)
+- Resource sampling: v2 (b113687: pgrep -P for binary PID, correct npu-smi command)
+- Iter 1: mode=H, timeout=180s
+- Expected: ~480-540 iterations over 6h
+- HEAD: bcfcca4
