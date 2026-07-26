@@ -1,0 +1,18 @@
+=== Stage A Summary ===
+timestamp: 20260726_033330
+target_duration_s: 3600
+actual_duration_s: ~3455
+iterations: 99
+cache_hits: 94 (from metrics CSV)
+cache_misses: 0
+cache_file_size_bytes: 9143932 (stable, unchanged)
+prefill_p50_ms: 36.8
+prefill_p95_ms: 38.4
+prefill_min_ms: 36.2
+prefill_max_ms: 42.9
+timeouts: 5 (5.1%)
+crashes: 0
+cann_errors: 0
+temp_file_leaks: 0
+cache_corruptions: 0
+verdict: PASS
