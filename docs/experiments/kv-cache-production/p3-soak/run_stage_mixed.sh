@@ -272,7 +272,7 @@ rm -f "${CACHE_DIR}"/omni_kvcache_*.tmp.* "${CACHE_DIR}"/omni_kvcache_*.state.* 
 
 # ─── Prime cache for HIT baseline ────────────────────────────────────
 echo "$(date) Priming cache (baseline prefix)..." | tee -a "$RUNDIR/progress.log"
-timeout 180 env OMNI_KV_CACHE_REUSE=1 OMNI_T2W_DEVICE=cann-flow-only \
+timeout 600 env OMNI_KV_CACHE_REUSE=1 OMNI_T2W_DEVICE=cann-flow-only \
     OMP_NUM_THREADS=8 OMNI_T2W_DRAIN_TIMEOUT_MS=10000 \
     OMNI_KV_CACHE_PATH=$CACHE_DIR \
     "$BINARY" -m "$MODEL" -ngl 0 --omni --test "$TEST_PREFIX" 1 --test-start 0 \
