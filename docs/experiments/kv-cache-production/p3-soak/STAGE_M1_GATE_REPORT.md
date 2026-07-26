@@ -99,7 +99,7 @@
 | M1.03 Rebuild→HIT verification | ✅ PASS | 11/11 HIT after rebuild (excluding 1 timeout) |
 | M1.04 ON/OFF control | ✅ PASS | 12/12 NO_STATS on OFF, 11/11 HIT on Re-ON |
 | M1.05 Corruption detection | ✅ PASS | 11/11 detected → MISS → rebuild (100%) |
-| M1.06 Multi-key isolation | ⚠️ DESIGN_VERIFIED | omni.cpp:219-220 confirms system prompt in FNV-1a hash; binary has single hardcoded prompt → SINGLE_SLOT_CACHE_LIMITATION |
+| M1.06 Cache key isolation | ⚠️ NOT_TESTED | omni.cpp:11606 forces same ref_audio for all --test-start; SINGLE_SLOT design; CACHE_KEY_ISOLATION vs MULTI_ENTRY_RETENTION distinguished |
 | M1.07 0 crashes across all modes | ✅ PASS | 0 crashes |
 | M1.08 Per-mode expected behavior | ✅ PASS | All modes match expectations |
 | M1.09 Adaptive timeout functional | ✅ PASS | 180s → 187s, no runaway increase |
@@ -109,11 +109,11 @@
 
 ## 5. Known Limitations
 
-### 5.1 Mode P: Same System Prompt
+### 5.1 Mode P: Same System Prompt (by Design)
 
-Mode P (prefix change) uses `--test-start 1` expecting a different system prompt. However, the test cases share the same static prefix, producing the same cache key → cache HIT instead of MISS. This is **correct behavior** — the cache key is content-based, and same content → same key.
+Mode P uses `--test-start 1` expecting a different system prompt. However, `omni.cpp:11606` intentionally forces the same ref_audio for all `--test-start` indices ("to ensure KV cache consistency across all --test-start indices"). The binary produces the same cache key → cache HIT. This is **correct intentional behavior**, not a bug.
 
-To truly test multi-key isolation, a test case with a **different system prompt text** is needed.
+Cache storage is **SINGLE_SLOT**: one cache file, key mismatch → overwrite. To test CACHE_KEY_ISOLATION (different prefix MUST NOT false-HIT), a binary variant with truly different system prompt text is needed. MULTI_ENTRY_RETENTION is N/A for single-slot design.
 
 ### 5.2 Resource Sampling PID Bug
 
@@ -149,13 +149,14 @@ All five core mixed-workload paths function correctly across 81 iterations:
 | Re-ON after OFF | Cache HIT restored | 11/11 (100%) |
 | Corruption detection → rebuild | Truncated file detected, MISS triggered | 11/11 (100%) |
 
-### 6.2 MULTI_PREFIX_ISOLATION = DESIGN_VERIFIED / SINGLE_SLOT_CACHE_LIMITATION ⚠️
+### 6.2 CACHE_KEY_ISOLATION = NOT_TESTED ⚠️
 
 - Code audit confirms system prompt text is in FNV-1a cache key hash (omni.cpp:219-220)
-- The test binary has a **single hardcoded system prompt** — all iterations compute the same key
-- Mode P correctly produces cache HIT (same content → same key: correct behavior)
-- **Empirical multi-key test requires a binary variant with a different system prompt text**
-- This is a binary/test limitation, not a code defect
+- omni.cpp:11606 intentionally forces same ref_audio for all --test-start indices → same cache key
+- Mode P produces cache HIT (same key = correct behavior for same prefix)
+- **Empirical key isolation test requires a binary variant with different system prompt text**
+- Current cache storage: **SINGLE_SLOT** (one file, new key overwrites old)
+- Two distinct gates: CACHE_KEY_ISOLATION (always required) vs MULTI_ENTRY_RETENTION (N/A for single-slot)
 
 ### 6.3 TIMEOUT_ROBUSTNESS = PASS ✅
 
@@ -177,7 +178,7 @@ All five core mixed-workload paths function correctly across 81 iterations:
 ```
 STAGE_M1_1H_MIXED_CORE_PATHS = PASS ✅
 STAGE_M1_TIMEOUT_ROBUSTNESS = PASS ✅
-STAGE_M1_MULTI_PREFIX_ISOLATION = DESIGN_VERIFIED / SINGLE_SLOT_CACHE_LIMITATION ⚠️
+STAGE_M1_CACHE_KEY_ISOLATION = NOT_TESTED ⚠️ (binary forces same ref_audio for all --test-start)
 STAGE_M1_RESOURCE_TELEMETRY = DESIGN_LIMIT ⚠️ (PID bug fixed post-run)
 ```
 
