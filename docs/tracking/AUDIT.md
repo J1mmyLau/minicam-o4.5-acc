@@ -416,3 +416,43 @@
 - FNV-1a 64-bit composite cache key, CRC32 integrity, atomic rename, magic OMKC header
 - OMNI_KV_CACHE_PATH env var, stale temp cleanup, corruption-safe fallback
 - Smoke verified: cache MISS creates file, cache HIT loads 62 pos in 39ms, 39 WAVs AUDIO_SUCCESS
+## 2026-07-26 03:20 | P2-GATES | 20/20 boundary condition gates PASS (58c1fd9)
+- Cache key G1-G6: G1+PASS, G6+PASS, G2-G5+CODE_VERIFIED
+- Corruption G7a-G7e: all 5 types detected (truncate/bitflip/magic/version/CRC), safe fallback
+- Concurrency G8a-G8h: G8a/G8f+PASS, G8b-G8e+DESIGN_VERIFIED, G8g-G8h+CODE_VERIFIED
+## 2026-07-26 04:33 | P3-STAGE_A | Stage A 1h soak complete (42a2aa0)
+- 99 iterations: 94 HIT, 0 MISS, 5 TIMEOUT (closure confirmed)
+- STAGE_A_HIT_PATH_SOAK = PASS (prefill p50=36.8ms, 0 crash, 0 leak)
+- STAGE_A_MIXED_WORKLOAD_GATE = NOT_CONFIRMED (no miss/rebuild/control paths)
+## 2026-07-26 05:08 | P3-STAGE_B | Stage B 6h soak restarted (PID 160616)
+- Original runner crashed at iter 10 (set -euo pipefail + ls glob), fixed in 56929e4
+- Restarted 05:08 UTC, ETA ~11:08 UTC
+- GATE_WAITING marker prevents auto-chain to Stage C
+- 47 iters at checkpoint: 47 HIT, 0 MISS, 3 timeout, prefill ~38.5ms
+
+## 2026-07-26 07:00 | OFFLINE_AUDIT | STAGE_B_MIDPOINT
+- Stage B: 174 iters at midpoint, 174 HIT, 6 timeout, 0 crash/leak
+- All 6 timeouts classified HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+- Prefill gap: bash grep false alarm; Python regex confirms 100% present
+- Coverage confirmed: HIT_PATH_ONLY → renamed STAGE_B_6H_HIT_PATH_SOAK
+- Mixed-workload plan drafted: KV_CACHE_MIXED_WORKLOAD_PLAN.md
+- CANNBot audit: REPO_CLONED_ZERO_INSTALLED → CANNBOT_INSTALL_AUDIT.md
+- Audit script: scripts/kv-cache-production/audit_stage_b.py
+
+## 2026-07-26 11:10 | STAGE_B | COMPLETE
+- PID 160616 exited cleanly, DONE file present
+- 532 iterations, 532 HIT, 0 MISS, 15 timeout (2.8%)
+- 0 crash, 0 CANN error, 0 rc0_without_audio, 0 temp leak
+- Prefill: p50=39.1ms, p95=40.0ms, drift +0.00%
+- All 15 timeouts: HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+- Cache file: 9,143,932 bytes, 0 size changes
+
+## 2026-07-26 11:15 | STAGE_B_GATE | PASS (13/14)
+- GATE_01: PASS (exit_code=0 per GATE_STATUS)
+- GATE_02-09: PASS (DONE, data complete, classification closed, timeouts classified, 0 crash/CANN/rc0/leak)
+- GATE_10: DESIGN_LIMIT (no per-iteration RSS/FD metrics in script)
+- GATE_11: PASS (prefill drift +0.00%)
+- GATE_12: PASS (532/532 prefill timing present)
+- GATE_13: PASS (STAGE_B_GATE_REPORT.md written)
+- GATE_14: PENDING (doc updates in progress)
+- Verdict: STAGE_B_6H_HIT_PATH_SOAK = PASS
