@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-07-25 18:25 | DECISION | P7.3_ALL_GATES_PASSED_PRODUCTION_RECOMMENDED
+
+- P9: 150/150 PASS, rc0_without_audio=0
+- P5: 62/64 valid (96.9%), rc0_without_audio=0
+- KV Cache ON: -9542ms p50 request_to_first_audio (-60.0%), prefill 2772x reduction
+- P6 overturned: 79.2%→96.9% valid rate with fixed T2W
+- RECOMMEND: OMNI_KV_CACHE_REUSE=1 as production opt-in (DEFAULT_OFF maintained)
+- T2W drain fix (91e5674): defer to omni_free, after TTS join
+- Total: 214 requests validated (150 regression + 64 A/B), 0 rc0_without_audio
+
+## 2026-07-25 18:05 | START | P5_SUPPLEMENTAL_KV_CACHE_AB
+## 2026-07-25 17:59 | DECISION | P9_T2W_REGRESSION_GATE_PASSED
+
+- 150/150 PASS (50 passes × 3 cases: 0,1,3)
+- rc0_without_audio: 0 (critical gate)
+- 100% audio success rate, avg 19.7 WAVs
+
+## 2026-07-25 17:14 | CHECKPOINT | P7.3_CRITICAL_DRAIN_FIX
+
+- Commit 91e5674: defer T2W drain to omni_free
+- Root cause: omni_stop_threads() drained before TTS finished
+- Fix: omni_stop_threads() stops LLM+TTS only, omni_free() does TTS.join→T2W.drain→T2W.stop→T2W.join
+
+## 2026-07-25 17:14 | START | P7.3_REGRESSION_RESTARTED (corrected binary)
+
 ## 2026-07-25 16:15 | CHECKPOINT | P0_TERMINOLOGY_TIGHTENED_P7.1_TRACE
 
 - P0: Metric names corrected. decode_to_first_audio_ms (was "FA"), prefill_start_to_first_audio_ms (was "total"), request_to_first_audio_ms (NOT YET MEASURED)

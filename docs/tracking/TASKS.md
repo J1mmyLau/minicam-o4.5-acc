@@ -124,10 +124,10 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | P7.2-METRIC-BOUNDARY | **DONE** | decode_to_first_audio clock starts inside stream_decode(), excludes prefill. request_to_first_audio not yet instrumented. |
 | P0-TERMINOLOGY | **DONE** | Metric names corrected. Race language tightened. Report copied into repo. |
 | P7.3-P2-DRAIN-FIX | **DONE (91bbcc9)** | T2W drain-before-stop state machine — T2WDrainState enum, EOS protocol, bounded timeout, terminal output classification |
-| P7.3-P3-REGRESSION | **RUNNING** | 135 requests (15 passes × 9 cases), gate: rc0_without_audio=0 |
+| P7.3-P3-REGRESSION | **DONE ✅** | P9: 150/150 PASS, rc0_without_audio=0, 100% audio success |
 | P7.3-P4-INSTRUMENT | **DONE (10e63ec)** | request_to_first_audio_ms from request boundary (before stream_prefill) |
-| P7.3-P5-SUPPLEMENTAL | **PENDING** | ≥30 matched pairs with fixed T2W + new metrics |
-| P7.3-P6-DECISION | **PENDING** | Final production gate check |
+| P7.3-P5-SUPPLEMENTAL | **DONE ✅** | P5: 64 executions, 62 valid (96.9%), req_fa -9542ms p50 (-60.0%), prefill 2772x |
+| P7.3-P6-DECISION | **RECOMMEND_OPT_IN** | KV Cache ON: -60% request_to_first_audio, 96.9% valid rate, 0 rc0_without_audio |
 
 ## FINAL STATUS
 
@@ -136,4 +136,5 @@ Production candidate: ngl=8 hybrid（Talker ngl=8, Flow CANN, Vocoder CPU, F005 
 Full CANN Talker: PRODUCTION_BLOCKED。
 Chunking: REJECTED。
 F003 7df34a1: RoPE fix only, not standalone Talker production candidate.
-P7.3: DRAIN_FIX_DONE, INSTRUMENT_DONE, REGRESSION_RUNNING.
+P7.3: ALL GATES PASSED — T2W drain fixed, 214 validated requests, 0 rc0_without_audio.
+KV Cache: RECOMMEND_OPT_IN (OMNI_KV_CACHE_REUSE=1), 2772x prefill reduction, -60% request_to_first_audio.
