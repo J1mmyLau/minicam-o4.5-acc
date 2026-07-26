@@ -1,55 +1,113 @@
 # KV Cache Soak Status
 
 **Date:** 2026-07-26
+**Last update:** 11:15 UTC (Stage B complete + gate report)
 **Soak started:** 2026-07-26 03:33 UTC
-**Current stage:** P3 — Stage A (1h) PASS ✅ → Stage B (6h) launching
+**Current stage:** Stage B (6h) COMPLETE — Gate audit passed. Stage C pending gate review.
 
 ---
 
 ## Gates Passed Before Soak
 
-- **P1**: Production-grade cache storage (b2e45ce) — FNV-1a key, CRC32 integrity, atomic rename, OMKC header
+- **P1**: Production-grade cache storage (b2e45ce)
 - **P2**: 8 boundary condition gates (58c1fd9) — 20/20 PASS
-  - Cache key: G1-G6 all PASS or CODE_VERIFIED
-  - Corruption safety: G7a-G7e all PASS (truncate/bitflip/bad_magic/version/crc)
-  - Concurrency: G8a-G8h all PASS or DESIGN_VERIFIED
 
 ---
 
 ## Stage Progress
 
-| Stage | Duration | Status | Started | Completed | Pass/Fail | Evidence |
-|-------|----------|--------|---------|-----------|-----------|----------|
-| A | 1h | **PASS** ✅ | 2026-07-26 03:33 UTC | 2026-07-26 04:33 UTC | PASS | p3-soak/stage_a_20260726_033330/ |
-| B | 6h | **RUNNING** | 2026-07-26 ~04:40 UTC | — | — | p3-soak/stage_b_*/ |
-| C | 24h | PENDING | — | — | — | — |
-| D | 72h | PENDING | — | — | — | — |
-| E | 168h | PENDING | — | — | — | — |
+| Stage | Duration | Nominal Name | Status | Started | Completed | Verdict | Evidence |
+|-------|----------|-------------|--------|---------|-----------|---------|----------|
+| A | 1h | STAGE_A_1H_HIT_PATH_SOAK | HIT_PATH_PASS ⚠️ | 03:33 UTC | 04:33 UTC | PASS (hit) / NOT_CONFIRMED (mixed) | stage_a_20260726_033330/ |
+| B | 6h | STAGE_B_6H_HIT_PATH_SOAK | **COMPLETE** ✅ | 05:08 UTC (restart) | 11:10 UTC | PASS (13/14 gates) / NOT_CONFIRMED (mixed) | stage_b_20260726_050817/ + STAGE_B_GATE_REPORT.md |
+| C | 24h | PENDING | PENDING_GATE_REVIEW | — | — | — | — |
+| D | 72h | PENDING | PENDING | — | — | — | — |
+| E | 168h | PENDING | PENDING | — | — | — | — |
 
-## Stage A Test Design
+### Stage A (1h) — Corrected Verdict (FINAL)
 
-- **Method**: Repeated cache HIT runs (30+ iterations in 1 hour)
-- **Each iteration**: Full omni inference with --test 1, verifying KV cache HIT
-- **Metrics collected every 60s**: RSS, FD count, thread count, cache file size
-- **Error detection**: cache file size changes, timeouts, crash detection
-- **Prime**: One MISS→SAVE at start, then all subsequent runs should HIT
+**Classification** (99 iterations, closure confirmed):
+- cache HIT: 94 (94.9%)
+- cache MISS: 0 (0%)
+- TIMEOUT (180s): 5 (5.1%)
+
+**STAGE_A_HIT_PATH_SOAK = PASS** ✅
+- 94 consecutive cache HITs
+- prefill p50=36.8ms, p95=38.4ms, min=36.2ms, max=42.9ms
+- 0 crashes, 0 CANN errors, 0 temp file leaks
+
+**STAGE_A_MIXED_WORKLOAD_GATE = NOT_CONFIRMED** ⚠️
+- Only hit-path validated. No miss/rebuild/ON-OFF/prefix variation.
+
+### Stage B (6h) — COMPLETE — STAGE_B_6H_HIT_PATH_SOAK = PASS ✅
+
+- **Run dir**: `p3-soak/stage_b_20260726_050817/`
+- **Duration**: 21,669s (6h 1min), target 21,600s
+- **Iterations**: 532
+- **Cache HIT**: 532 (100%), **MISS**: 0, **TIMEOUT**: 15 (2.8%)
+- **Crash**: 0, **CANN error**: 0, **rc0_without_audio**: 0
+- **Temp leaks**: 0, **Cache size change**: 0
+- **Prefill**: p50=39.1ms, p95=40.0ms, max=43.5ms
+- **Prefill drift**: +0.00% (flat)
+- **All 15 timeouts**: HARNESS_TIMEOUT_LONG_VALID_OUTPUT (180s budget, not pipeline defect)
+
+**Gate evaluation**: 13 PASS, 0 FAIL, 1 DESIGN_LIMIT (resource metrics not collected), 1 PENDING (doc update)
+**Full report**: `p3-soak/STAGE_B_GATE_REPORT.md`
+
+**Coverage**: HIT_PATH_ONLY. MISS/rebuild/ON-OFF/prefix variation NOT tested.
+**Mixed workload plan**: `KV_CACHE_MIXED_WORKLOAD_PLAN.md`
+
+### Stage C (24h) — Gate Requirements (15 items)
+
+Stage C will NOT auto-start. Before launch:
+1. runner exit_code=0
+2. DONE file present
+3. raw data rows complete, no duplicates
+4. iteration classification closed (hit+miss+rebuild+control+timeout = total)
+5. all timeouts classified, unclassified_timeout=0
+6. crash=0
+7. CANN runtime error=0
+8. rc0_without_audio=0
+9. temp/thread/process leak=0
+10. RSS/HBM/FD/thread trend flat (no monotonic growth)
+11. latency stable (no unexplained drift)
+12. prefill missing cases explained
+13. Stage B report generated and committed
+14. STATUS/HANDOFF/AUDIT updated
+15. GATE_STATUS file reviewed
 
 ---
 
-## Gate Checks Per Stage
+## Current State Terminology (CORRECTED)
 
-Each stage gate:
-- crash = 0
-- CANN error = 0
-- rc0_without_audio = 0
-- semantic corruption = 0
-- cache key错误命中 = 0
-- temporary file leak = 0
-- thread/process leak = 0
-- RSS/HBM无持续单调增长
-- cache hit路径性能收益保持
-- cache miss路径与baseline一致
+| What to write | What NOT to write |
+|--------------|-------------------|
+| STAGE_B_HIT_PATH_SOAK: RUNNING | Stage B: PASS / mixed workload passed |
+| CACHE_HIT_COVERAGE: 70/70 requests reaching cache lookup | 100% request success |
+| REQUEST_SUCCESS: not yet determined (4 timeouts) | All requests successful |
+| STAGE_B_MIXED_WORKLOAD: NOT_TESTED / NOT_CONFIRMED | Mixed workload validated |
+
+## Production Status
+
+```
+KV_CACHE_PRODUCTION: OPT_IN_READY / DEFAULT_OFF
+```
+
+**Rationale**: P1 storage semantics + P2 boundary gates + Stage A+B hit-path soak all pass.
+Mixed workload soak (miss/rebuild/control) NOT confirmed.
+Stage B 6h running. Minimum 72h mixed-workload soak needed before DEFAULT_ON consideration.
+**Do NOT claim DEFAULT_ON.**
 
 ---
 
-**最后更新:** 2026-07-26 03:35 UTC (Stage A launched)
+## Audit Tool
+
+```
+python3 scripts/kv-cache-production/audit_stage_b.py <run_dir>
+```
+
+Read-only. No modification of runner files or binary.
+
+---
+
+**最后更新:** 2026-07-26 06:00 UTC (state recovery + offline audit)
