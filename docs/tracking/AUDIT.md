@@ -570,3 +570,45 @@ Items 1-10, read-only, no runner modification:
 8. Timestamp fix: pre-compact docs incorrectly stamped 13:05 UTC → corrected to 12:45 UTC (actual time before M6 launch at 12:50). All docs updated.
 9. Current state (12:55 UTC): iter 6 mode=P running, 5 completed, 0 errors, 0 timeouts, wall p50≈30s.
 10. M6 continues in background. No interference. ✅
+
+## 2026-07-26 12:58 | OBSERVATION | ADAPTIVE TIMEOUT VALIDATED
+
+- Iter 9 (mode=M): wall=183.7s, exit_code=124 (timeout), MISS → SAVED at t=9s, first_audio=5936ms
+  - Normal Chinese output, not degenerate. Classification: HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+- After iter 9: wall times [26.9..183.7], p95=183.7
+  - New timeout = max(180, min(600, int(183.7 × 1.5 + 15))) = 290s
+- Iter 10 launched with timeout=290s ✅
+- **Adaptive timeout mechanism VALIDATED**: outlier detected, ceiling adjusted within [180,600]
+
+## 2026-07-26 13:00 | DECISION | CACHE STORAGE MODEL + MULTI-PREFIX GATE CLARIFICATION
+
+Two distinct gates, not one:
+
+| Gate | Definition | Required for |
+|------|-----------|-------------|
+| CACHE_KEY_ISOLATION | Different prefix MUST NOT false-HIT | Production correctness (always) |
+| MULTI_ENTRY_RETENTION | Old entry still HITable after switch | Hit-rate (only if multi-entry) |
+
+Current design: SINGLE_SLOT (one cache file, new key overwrites old).
+Expected SINGLE_SLOT behavior:
+```
+A prime → SAVE A    A → HIT A    B → MISS → SAVE B (overwrites)
+B → HIT B           A → MISS
+```
+This is correct: different prefix never gets wrong HIT.
+
+MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
+
+### Post-M6 task order
+1. Confirm SINGLE_SLOT via code audit of cache storage layer
+2. Add test-only flag for real prefix variation (default-off)
+3. Prepare 3 distinct prefixes A/B/C with verified different hashes
+4. Run CACHE_KEY_ISOLATION validation matrix
+5. Output: KV_CACHE_MULTI_PREFIX_VALIDATION.csv + .md
+
+### Stage C entry gates (FINAL)
+1. M6_CORE_MIXED_PATHS = PASS
+2. CACHE_KEY_ISOLATION = PASS (independent test)
+3. Single-slot vs multi-entry documented
+4. mode=P no longer mislabeled as prefix test
+5. Reports committed, git clean, NPU idle, no runner
