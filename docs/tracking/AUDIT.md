@@ -411,3 +411,8 @@
 ## 2026-07-16 10:44 | DECISION | PHASE_B_DONE
 - 4 baselines PASS
 ## 2026-07-25 16:52 | P7.3-IMPLEMENT | P2-P8 DRAIN_FIX + P10 INSTRUMENT DONE, P9 REGRESSION RUNNING
+## 2026-07-26 03:05 | P1-COMMIT | feat(kv-cache): add production-safe configurable cache storage (b2e45ce)
+- 401 lines added, 39 removed in tools/omni/omni.cpp
+- FNV-1a 64-bit composite cache key, CRC32 integrity, atomic rename, magic OMKC header
+- OMNI_KV_CACHE_PATH env var, stale temp cleanup, corruption-safe fallback
+- Smoke verified: cache MISS creates file, cache HIT loads 62 pos in 39ms, 39 WAVs AUDIO_SUCCESS
