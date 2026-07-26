@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-07-26 02:30 | CHECKPOINT | P11_CLOSEOUT_DOCUMENT_COMMITTED
+
+- Commit 9570c05: docs: add complete llama.cpp-omni optimization closeout
+- 15-chapter document: F003→KV Cache, verdict matrix, commit timeline, experiment inventory
+- All 41 commits verified exist in git; all paths verified; sign convention consistent
+- HANDOFF.md, STATUS.md updated with new commit
+- Git clean. NPU idle. Technical closeout complete.
+
 ## 2026-07-25 18:25 | DECISION | P7.3_ALL_GATES_PASSED_PRODUCTION_RECOMMENDED
 
 - P9: 150/150 PASS, rc0_without_audio=0
