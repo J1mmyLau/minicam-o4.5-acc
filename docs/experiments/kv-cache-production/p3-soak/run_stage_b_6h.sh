@@ -2,7 +2,10 @@
 # P3 Stage B: 6-Hour KV Cache stability soak
 # Repeated cache HIT runs for 6 hours with periodic metric collection
 # Fixes from Stage A: proper prefill time extraction, RSS/FD collection
-set -euo pipefail
+# NOTE: Do NOT use 'set -euo pipefail' here — pipefail kills script when
+# 'ls glob_that_matches_nothing | wc -l' returns non-zero (ls fails on no match).
+# Instead handle errors explicitly with || true and || { ... } blocks.
+set -u
 
 BINARY=/workspace/llama.cpp-omni-kvcache-prod/build/bin/llama-omni-cli
 MODEL=/workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-Q4_K_M.gguf
@@ -85,7 +88,7 @@ while true; do
             echo "CACHE_SIZE_CHANGE,${ITERATION},${ELAPSED},${CACHE_SIZE},${CS}" >> "${RUNDIR}/errors.log"
         fi
         # Temp file check
-        TMPC=$(ls $CACHE_DIR/omni_kvcache_*.tmp.* $CACHE_DIR/omni_kvcache_*.state.* $CACHE_DIR/omni_kvcache_*.load.* 2>/dev/null | wc -l)
+        TMPC=$(ls $CACHE_DIR/omni_kvcache_*.tmp.* $CACHE_DIR/omni_kvcache_*.state.* $CACHE_DIR/omni_kvcache_*.load.* 2>/dev/null | wc -l) || TMPC=0
         if [ "$TMPC" -gt 0 ]; then
             echo "TEMP_FILE_LEAK,${ITERATION},${ELAPSED},${TMPC}" >> "${RUNDIR}/errors.log"
         fi
@@ -114,7 +117,13 @@ echo "Cache file: $CACHE_FILE ($(stat -c%s "$CACHE_FILE" 2>/dev/null || echo 0) 
 ERROR_COUNT=$(cat "${RUNDIR}/errors.log" 2>/dev/null | wc -l)
 echo "Error events: $ERROR_COUNT" | tee -a "$RUNDIR/progress.log"
 
-TMPC=$(ls $CACHE_DIR/omni_kvcache_*.tmp.* $CACHE_DIR/omni_kvcache_*.state.* $CACHE_DIR/omni_kvcache_*.load.* 2>/dev/null | wc -l)
+TMPC=$(ls $CACHE_DIR/omni_kvcache_*.tmp.* $CACHE_DIR/omni_kvcache_*.state.* $CACHE_DIR/omni_kvcache_*.load.* 2>/dev/null | wc -l) || TMPC=0
 echo "Stale temp files: $TMPC" | tee -a "$RUNDIR/progress.log"
 
 echo "Output: $RUNDIR" | tee -a "$RUNDIR/progress.log"
+
+# Write gate marker — prevents auto-chain to Stage C without audit
+echo "GATE_WAITING" > "$RUNDIR/GATE_STATUS"
+echo "Stage B complete. Gate audit required before Stage C." >> "$RUNDIR/GATE_STATUS"
+echo "Exit code: 0" >> "$RUNDIR/GATE_STATUS"
+touch "$RUNDIR/DONE"
