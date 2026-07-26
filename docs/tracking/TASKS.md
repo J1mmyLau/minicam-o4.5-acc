@@ -126,8 +126,8 @@ Cumulative gain: -5.2% T2W (-0.37% E2E).
 | P7.3-P2-DRAIN-FIX | **DONE (91bbcc9)** | T2W drain-before-stop state machine — T2WDrainState enum, EOS protocol, bounded timeout, terminal output classification |
 | P7.3-P3-REGRESSION | **DONE ✅** | P9: 150/150 PASS, rc0_without_audio=0, 100% audio success |
 | P7.3-P4-INSTRUMENT | **DONE (10e63ec)** | request_to_first_audio_ms from request boundary (before stream_prefill) |
-| P7.3-P5-SUPPLEMENTAL | **DONE ✅** | P5: 64 executions, 62 valid (96.9%), req_fa -9542ms p50 (-60.0%), prefill 2772x |
-| P7.3-P6-DECISION | **RECOMMEND_OPT_IN** | KV Cache ON: -60% request_to_first_audio, 96.9% valid rate, 0 rc0_without_audio |
+| P7.3-P5-SUPPLEMENTAL | **DONE ✅** | P5: 64 executions, 62 valid (96.9%), req_fa improvement 9642ms p50 (59.0% reduction), prefill 2772x |
+| P7.3-P6-DECISION | **PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD** | KV Cache ON: 9642ms p50 improvement, bootstrap 95% CI [8742, 11470]ms, 0 rc0_without_audio. 8 boundary conditions NOT_TESTED. |
 
 ## FINAL STATUS
 

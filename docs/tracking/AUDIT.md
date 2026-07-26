@@ -9,7 +9,9 @@
 
 - P9: 150/150 PASS, rc0_without_audio=0
 - P5: 62/64 valid (96.9%), rc0_without_audio=0
-- KV Cache ON: -9542ms p50 request_to_first_audio (-60.0%), prefill 2772x reduction
+- KV Cache ON: 9642ms p50 improvement (59.0% reduction), prefill 2772x reduction
+- Bootstrap 95% CI: [8742, 11470]ms — does NOT cross zero
+- Scope: PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD (8 boundary conditions NOT_TESTED)
 - P6 overturned: 79.2%→96.9% valid rate with fixed T2W
 - RECOMMEND: OMNI_KV_CACHE_REUSE=1 as production opt-in (DEFAULT_OFF maintained)
 - T2W drain fix (91e5674): defer to omni_free, after TTS join

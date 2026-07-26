@@ -18,15 +18,15 @@ Directly measured from request boundary (before `stream_prefill()`), same monoto
 
 ### Distribution
 
-| Percentile | Arm A (no cache) | Arm B (cache) | Delta |
+| Percentile | Arm A (no cache) | Arm B (cache) | Improvement |
 |---|---|---|---|
-| p50 | 16210 ms | 6209 ms | -10001 ms |
-| p90 | 19409 ms | 8581 ms | -10828 ms |
-| p95 | 19866 ms | 10619 ms | -9247 ms |
+| p50 | 16210 ms | 6209 ms | 10001 ms |
+| p90 | 19409 ms | 8581 ms | 10828 ms |
+| p95 | 19866 ms | 10619 ms | 9247 ms |
 
-### Paired Delta (matched by pass-pair + case_id, n=30)
+### Paired Improvement (Baseline − Candidate, matched by pass-pair + case_id, n=30)
 
-| Percentile | Delta (A − B) |
+| Percentile | Improvement |
 |---|---|
 | p25 | 7675 ms |
 | **p50** | **9642 ms** |
@@ -34,7 +34,7 @@ Directly measured from request boundary (before `stream_prefill()`), same monoto
 | p90 | 13626 ms |
 | p95 | 14078 ms |
 
-### Paired Percentage Delta
+### Paired Percentage Reduction
 
 | Percentile | Reduction |
 |---|---|
@@ -43,16 +43,16 @@ Directly measured from request boundary (before `stream_prefill()`), same monoto
 
 ### Bootstrap 95% CI (10,000 resamples)
 
-**Paired delta p50: [8742, 11470] ms** — does NOT cross zero.
+**Improvement p50: 9642 ms, 95% CI: [8742, 11470] ms** — does NOT cross zero.
 
-### Per-Case Delta
+### Per-Case Improvement (Baseline − Candidate)
 
-| Case | A p50 | B p50 | Delta | n (pairs) |
+| Case | A p50 | B p50 | Improvement | n (pairs) |
 |---|---|---|---|---|
-| 0 | 15818 ms | 6479 ms | -9339 ms | 8 |
-| 1 | 16146 ms | 6035 ms | -10111 ms | 7 |
-| 3 | 16584 ms | 6771 ms | -9813 ms | 7 |
-| 5 | 18091 ms | 5792 ms | -12299 ms | 8 |
+| 0 | 15818 ms | 6479 ms | 9339 ms | 8 |
+| 1 | 16146 ms | 6035 ms | 10111 ms | 7 |
+| 3 | 16584 ms | 6771 ms | 9813 ms | 7 |
+| 5 | 18091 ms | 5792 ms | 12299 ms | 8 |
 
 ## Secondary Metrics
 
@@ -67,11 +67,11 @@ Prefill reduction: 2772× (p50).
 
 ### decode_to_first_audio_ms
 
-| Arm A p50 | Arm B p50 | Delta |
+| Arm A p50 | Arm B p50 | Difference |
 |---|---|---|
-| 6604 ms | 6205 ms | -399 ms |
+| 6604 ms | 6205 ms | 399 ms |
 
-NEUTRAL — as structurally expected (decode excludes prefill).
+NEUTRAL — as structurally expected (decode excludes prefill). The 399 ms difference is within measurement noise.
 
 ## Validity
 
@@ -105,20 +105,28 @@ Both are process-level timeouts on extremely long responses, NOT T2W drain failu
 | Valid rate | 79.2% (57/72) | **96.9% (62/64)** |
 | rc0_without_audio | many | **0** |
 | no_first_audio | 12 | **0** |
-| request_to_first_audio | unmeasured | **p50 -9642ms (paired)** |
-| prefill reduction | -9061ms (mean) | **-9957ms (p50 paired)** |
+| request_to_first_audio | unmeasured | **p50 improvement 9642 ms (paired)** |
+| prefill reduction | 9061 ms (mean) | **9957 ms (p50 paired)** |
 
 ## Gate Verdict
 
-**GATE_PASSED.** KV cache reuse delivers stable, measurable request_to_first_audio improvement:
+**GATE_PASSED — KV_CACHE_REUSE_PERFORMANCE: PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD**
+
+KV cache reuse delivers stable, measurable request_to_first_audio improvement
+under tested conditions (static prefix, same model/tokenizer/RoPE/chat-template):
 - 30 valid matched pairs (meets ≥30 threshold)
-- Bootstrap 95% CI [8742, 11470]ms does not cross zero
-- Paired p50 delta -9642ms (-59.0%)
+- Improvement p50: 9642 ms (59.0% reduction)
+- Bootstrap 95% CI: [8742, 11470] ms — does NOT cross zero
 - 0 rc0_without_audio
+
+**Scope:** PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD. 8 boundary conditions remain NOT_TESTED
+(different system prompt, chat template, model, tokenizer, RoPE config, corrupted cache
+fallback, concurrent requests, RSS/HBM sustained growth).
 
 ## Production Strategy
 
-**RECOMMEND_OPT_IN / DEFAULT_OFF.** `OMNI_KV_CACHE_REUSE=1` is ready for opt-in use in static-prefix multi-turn scenarios.
+**RECOMMEND_OPT_IN / DEFAULT_OFF.** `OMNI_KV_CACHE_REUSE=1` is ready for opt-in use
+in static-prefix multi-turn scenarios. GENERAL_PRODUCTION_READINESS: NOT_YET_APPROVED.
 
 ## Data
 
