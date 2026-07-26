@@ -212,4 +212,4 @@ Stage M1 mixed-workload smoke test PASS. Next: Stage M6 (6h mixed) with fixed re
 ---
 
 **报告路径:** `docs/experiments/kv-cache-production/p3-soak/STAGE_M1_GATE_REPORT.md`
-**最后更新:** 2026-07-26 13:00 UTC (gate categories, timeout classification, emoji grep bug, mode M 12/12 correction)
+**最后更新:** 2026-07-26 12:45 UTC (gate categories, timeout classification, emoji grep bug, mode M 12/12 correction)

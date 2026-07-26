@@ -526,7 +526,7 @@
 - Add §5.3 Emoji Grep False-Negative Bug documentation
 - Verdict updated with per-category pass/fail status
 
-## 2026-07-26 13:05 | CHECKPOINT | PRE-COMPACT — P3+P4 COMPLETE
+## 2026-07-26 12:45 | CHECKPOINT | PRE-COMPACT — P3+P4 COMPLETE
 
 - P3: M1 gate report fully corrected and committed (d0999ab)
 - P4: Pre-compact checkpoint — STATUS.md, HANDOFF.md, NEXT_ACTION.md, AUDIT.md, KV_CACHE_SOAK_STATUS.md updated
@@ -548,3 +548,25 @@
 - Iter 1: mode=H, timeout=180s
 - Expected: ~480-540 iterations over 6h
 - HEAD: bcfcca4
+
+## 2026-07-26 12:55 | AUDIT | M6 STARTUP NON-INVASIVE AUDIT
+
+Items 1-10, read-only, no runner modification:
+
+1. PID check: 634479 (runner) alive. Binary: 643811 (timeout) + 643814 (llama-omni-cli, 8.4GB RSS). Single runner confirmed. ✅
+2. Single runner: 1 run_stage_mixed, 1 llama-omni-cli pair. ✅
+3. Adaptive timeout:
+   - WARMUP_ITERS=5, floor=180s, ceiling=600s, formula: p95×1.5+15
+   - Wall times: 30.1, 29.9, 26.9, 29.9, 51.0 → p95≈51s → timeout=max(180, min(600, 51×1.5+15=91.5)) = 180s
+   - **Correct**: p95×1.5+15=91.5s < 180s floor → clamped to 180s. Will increase when wall times exceed ~110s.
+   - Recalculated every 5 iters. Next recalc after iter 10. ✅
+4. M6 modes: H→M→H→F→R→P→C cycle confirmed. Iter 1-6: H(HIT,30s)→M(MISS,30s,SAVED)→H(HIT,27s)→F(NO_STATS,30s)→R(HIT,51s)→P(running). ✅
+5. **PREFIX mode**: iter 6 (--test-start 1) → cache key e2b568b6078ce027 = same as prime (--test-start 0). **HIT, NOT MISS.**
+   - Root cause: omni.cpp:11606-11614 intentionally uses case-0 ref_audio for all indices to "ensure KV cache consistency"
+   - **MULTI_PREFIX_KEY_ISOLATION = NOT_TESTED**. Same conclusion as M1.
+   - M6 should be labeled: M6_CORE_MIXED_PATHS (NOT full production mixed gate).
+6. Cache key hash: e2b568b6078ce027, consistent across --test-start 0 and 1.
+7. Resource sampling: binary PID 643814 RSS=8.4GB (pgrep fix b113687 active ✅). Peak RSS 8.6-8.7GB across iters. HBM=4%. FD=21, threads=45 stable. ✅
+8. Timestamp fix: pre-compact docs incorrectly stamped 13:05 UTC → corrected to 12:45 UTC (actual time before M6 launch at 12:50). All docs updated.
+9. Current state (12:55 UTC): iter 6 mode=P running, 5 completed, 0 errors, 0 timeouts, wall p50≈30s.
+10. M6 continues in background. No interference. ✅
