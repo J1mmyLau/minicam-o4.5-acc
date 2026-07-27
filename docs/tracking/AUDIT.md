@@ -630,3 +630,17 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - Verdict: M6_CORE_MIXED_PATHS = PASS ✅
 - CACHE_KEY_ISOLATION = NOT_TESTED (next independent task)
 - Next: Cache storage model audit → CACHE_KEY_ISOLATION test → Stage C (24h)
+
+## 2026-07-27 03:15 | CACHE_KEY_ISOLATION | PASS — MULTI_ENTRY design confirmed
+
+- Storage model audited: MULTI_ENTRY (not SINGLE_SLOT). Filename = omni_kvcache_<key>.bin, different keys → different files → coexist.
+- Previous SINGLE_SLOT characterization was wrong — limitation was test harness (omni.cpp:11606 forced ref_audio), not storage design.
+- Added `OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1` env var (default-off, test only): each --test-start uses own ref_audio, ref_audio path in cache key.
+- Commit: ae1b0f9 (code), e2b05ca (report)
+- 7-step isolation matrix with 3 prefixes (A/B/C = --test-start 0/1/2):
+  - 3 distinct keys: 36794c48db573f89 ≠ 446aec4c8ec21363 ≠ 9bd171209fd7ee19 ✅
+  - CACHE_KEY_ISOLATION: B→MISS (not false-HIT A), C→MISS (not false-HIT A/B) ✅
+  - MULTI_ENTRY_RETENTION: A→HIT A, B→HIT B, A→HIT A again (all 3 files coexist) ✅
+  - 0 key collisions, 0 false-HIT, 0 deserialize errors, 0 crash, 0 rc0_without_audio
+- **Stage C (24h mixed) is now unblocked.**
+- All Stage C entry gates met: M6_CORE_MIXED_PATHS=PASS + CACHE_KEY_ISOLATION=PASS
