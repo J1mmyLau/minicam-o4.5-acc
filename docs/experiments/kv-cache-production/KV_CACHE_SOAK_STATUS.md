@@ -1,9 +1,9 @@
 # KV Cache Soak Status
 
 **Date:** 2026-07-26
-**Last update:** 2026-07-27 00:00 UTC (M6 complete — M6_CORE_MIXED_PATHS = PASS, next CACHE_KEY_ISOLATION)
+**Last update:** 2026-07-27 03:15 UTC (CACHE_KEY_ISOLATION = PASS ✅ — Stage C unblocked)
 **Soak started:** 2026-07-26 03:33 UTC
-**Current stage:** M6_CORE_MIXED_PATHS = PASS ✅ — next CACHE_KEY_ISOLATION independent test.
+**Current stage:** Stage C (24h mixed) UNBLOCKED — all entry gates passed.
 
 ---
 
@@ -23,7 +23,8 @@
 | C (HIT) | 24h | HIT_PATH | **CANCELLED** | — | — | Replaced by M1 mixed-workload | — |
 | M1 | 1h | MIXED | **COMPLETE** ✅ | 11:29 UTC | 12:30 UTC | **PASS** (CORE_MIXED_PATHS=PASS, MULTI_PREFIX=DESIGN_VERIFIED, TIMEOUT=PASS, TELEMETRY=DESIGN_LIMIT) | stage_mixed_20260726_112936/ + STAGE_M1_GATE_REPORT.md (d0999ab) |
 | M6 | 6h | MIXED | **COMPLETE** ✅ | 12:50 UTC | 18:51 UTC | **PASS** (M6_CORE_MIXED_PATHS, 12/12 gates, 464 iters, 0 crash) | stage_mixed_20260726_125045/ + STAGE_M6_GATE_REPORT.md |
-| PREFIX | — | ISOLATION | **NEXT** | — | — | CACHE_KEY_ISOLATION independent test |
+| PREFIX | — | ISOLATION | **COMPLETE** ✅ | 03:08 UTC | 03:15 UTC | **PASS** (7/7, MULTI_ENTRY, 3 keys, 0 false-HIT) | KV_CACHE_MULTI_PREFIX_VALIDATION.md |
+| C | 24h | MIXED | **UNBLOCKED** | — | — | Stage C ready |
 | C (MIXED) | 24h | MIXED | PENDING | — | — | After M6 gate | — |
 | D | 72h | MIXED | PENDING | — | — | After C gate | — |
 | E | 168h | MIXED | PENDING | — | — | After D gate | — |
