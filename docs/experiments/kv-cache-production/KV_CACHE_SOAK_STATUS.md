@@ -1,9 +1,9 @@
 # KV Cache Soak Status
 
 **Date:** 2026-07-26
-**Last update:** 2026-07-27 03:15 UTC (CACHE_KEY_ISOLATION = PASS ✅ — Stage C unblocked)
+**Last update:** 2026-07-27 03:30 UTC (Pre-Stage-C checkpoint — Stage C unblocked, all entry gates met)
 **Soak started:** 2026-07-26 03:33 UTC
-**Current stage:** Stage C (24h mixed) UNBLOCKED — all entry gates passed.
+**Current stage:** Stage C (24h mixed) UNBLOCKED — launch after /compact.
 
 ---
 
@@ -24,8 +24,7 @@
 | M1 | 1h | MIXED | **COMPLETE** ✅ | 11:29 UTC | 12:30 UTC | **PASS** (CORE_MIXED_PATHS=PASS, MULTI_PREFIX=DESIGN_VERIFIED, TIMEOUT=PASS, TELEMETRY=DESIGN_LIMIT) | stage_mixed_20260726_112936/ + STAGE_M1_GATE_REPORT.md (d0999ab) |
 | M6 | 6h | MIXED | **COMPLETE** ✅ | 12:50 UTC | 18:51 UTC | **PASS** (M6_CORE_MIXED_PATHS, 12/12 gates, 464 iters, 0 crash) | stage_mixed_20260726_125045/ + STAGE_M6_GATE_REPORT.md |
 | PREFIX | — | ISOLATION | **COMPLETE** ✅ | 03:08 UTC | 03:15 UTC | **PASS** (7/7, MULTI_ENTRY, 3 keys, 0 false-HIT) | KV_CACHE_MULTI_PREFIX_VALIDATION.md |
-| C | 24h | MIXED | **UNBLOCKED** | — | — | Stage C ready |
-| C (MIXED) | 24h | MIXED | PENDING | — | — | After M6 gate | — |
+| C (MIXED) | 24h | MIXED | **UNBLOCKED** | — | — | All 6 entry gates met | Launch after /compact |
 | D | 72h | MIXED | PENDING | — | — | After C gate | — |
 | E | 168h | MIXED | PENDING | — | — | After D gate | — |
 
@@ -78,6 +77,44 @@
 - Emoji grep bug: cache log lines contain 🔁 — use `grep -a` not bare `grep`
 - MISS_REBUILD: 12/12 (not 11/12), emoji grep was root cause of false count
 
+### Stage M6 (6h Mixed) — COMPLETE ✅ (479ecdb)
+
+**Run dir**: `p3-soak/stage_mixed_20260726_125045/`
+**Duration**: 21,612s (6h 0min 12s), 464 iterations
+**Per-mode breakdown**: H(133H), M(67M all SAVED), F(66 NO_STATS), R(66H), P(66H same prefix), C(66M all corrupted)
+**Crash**: 0, CANN error: 0, rc0_without_audio: 0, temp leak: 0
+**Cache**: 9,143,932 bytes stable
+**14 timeouts**: all HARNESS_TIMEOUT_LONG_VALID_OUTPUT, 0 degeneration
+
+**Gates** (12/12 PASS — 10 mode gates + 2 meta gates):
+- Per-mode correctness: 10/10 (HIT/MISS→SAVE/OFF/Re-ON/Corruption all 100%)
+- TIMEOUT_ROBUSTNESS: PASS (14/14 classified)
+- RESOURCE_TELEMETRY: PASS (v2 runner validated: 0 drift over 6h)
+- CACHE_KEY_ISOLATION: NOT_TESTED (mode P used same ref_audio as other modes)
+
+### CACHE_KEY_ISOLATION — COMPLETE ✅ (ae1b0f9, e2b05ca)
+
+**Flag**: `OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1` (default-off, test only)
+**Storage model**: MULTI_ENTRY (not SINGLE_SLOT). Different keys → different files → coexist.
+**7-step isolation matrix** with 3 prefixes (A/B/C = --test-start 0/1/2):
+- 3 distinct keys: `3679...` ≠ `446a...` ≠ `9bd1...` ✅
+- CACHE_KEY_ISOLATION: B→MISS (not false-HIT A), C→MISS (not false-HIT A/B) ✅
+- MULTI_ENTRY_RETENTION: A→HIT, B→HIT, A→HIT again (all 3 files coexist) ✅
+
+**Score: 7/7 PASS.**
+Report: `p3-soak/KV_CACHE_MULTI_PREFIX_VALIDATION.md`
+
+### Stage C Entry Conditions (ALL MET)
+
+| # | Condition | Status |
+|---|-----------|--------|
+| 1 | M6_CORE_MIXED_PATHS = PASS | ✅ 479ecdb |
+| 2 | CACHE_KEY_ISOLATION = PASS | ✅ ae1b0f9 |
+| 3 | Storage model documented | ✅ MULTI_ENTRY |
+| 4 | mode=P no longer mislabeled | ✅ Root cause identified |
+| 5 | Runner supports multi-prefix | ✅ 5e2140c |
+| 6 | Reports committed, git clean | ✅ |
+
 ---
 
 ## Current State Terminology
@@ -85,8 +122,10 @@
 | What to write | What NOT to write |
 |--------------|-------------------|
 | STAGE_B_HIT_PATH_SOAK: PASS (532/532 HIT, 0 crash) | Stage B all-clear / production-ready |
-| STAGE_B_MIXED_WORKLOAD: NOT_CONFIRMED | Mixed workload validated |
-| STAGE_M1: PASS (CORE_MIXED_PATHS, TIMEOUT_ROBUSTNESS) / DESIGN_VERIFIED (MULTI_PREFIX) / DESIGN_LIMIT (TELEMETRY) | DEFAULT_ON |
+| STAGE_M1: PASS (CORE_MIXED_PATHS, TIMEOUT_ROBUSTNESS) / DESIGN_VERIFIED (MULTI_PREFIX) | DEFAULT_ON |
+| STAGE_M6: PASS (M6_CORE_MIXED_PATHS, 12/12 gates) | Full production mixed gate |
+| CACHE_KEY_ISOLATION = PASS (7/7, 3 keys, 0 false-HIT) | All prefix scenarios covered |
+| MULTI_ENTRY_RETENTION = PASS (native design) | — |
 | KV_CACHE_PRODUCTION: OPT_IN_READY / DEFAULT_OFF | DEFAULT_ON |
 
 ## Production Status
@@ -95,10 +134,21 @@
 KV_CACHE_PRODUCTION: OPT_IN_READY / DEFAULT_OFF
 ```
 
-**Rationale**: P1 storage + P2 boundary gates + Stage A+B hit-path soak all pass.
-Mixed workload (miss/rebuild/ON-OFF/prefix/restart/corruption) NOT confirmed.
-Minimum 72h mixed-workload soak needed before DEFAULT_ON consideration.
+**Rationale**: P1 storage + P2 boundary gates + Stage A+B hit-path soak + M1/M6 mixed core paths + CACHE_KEY_ISOLATION all pass.
+Stage C (24h mixed) pending. Minimum 72h mixed-workload soak needed before DEFAULT_ON consideration.
 **Do NOT claim DEFAULT_ON.**
+
+---
+
+## Stage C Launch (after /compact)
+
+```bash
+cd /workspace/llama.cpp-omni-kvcache-prod
+OMNI_MIXED_DURATION=86400 OMNI_MIXED_STAGE=C \
+  bash docs/experiments/kv-cache-production/p3-soak/run_stage_mixed.sh
+```
+
+Runner: 7-mode mixed cycle, multi-prefix cycling in P mode (3 distinct keys), adaptive timeout [180,600], multi_prefix.csv tracking.
 
 ---
 
@@ -124,4 +174,4 @@ Read-only. No modification of runner files or binary.
 
 ---
 
-**最后更新:** 2026-07-26 12:55 UTC (Stage M6 RUNNING — PID 634479, 6h mixed-workload soak)
+**最后更新:** 2026-07-27 03:30 UTC (Pre-Stage-C checkpoint — Stage C unblocked, ready for /compact)
