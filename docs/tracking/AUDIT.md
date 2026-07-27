@@ -631,6 +631,21 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - CACHE_KEY_ISOLATION = NOT_TESTED (next independent task)
 - Next: Cache storage model audit → CACHE_KEY_ISOLATION test → Stage C (24h)
 
+## 2026-07-27 03:48 | START | STAGE_C_24H_MIXED_LAUNCHED
+
+- Run dir: `p3-soak/stage_mixed_20260727_034614/`
+- Duration: 86,400s (24.0h), target completion ~2026-07-28 03:48 UTC
+- Runner PID: 1110033
+- HEAD: 870e21b (pre-Stage-C checkpoint)
+- Binary SHA256: c673b39b0a261af851aad2f549cd15ba3afe9e29f301744dbd325a0b89249b6d (ae1b0f9 build, PER_CASE_REF_AUDIO flag present)
+- Prime: completed in 82s (9,143,932 bytes, key=e2b568b6078ce027, 1 file)
+- Iter 1: mode=H, timeout=180s — **HIT** ✅ (wall=57s, exit=0, RSS=8.6GB, HBM=4%)
+- Iter 2: mode=M, timeout=180s — running
+- Multi-prefix: enabled (PREFIX_TEST_STARTS=0,1,2, OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1 in P mode)
+- Adaptive timeout: starting floor 180s
+- Single runner confirmed. NPU idle before launch.
+- Stage C gate verdicts to split: STAGE_C_CORE_MIXED_PATHS, STAGE_C_MULTI_PREFIX_CYCLING, STAGE_C_RESOURCE_STABILITY, STAGE_C_TIMEOUT_ROBUSTNESS
+
 ## 2026-07-27 03:30 | CHECKPOINT | PRE_STAGE_C_CHECKPOINT
 
 - HEAD: 5e2140c (feat(runner): multi-prefix cycling for Stage C mixed-workload soak)
