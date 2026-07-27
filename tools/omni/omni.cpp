@@ -122,6 +122,12 @@ static int g_kv_cache_hits = 0;
 static int g_kv_cache_misses = 0;
 static int g_kv_cache_tokens_reused = 0;
 
+// ─── P5 CACHE_KEY_ISOLATION: per-case ref_audio for multi-prefix test ─────
+static bool g_kv_cache_per_case_ref_audio = ([](){
+    const char *v = getenv("OMNI_KV_CACHE_PER_CASE_REF_AUDIO");
+    return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
+})();
+
 // ─── P1 KV Cache Production: file format, safe I/O, cache key ────────────────
 
 // Forward declaration (defined later in this file)
@@ -172,7 +178,8 @@ static uint32_t kv_cache_crc32(const void *data, size_t len) {
 static std::string kv_cache_compute_key(
     const std::string & model_path,
     const common_params & params,
-    const std::string & system_prompt_text
+    const std::string & system_prompt_text,
+    const std::string & ref_audio_path = ""
 ) {
     // Build a composite key string from all cache-relevant configuration
     std::string key_input;
@@ -219,6 +226,13 @@ static std::string kv_cache_compute_key(
     if (!system_prompt_text.empty()) {
         uint64_t ph = kv_cache_fnv1a_str(system_prompt_text);
         snprintf(pbuf, sizeof(pbuf), "s%016lx:", (unsigned long)ph);
+        key_input += pbuf;
+    }
+
+    // P5 CACHE_KEY_ISOLATION: include ref_audio identity when per-case mode enabled
+    if (g_kv_cache_per_case_ref_audio && !ref_audio_path.empty()) {
+        uint64_t ah = kv_cache_fnv1a_str(ref_audio_path);
+        snprintf(pbuf, sizeof(pbuf), "a%016lx:", (unsigned long)ah);
         key_input += pbuf;
     }
 
@@ -11508,8 +11522,13 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         if (g_kv_cache_reuse_enabled && ctx_omni->params && !ctx_omni->async) {
             // Build system prompt text for cache key
             std::string sp_text = voice_clone_prompt + assistant_prompt;
+            // P5 CACHE_KEY_ISOLATION: determine ref_audio for cache key when per-case mode
+            std::string key_ref_audio;
+            if (g_kv_cache_per_case_ref_audio) {
+                key_ref_audio = aud_fname;  // each test case uses its own ref_audio
+            }
             kv_cache_key = kv_cache_compute_key(
-                ctx_omni->params->model.path, *ctx_omni->params, sp_text);
+                ctx_omni->params->model.path, *ctx_omni->params, sp_text, key_ref_audio);
             kv_cache_path_for_save = kv_cache_get_path(kv_cache_key);
 
             struct stat cache_st;
@@ -11604,8 +11623,12 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                 // <|im_start|>system\nprefix\n<|audio_start|>[ref_audio]<|audio_end|>suffix<|im_end|>\n
                 // P4: for index>0, use ref_audio_path (set to case 0 audio in test_case)
                 // to ensure KV cache consistency across all --test-start indices
+                // P5: OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1 overrides — each index uses its own ref_audio
                 std::string system_ref_audio;
-                if (index == 0 && !aud_fname.empty()) {
+                if (g_kv_cache_per_case_ref_audio) {
+                    // Per-case mode: each test case uses its own ref_audio → different cache key
+                    system_ref_audio = aud_fname;
+                } else if (index == 0 && !aud_fname.empty()) {
                     system_ref_audio = aud_fname;
                 } else if (!ctx_omni->ref_audio_path.empty()) {
                     system_ref_audio = ctx_omni->ref_audio_path;
