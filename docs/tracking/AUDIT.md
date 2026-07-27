@@ -631,6 +631,17 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - CACHE_KEY_ISOLATION = NOT_TESTED (next independent task)
 - Next: Cache storage model audit → CACHE_KEY_ISOLATION test → Stage C (24h)
 
+## 2026-07-27 03:30 | CHECKPOINT | PRE_STAGE_C_CHECKPOINT
+
+- HEAD: 5e2140c (feat(runner): multi-prefix cycling for Stage C mixed-workload soak)
+- Runner: multi-prefix cycling committed (PREFIX_TEST_STARTS=0,1,2 + OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1 in P mode)
+- All docs updated: STATUS.md, HANDOFF.md, NEXT_ACTION.md, AUDIT.md, KV_CACHE_SOAK_STATUS.md
+- Stage C (24h mixed) fully unblocked — all 6 entry gates met
+- Gate summary: CORE_MIXED_PATHS=PASS, CACHE_KEY_ISOLATION=PASS, MULTI_ENTRY_RETENTION=PASS, TIMEOUT_ROBUSTNESS=PASS, RESOURCE_TELEMETRY=PASS
+- Commit chain: a70c085 → 5e2140c (22 commits on perf/kv-cache-production-gates)
+- Launch after /compact: OMNI_MIXED_DURATION=86400 OMNI_MIXED_STAGE=C bash run_stage_mixed.sh
+- Do NOT launch Stage C in current session (context low)
+
 ## 2026-07-27 03:15 | CACHE_KEY_ISOLATION | PASS — MULTI_ENTRY design confirmed
 
 - Storage model audited: MULTI_ENTRY (not SINGLE_SLOT). Filename = omni_kvcache_<key>.bin, different keys → different files → coexist.
