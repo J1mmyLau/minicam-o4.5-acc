@@ -1,6 +1,8 @@
 #!/bin/bash
 # P3 Stage M1/M6/C/D/E: Mixed-Workload KV Cache stability soak
 # 7-mode cycle: H(HIT) → M(MISS rebuild) → H(HIT) → F(Force OFF) → R(Re-ON) → P(Prefix) → C(Corruption)
+# P5: P mode cycles through A/B/C prefixes (test_start 0,1,2) with OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1
+# Multi-prefix tracking: prefix_id, cache_key, expected_hit, actual_hit, false_hit per P-mode iter
 #
 # Per-iteration telemetry:
 #   - wall clock (for adaptive timeout)
@@ -45,6 +47,15 @@ WALL_TIMES_FILE="${RUNDIR}/.wall_times"
 WARMUP_ITERS=5              # use fixed 180s timeout for first N iters
 ADAPT_INTERVAL=5            # recalculate timeout every N iters
 : > "$WALL_TIMES_FILE"      # create/truncate
+
+# ─── P5 Multi-Prefix State ─────────────────────────────────────────────
+PREFIX_TEST_STARTS=(0 1 2)  # A=0, B=1, C=2 — cycle through these
+PREFIX_CYCLE_INDEX=0
+PREFIX_SEEN_FILE="${RUNDIR}/.prefix_seen"  # tracks which prefixes have been cached
+: > "$PREFIX_SEEN_FILE"
+FALSE_HIT_COUNT=0
+MULTI_PREFIX_LOG="${RUNDIR}/multi_prefix.csv"
+echo "timestamp,iter,mode,prefix_id,test_start,cache_key,expected_hit,actual_hit,false_hit,cache_entry_count" > "$MULTI_PREFIX_LOG"
 
 recalc_timeout() {
     local count
@@ -119,6 +130,8 @@ EOF
 # ─── Cache Helpers ──────────────────────────────────────────────────
 delete_cache() {
     rm -f "${CACHE_DIR}"/omni_kvcache_*.bin
+    # P5: clear prefix seen state on cache delete
+    : > "$PREFIX_SEEN_FILE"
 }
 
 corrupt_cache() {
@@ -167,9 +180,11 @@ run_iteration() {
             test_start=0
             ;;
         P)
-            # Prefix change: use test-start 1 (different system prompt)
+            # P5 Multi-prefix: cycle through A/B/C (test_start 0,1,2)
+            # OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1 enables per-case ref_audio → different cache keys
             kv_env=1
-            test_start=1
+            test_start=${PREFIX_TEST_STARTS[$((PREFIX_CYCLE_INDEX % ${#PREFIX_TEST_STARTS[@]}))]}
+            PREFIX_CYCLE_INDEX=$((PREFIX_CYCLE_INDEX + 1))
             ;;
         C)
             # Corruption: flip one bit in existing cache, then enable
@@ -188,9 +203,15 @@ run_iteration() {
 
     # ─── Launch binary in background ──────────────────────────────
     local child_pid
+    # P5: enable per-case ref_audio for P mode (multi-prefix cycling)
+    local extra_env=""
+    if [ "$mode" = "P" ]; then
+        extra_env="OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1"
+    fi
     env OMNI_KV_CACHE_REUSE=$kv_env OMNI_T2W_DEVICE=cann-flow-only \
         OMP_NUM_THREADS=8 OMNI_T2W_DRAIN_TIMEOUT_MS=10000 \
         OMNI_KV_CACHE_PATH=$CACHE_DIR \
+        $extra_env \
         timeout "$ADAPTIVE_TIMEOUT" \
         "$BINARY" -m "$MODEL" -ngl 0 --omni --test "${TEST_PREFIX}" 1 --test-start "$test_start" \
         > "${RUNDIR}/iter_${iter}.stdout" 2> "${RUNDIR}/iter_${iter}.stderr" &
@@ -230,6 +251,38 @@ run_iteration() {
         cache_status="MISS"
     fi
 
+    # ─── P5 Multi-prefix tracking (P mode only) ────────────────────
+    local prefix_id="NA" cache_key="NA" expected_hit="NA" actual_hit="NA" false_hit="NA" cache_entry_count="NA"
+    if [ "$mode" = "P" ]; then
+        prefix_id="P${test_start}"  # P0=A, P1=B, P2=C
+        # Extract cache key from stdout: "key=XXXXXXXXXXXXXXXX"
+        cache_key=$(grep -a "key=" "${RUNDIR}/iter_${iter}.stdout" 2>/dev/null | grep -oP 'key=\K[0-9a-f]{16}' | head -1) || cache_key="NA"
+        # Determine expected: if prefix was seen before (since last cache delete), expect HIT (multi-entry)
+        if grep -qxF "$prefix_id" "$PREFIX_SEEN_FILE" 2>/dev/null; then
+            expected_hit="HIT"
+        else
+            expected_hit="MISS"
+        fi
+        actual_hit="$cache_status"
+        # Detect false HIT: expected MISS but got HIT (wrong prefix match)
+        if [ "$expected_hit" = "MISS" ] && [ "$actual_hit" = "HIT" ]; then
+            false_hit="TRUE"
+            FALSE_HIT_COUNT=$((FALSE_HIT_COUNT + 1))
+        else
+            false_hit="FALSE"
+        fi
+        # Track seen prefix (only when actually cached, i.e. SAVED)
+        if grep -qa "KV cache SAVED" "${RUNDIR}/iter_${iter}.stdout" 2>/dev/null; then
+            echo "$prefix_id" >> "$PREFIX_SEEN_FILE"
+        elif [ "$actual_hit" = "HIT" ]; then
+            # HIT means it was already seen, ensure it's tracked
+            grep -qxF "$prefix_id" "$PREFIX_SEEN_FILE" 2>/dev/null || echo "$prefix_id" >> "$PREFIX_SEEN_FILE"
+        fi
+        cache_entry_count=$(count_cache_files)
+        # Log to multi-prefix CSV
+        echo "$(date -u +%Y-%m-%dT%H:%M:%SZ),${iter},${mode},${prefix_id},${test_start},${cache_key},${expected_hit},${actual_hit},${false_hit},${cache_entry_count}" >> "$MULTI_PREFIX_LOG"
+    fi
+
     # ─── Write metadata ───────────────────────────────────────────
     cat > "${RUNDIR}/iter_${iter}.meta" << EOF
 mode=${mode}
@@ -244,6 +297,12 @@ peak_fd=${peak_fd}
 peak_threads=${peak_threads}
 hbm_usage_pct=${hbm_usage_pct}
 cgroup_mem_bytes=${cgroup_mem}
+prefix_id=${prefix_id}
+cache_key=${cache_key}
+expected_hit=${expected_hit}
+actual_hit=${actual_hit}
+false_hit=${false_hit}
+cache_entry_count=${cache_entry_count}
 EOF
 
     # ─── Track wall time for adaptive timeout ──────────────────────
@@ -390,6 +449,10 @@ echo "Error events: $ERROR_COUNT" | tee -a "$RUNDIR/progress.log"
 
 TMPC=$(ls "${CACHE_DIR}"/omni_kvcache_*.tmp.* "${CACHE_DIR}"/omni_kvcache_*.state.* "${CACHE_DIR}"/omni_kvcache_*.load.* 2>/dev/null | wc -l) || TMPC=0
 echo "Stale temp files: $TMPC" | tee -a "$RUNDIR/progress.log"
+
+# P5: multi-prefix stats
+echo "Multi-prefix false hits: $FALSE_HIT_COUNT" | tee -a "$RUNDIR/progress.log"
+echo "Multi-prefix log: ${MULTI_PREFIX_LOG}" | tee -a "$RUNDIR/progress.log"
 
 # ─── Write meta-summary for audit tool ──────────────────────────────
 cat > "${RUNDIR}/TELEMETRY_SUMMARY.txt" << EOF
