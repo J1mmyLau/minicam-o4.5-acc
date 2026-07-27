@@ -631,6 +631,26 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - CACHE_KEY_ISOLATION = NOT_TESTED (next independent task)
 - Next: Cache storage model audit → CACHE_KEY_ISOLATION test → Stage C (24h)
 
+## 2026-07-27 06:20 | AUDIT | STAGE_C_2.5H_MIDPOINT
+
+- Elapsed: 9,154s (~2.5h / 24h, 10.6%)
+- Iterations: ~202 completed, 6 timeouts (3.0%)
+- Per-mode: H(58), M(29), F(29), R(29), P(28), C(28) — balanced
+- HIT: 115, MISS: 57, NO_STATS: 29
+- Cache: 2 files (e2b568b6078ce027=baseline, 446aec4c8ec21363=P1 key)
+- Multi-prefix: 3 distinct keys cycling correctly (3679..., 446a..., 9bd1...)
+- prefix_seen: always empty (mode C clears all cache + prefix_seen every cycle)
+  - Design limitation: corruption mode incompatible with cross-cycle multi-prefix HIT testing
+  - CACHE_KEY_ISOLATION still verified (3 distinct keys, no false-HIT)
+  - Cross-cycle MULTI_ENTRY_RETENTION not tested in this runner
+- Timeout classification:
+  - iter_59(H,184s), iter_64(H,184s), iter_65(M,184s), iter_69(P,184s), iter_125(P,223s): HARNESS_TIMEOUT_LONG_VALID_OUTPUT
+  - iter_75(R,292s): MODEL_STALL (TTS pipeline: "failed to find a memory slot", "prefill_with_emb_tts failed")
+  - 0 MODEL_GENERATION_DEGENERATION
+- Adaptive timeout: working (180→195→218→195s range)
+- No crash, no CANN error
+- ETA completion: ~2026-07-28 03:48 UTC
+
 ## 2026-07-27 03:48 | START | STAGE_C_24H_MIXED_LAUNCHED
 
 - Run dir: `p3-soak/stage_mixed_20260727_034614/`
