@@ -1,9 +1,9 @@
 # KV Cache Soak Status
 
 **Date:** 2026-07-26
-**Last update:** 2026-07-26 12:55 UTC (Stage M6 RUNNING — PID 634479, startup audit complete)
+**Last update:** 2026-07-27 00:00 UTC (M6 complete — M6_CORE_MIXED_PATHS = PASS, next CACHE_KEY_ISOLATION)
 **Soak started:** 2026-07-26 03:33 UTC
-**Current stage:** Stage M6 RUNNING 🔄 — 6h mixed-workload soak, ETA ~18:50 UTC.
+**Current stage:** M6_CORE_MIXED_PATHS = PASS ✅ — next CACHE_KEY_ISOLATION independent test.
 
 ---
 
@@ -22,7 +22,8 @@
 | B | 6h | HIT_PATH | **COMPLETE** ✅ | 05:08 UTC (restart) | 11:10 UTC | **PASS** (13/14 gates) / NOT_CONFIRMED (mixed) | stage_b_20260726_050817/ + STAGE_B_GATE_REPORT.md |
 | C (HIT) | 24h | HIT_PATH | **CANCELLED** | — | — | Replaced by M1 mixed-workload | — |
 | M1 | 1h | MIXED | **COMPLETE** ✅ | 11:29 UTC | 12:30 UTC | **PASS** (CORE_MIXED_PATHS=PASS, MULTI_PREFIX=DESIGN_VERIFIED, TIMEOUT=PASS, TELEMETRY=DESIGN_LIMIT) | stage_mixed_20260726_112936/ + STAGE_M1_GATE_REPORT.md (d0999ab) |
-| M6 | 6h | MIXED | **RUNNING** 🔄 | 12:50 UTC | ETA ~18:50 UTC | PID 634479 | stage_mixed_20260726_125045/ |
+| M6 | 6h | MIXED | **COMPLETE** ✅ | 12:50 UTC | 18:51 UTC | **PASS** (M6_CORE_MIXED_PATHS, 12/12 gates, 464 iters, 0 crash) | stage_mixed_20260726_125045/ + STAGE_M6_GATE_REPORT.md |
+| PREFIX | — | ISOLATION | **NEXT** | — | — | CACHE_KEY_ISOLATION independent test |
 | C (MIXED) | 24h | MIXED | PENDING | — | — | After M6 gate | — |
 | D | 72h | MIXED | PENDING | — | — | After C gate | — |
 | E | 168h | MIXED | PENDING | — | — | After D gate | — |

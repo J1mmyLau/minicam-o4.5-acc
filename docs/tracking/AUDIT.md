@@ -612,3 +612,21 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 3. Single-slot vs multi-entry documented
 4. mode=P no longer mislabeled as prefix test
 5. Reports committed, git clean, NPU idle, no runner
+
+## 2026-07-26 18:51 | STAGE_M6 | COMPLETE — M6_CORE_MIXED_PATHS = PASS (12/12 gates)
+
+- Run dir: `p3-soak/stage_mixed_20260726_125045/`
+- Duration: 21,612s (6h 0min 12s), 464 iterations
+- 5/5 core mixed paths: 100% expected behavior — HIT/MISS→SAVE/OFF/Re-ON/Corruption
+- Corruption detection: 100% (66/66 mode=C → MISS)
+- MISS→SAVE: 100% (133/133, grep -a verified)
+- Per-mode: H(133H/0M/0N), M(0H/67M/0N), F(0H/0M/66N), R(66H/0M/0N), P(66H/0M/0N), C(0H/66M/0N)
+- 14 timeouts (3.0%): all HARNESS_TIMEOUT_LONG_VALID_OUTPUT, 0 UNKNOWN, 0 degeneration
+- 0 crash, 0 CANN error, 0 temp leak, cache size stable
+- Wall: p50=35.9s, p95=120.4s, no drift (p50 first50=last50=35.9s)
+- Resources: 0 drift (RSS ±0.7%, HBM/FD/threads flat over 6h)
+- Adaptive timeout: 180→290→180→195→209→200s, mechanism validated
+- Commit: 479ecdb. Report: STAGE_M6_GATE_REPORT.md
+- Verdict: M6_CORE_MIXED_PATHS = PASS ✅
+- CACHE_KEY_ISOLATION = NOT_TESTED (next independent task)
+- Next: Cache storage model audit → CACHE_KEY_ISOLATION test → Stage C (24h)
