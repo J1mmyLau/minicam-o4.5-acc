@@ -1,0 +1,26 @@
+# Raw msprof trace data (moved to artifacts/)
+**/device_*/
+**/host/data/
+**/host/sqlite/
+**/host/*.json
+**/host/*.done
+**/host/start_info
+**/host/end_info
+**/host/sample.json
+**/device_0/data/
+**/device_1/data/
+**/device_0/sqlite/
+**/device_1/sqlite/
+**/device_0/*.json
+**/device_1/*.json
+**/device_0/*.done
+**/device_1/*.done
+**/device_0/*.log
+**/device_1/*.log
+**/device_0/start_info*
+**/device_1/start_info*
+**/device_0/end_info*
+**/device_1/end_info*
+**/device_0/sample.json*
+**/device_1/sample.json*
+*.db
