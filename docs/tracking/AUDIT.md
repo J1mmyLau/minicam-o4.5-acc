@@ -3,7 +3,53 @@
 > 追加式。格式: `## YYYY-MM-DD HH:MM | TYPE | RESULT`
 > TYPE ∈ {ITER, DECISION, FAILURE, CHECKPOINT, START, STOP, PHASE}
 
+
+## 2026-07-28 07:15 | DECISION | P6_ROPE_FP16_IMPLEMENTATION_COMPLETE
+
+
+
+- Commit b686120: RoPE F16 cast elimination — GGML_CANN_ROPE_FP16 gate
+
+- Gate: GGML_CANN_ROPE_FP16 env var, default OFF, preserves existing F32 fallback
+
+- +33/-19 lines in ggml_cann_rope() (aclnn_ops.cpp)
+
+- Smoke: OFF PASS, ON PASS (both produce valid audio, no crashes)
+
+- msprof A/B: explicit aclnn_cast calls fused by CANN runtime for small tensors
+
+- Cast per RoPE call unchanged (1.07); RotaryPositionEmbedding avg 5.57->5.34 us (-4.1%)
+
+- Verdict: Correct, functional, gated. Benefit is reduced memory pool pressure + graph overhead.
+
+- Report: profiles/P6_VERIFICATION_REPORT.md
 ---
+
+## 2026-07-28 06:29 | CHECKPOINT | P3_TARGETED_SMOKE_ALL_GATES_PASS
+
+- Commit fc65b35: targeted corruption + retention smoke — ALL GATES PASS
+- Phase A: Prime 4 keys (P0/P1/P2/Baseline) → 4 MISS
+- Phase B: Verify all HIT → 4/4 HIT
+- Phase C: Corrupt P0 → C1 MISS (detected), C2/C3/C4 HIT
+- Phase D: Corrupt P1 → D1 MISS, D2 HIT (P0 rebuilt in C1), D3/D4 HIT
+- Phase E: 4 files coexist on disk, correct timestamps
+- false_hit=0, wrong_file_corruption=0, unexpected_entry_loss=0, crash=0, CANN_error=0
+- corrupt_cache_by_key() fix validated. Binary corruption detection independently PASS (P2 G7a-G7e, 5/5).
+
+## 2026-07-28 06:40 | START | OPERATOR_PROFILING_MISSION_P2_P3
+
+- P2: ascendc-env-check ✅ + npu-arch ✅ (dav-2201, Ascend 910C, CANN 9.1.0-beta.1)
+- P3: Binary built (6913c97), baseline measurement running (3 TC × 5 iter)
+- P4: msprof profiling launched on decode-to-speak path
+- Worktree: /workspace/llama.cpp-omni-operator, branch perf/operator-decode-speak
+
+## 2026-07-28 06:15 | PHASE | KV_CACHE_FREEZE_COMPLETE
+
+- Tag: kv-cache-optin-candidate-20260728 at 4822478
+- Worktree: /workspace/llama.cpp-omni-operator on branch perf/operator-decode-speak
+- KV Cache production candidate frozen. Operator profiling mission begins.
+- Stage C gate report corrected (terminology: STAGE_C_CORRUPTION_COVERAGE vs BINARY_CORRUPTION_DETECTION)
+- Stage D: DEFERRED_BY_PLAN, auto-chain disabled (AUTO_CHAIN_LONG_SOAK=0)
 
 ## 2026-07-26 02:30 | CHECKPOINT | P11_CLOSEOUT_DOCUMENT_COMMITTED
 
