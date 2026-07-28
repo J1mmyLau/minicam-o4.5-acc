@@ -51,3 +51,19 @@
 |-----|-----------|------|-------------|
 | 1 | 114006 | 0 | 61 |
 | 2 | 1573175 | 0 | 1575 |
+| 3 | 58828 | 0 | 65 |
+| 4 | 127044 | 0 | 70 |
+| 5 | 37965 | 0 | 54 |
+
+**Summary (LONG):**
+
+| Stat | Value |
+|------|-------|
+| n | 5 |
+| min | 37965ms |
+| p50 | 114006ms |
+| p95 | 1573175ms |
+| max | 1573175ms |
+| mean | 382203ms |
+
+## Raw data: /workspace/llama.cpp-omni-operator/profiles/baseline/baseline_tc*_r*.{stdout,stderr}
