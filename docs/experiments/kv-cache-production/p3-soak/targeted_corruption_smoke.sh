@@ -16,7 +16,7 @@ log() { local msg="[$(date -u +%H:%M:%S)] $*"; echo "$msg" >> "$OUTDIR/smoke.log
 fail() { log "FAIL: $*"; echo "FAIL" > "$OUTDIR/RESULT"; exit 1; }
 
 run_one() {
-    local label="$1" test_start="$2" per_case="$3" timeout_s="${4:-300}"
+    local label="$1" test_start="$2" per_case="$3" timeout_s="${4:-900}"
     local extra_env=""
     [ "$per_case" = "1" ] && extra_env="OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1"
     local stderr="$OUTDIR/${label}.stderr"
