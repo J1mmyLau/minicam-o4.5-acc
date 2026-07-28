@@ -1,6 +1,14 @@
 #!/bin/bash
 # Auto-chain: wait for Stage C to finish, then launch Stage D (72h)
+# DISABLED: require explicit approval for 72h/168h stage chaining
+# Set AUTO_CHAIN_LONG_SOAK=1 to re-enable
 set -euo pipefail
+
+if [ "${AUTO_CHAIN_LONG_SOAK:-0}" != "1" ]; then
+    echo "AUTO_CHAIN_LONG_SOAK=0 — skipping automatic Stage D launch" >&2
+    echo "Set AUTO_CHAIN_LONG_SOAK=1 to enable automatic long-soak chaining" >&2
+    exit 0
+fi
 
 STAGE_C_PID=1110033
 RUN_DIR_C="docs/experiments/kv-cache-production/p3-soak/stage_mixed_20260727_034614"

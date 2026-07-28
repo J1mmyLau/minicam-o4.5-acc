@@ -690,3 +690,11 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
   - 0 key collisions, 0 false-HIT, 0 deserialize errors, 0 crash, 0 rc0_without_audio
 - **Stage C (24h mixed) is now unblocked.**
 - All Stage C entry gates met: M6_CORE_MIXED_PATHS=PASS + CACHE_KEY_ISOLATION=PASS
+
+## 2026-07-28 03:48 | START | STAGE_D_72H_AUTO_LAUNCHED
+
+- Auto-chained from Stage C completion
+- Stage D PID: 2661744
+- Duration: 259,200s (72h)
+- Stage C run dir: docs/experiments/kv-cache-production/p3-soak/stage_mixed_20260727_034614
+- Target completion: 2026-07-31 03:48 UTC
