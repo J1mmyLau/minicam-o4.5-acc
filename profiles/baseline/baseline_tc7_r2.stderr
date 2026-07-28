@@ -1,0 +1,507 @@
+0.01.421.855 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.01.936.494 W llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+0.02.249.279 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+vision_model_loader: model name:   
+vision_model_loader: description:  image encoder for MiniCPM-V
+vision_model_loader: GGUF version: 3
+vision_model_loader: alignment:    32
+vision_model_loader: n_tensors:    455
+vision_model_loader: n_kv:         20
+
+vision_ctx: vision using CANN0 backend
+load_hparams: model_type:         0
+load_hparams: n_embd:             1152
+load_hparams: n_head:             16
+load_hparams: n_ff:               4304
+load_hparams: n_layer:            27
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- vision hparams ---
+load_hparams: image_size:         448
+load_hparams: patch_size:         14
+load_hparams: minicpmv_version:   100045
+load_hparams: proj_scale_factor:  0
+load_hparams: n_wa_pattern:       0
+load_hparams: insert_layer_id:     0
+
+load_hparams: model size:         1044.36 MiB
+load_hparams: metadata size:      0.16 MiB
+load_tensors: ffn up/down are swapped
+alloc_compute_meta:      CANN0 compute buffer size =   100.30 MiB
+alloc_compute_meta:        CPU compute buffer size =    18.30 MiB
+vision_set_batch_encode: vision batch encode disabled
+init tts....init t2w....voc_hg2_model: CPU backend using 8 threads
+audition_audio_preprocess: Decoded audio - sample_rate=16000, n_samples=16000
+audition_get_mel_filters: Retrieved mel filters from model: 80 mel bins x 201 fft bins
+audition_audio_preprocess: Using mel filters - n_mel=80, n_fft=201
+audition_audio_preprocess: Generated 1 mel spectrogram chunk(s)
+audition_audio_preprocess: Mel spectrogram ready - n_len=100, n_mel=80, total_size=8000
+build_whisper: Whisper encoder graph built (projector output, pre-pooling)
+audition_audio_batch_encode: Audio input data - n_step=100, n_mel=80, total_elements=8000
+audition_audio_batch_encode: Before incrementing iter: input_frames=100, n_tokens=50, current_iter=0, current_total=0, new_total=50, max_tokens=1500
+audition_audio_batch_encode: KV cache iter incremented to 1 (total_tokens=50, max_tokens=1500)
+audition_audio_batch_encode: Final output shape: [4096, 10]
+audition_audio_batch_encode: Final output: 10 tokens x 4096 dims
+<user>
+<assistant>0.18.048.141 I TTS condition graph: initialized (vocab=152064, hidden=768)
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/1 (batch size 1, n_past 4096)
+TTS simplex: failed to decode audio token embedding
+4.19.291.870 W decode: failed to find a memory slot for batch of size 1
+TTS Simplex: sample_tts_token failed at step 109
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 32
+4.19.304.797 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 33
+4.19.317.046 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+4.21.898.578 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 34
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 35
+4.24.509.079 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 36
+4.27.087.105 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 37
+4.29.279.480 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 38
+4.31.616.465 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 39
+4.34.224.899 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 40
+4.36.819.815 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 41
+4.39.447.300 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 42
+4.41.997.096 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+4.44.540.629 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 43
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 44
+4.47.129.507 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+4.49.711.912 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 45
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+4.52.343.708 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 46
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 47
+4.54.986.848 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 48
+4.57.607.282 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.00.229.078 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 49
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.02.826.802 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 50
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 51
+5.05.439.020 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+5.08.067.966 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 52
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 53
+5.10.701.209 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 54
+5.13.320.598 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.15.897.452 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 55
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 56
+5.18.497.158 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.21.089.369 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 57
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 58
+5.23.704.230 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 59
+5.26.278.504 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.28.847.814 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 60
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 61
+5.31.422.206 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 62
+5.33.998.603 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.36.590.207 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 63
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 64
+5.39.178.524 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+5.41.747.956 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 65
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 66
+5.44.329.224 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+5.46.922.281 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 67
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 68
+5.49.504.885 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 69
+5.52.119.181 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+5.54.742.982 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 70
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 71
+5.57.380.280 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 72
+6.00.014.084 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 73
+6.02.659.538 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 74
+6.05.304.717 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 75
+6.07.946.690 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 76
+6.10.587.501 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 77
+6.13.221.460 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 78
+6.15.858.285 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 79
+6.18.502.607 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 80
+6.21.140.116 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+6.23.786.522 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 81
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 82
+6.26.436.199 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 83
+6.29.074.114 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 84
+6.31.717.897 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 85
+6.34.354.858 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+6.36.998.039 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 86
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 87
+6.39.640.047 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 88
+6.42.282.366 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 89
+6.44.927.820 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+6.47.584.571 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 90
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+6.50.220.277 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 91
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 92
+6.52.865.932 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 93
+6.55.497.600 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+6.58.144.104 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 94
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 95
+7.00.854.685 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 96
+7.03.569.667 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+7.06.305.252 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 97
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 98
+7.09.045.143 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 99
+7.11.754.350 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 100
+7.14.476.099 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+7.17.203.661 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 101
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 102
+7.19.910.430 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+7.22.633.119 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 103
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 104
+7.25.361.262 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+7.28.086.370 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 105
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 106
+7.30.819.904 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 107
+7.33.536.242 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 108
+7.36.254.998 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 109
+7.38.981.737 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+7.41.690.180 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 110
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+7.44.438.867 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 111
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 112
+7.47.186.406 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 113
+7.49.904.711 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 114
+7.52.643.275 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 115
+7.55.370.348 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 116
+7.58.090.263 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+8.00.815.900 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 117
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 118
+8.03.538.937 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 119
+8.06.267.660 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 120
+8.09.023.215 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+8.11.833.811 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 121
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+8.14.669.184 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 122
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 123
+8.17.512.084 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 124
+8.20.320.437 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 125
+8.23.170.843 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+8.25.996.446 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 126
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 127
+8.28.817.307 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+8.31.637.589 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 128
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 129
+8.34.483.286 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 130
+8.37.314.087 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 131
+8.40.153.158 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 132
+8.42.992.820 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+8.45.823.591 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 133
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 134
+8.48.681.503 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+8.51.526.859 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 135
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+8.54.350.424 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 136
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 137
+8.57.180.262 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+9.00.023.309 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 138
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 139
+9.02.871.675 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 140
+9.05.695.867 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+9.08.525.899 W decode: failed to find a memory slot for batch of size 11
+TTS Local: failed for chunk 141
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+9.11.344.416 W decode: failed to find a memory slot for batch of size 11
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 142
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 143
+9.14.177.759 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 144
+9.17.013.405 W decode: failed to find a memory slot for batch of size 11
+prefill_with_emb_tts : failed to eval TTS embeddings. pos 0/11 (batch size 2048, n_past 4096)
+TTS Simplex: prefill_with_emb_tts failed
+TTS Local: failed for chunk 145
+9.19.847.420 W decode: failed to find a memory slot for batch of size 11
