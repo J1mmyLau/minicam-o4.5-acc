@@ -40,6 +40,7 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -73,12 +74,74 @@
 // Thread-local variable to record the current device of this thread.
 thread_local int g_current_cann_device = -1;
 
+// ============================================================================
+// Runtime Overhead Diagnostic (Candidate E — V0 counters only)
+// Gate: GGML_CANN_RUNTIME_DIAG=1 (default OFF, zero overhead when OFF)
+// ============================================================================
+struct cannd_runtime_diag {
+    std::atomic<uint64_t> set_device_calls{0};         // ggml_cann_set_device() call count
+    std::atomic<uint64_t> set_device_actual{0};         // actual aclrtSetDevice() calls (guard miss)
+    std::atomic<uint64_t> graph_evaluations{0};         // CANN graph compute calls
+    std::atomic<uint64_t> synchronize_stream{0};        // aclrtSynchronizeStream calls
+    std::atomic<uint64_t> memcpy_host_to_device{0};     // aclrtMemcpy H2D count
+    std::atomic<uint64_t> memcpy_device_to_host{0};     // aclrtMemcpy D2H count
+    std::atomic<uint64_t> memcpy_device_to_device{0};   // aclrtMemcpy D2D count
+    std::atomic<uint64_t> memcpy_async{0};              // aclrtMemcpyAsync (all directions)
+};
+
+static cannd_runtime_diag g_runtime_diag;
+
+static void cannd_runtime_diag_dump();
+
+static bool cannd_runtime_diag_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_RUNTIME_DIAG");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            std::atexit(cannd_runtime_diag_dump);
+        }
+    }
+    return enabled == 1;
+}
+
+static void cannd_runtime_diag_dump() {
+    if (!cannd_runtime_diag_enabled()) return;
+    uint64_t sc = g_runtime_diag.set_device_calls.load();
+    uint64_t sa = g_runtime_diag.set_device_actual.load();
+    fprintf(stderr,
+        "\n[CANND_RUNTIME_DIAG] ========================================\n"
+        "[CANND_RUNTIME_DIAG] set_device_calls       = %lu\n"
+        "[CANND_RUNTIME_DIAG] set_device_actual      = %lu (aclrtSetDevice)\n"
+        "[CANND_RUNTIME_DIAG] set_device_redundant   = %lu (guard hits)\n"
+        "[CANND_RUNTIME_DIAG] set_device_redundancy  = %.1f%%\n"
+        "[CANND_RUNTIME_DIAG] graph_evaluations      = %lu\n"
+        "[CANND_RUNTIME_DIAG] synchronize_stream     = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_h2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2h             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_async           = %lu\n"
+        "[CANND_RUNTIME_DIAG] ========================================\n",
+        sc, sa, sc > sa ? sc - sa : 0,
+        sc > 0 ? 100.0 * (sc - sa) / (double)sc : 0.0,
+        g_runtime_diag.graph_evaluations.load(),
+        g_runtime_diag.synchronize_stream.load(),
+        g_runtime_diag.memcpy_host_to_device.load(),
+        g_runtime_diag.memcpy_device_to_host.load(),
+        g_runtime_diag.memcpy_device_to_device.load(),
+        g_runtime_diag.memcpy_async.load());
+}
+
+#define CANND_DIAG_INC(field) do { if (cannd_runtime_diag_enabled()) g_runtime_diag.field.fetch_add(1, std::memory_order_relaxed); } while(0)
+
 /**
  * @brief Set the CANN device to be used.
  *
  * @param device The target device ID to set.
  */
 void ggml_cann_set_device(const int32_t device) {
+    CANND_DIAG_INC(set_device_calls);
+
     // int current_device = -1;
     // Note: In some CANN versions, if no device has been set yet,
     //       aclrtGetDevice(&current_device) may return 0 by default.
@@ -90,6 +153,7 @@ void ggml_cann_set_device(const int32_t device) {
     }
 
     // Switch to the new device.
+    CANND_DIAG_INC(set_device_actual);
     ACL_CHECK(aclrtSetDevice(device));
 
     // Update the global device record.
@@ -1291,6 +1355,7 @@ static void ggml_backend_cann_buffer_set_tensor(ggml_backend_buffer_t buffer,
 
     // Plain tensor (not quantized, not NZ): direct copy, no tracking needed
     if (!is_quantized && !is_nz) {
+        CANND_DIAG_INC(memcpy_host_to_device);
         ACL_CHECK(aclrtMemcpy((char *) tensor->data + offset, size, data, size, ACL_MEMCPY_HOST_TO_DEVICE));
         return;
     }
@@ -1373,6 +1438,7 @@ static void ggml_backend_cann_buffer_get_tensor(ggml_backend_buffer_t buffer,
     ggml_cann_set_device(ctx->device);
 
     if (!need_transform(tensor->type)) {
+        CANND_DIAG_INC(memcpy_device_to_host);
         ACL_CHECK(aclrtMemcpy(data, size, (char *) tensor->data + offset, size, ACL_MEMCPY_DEVICE_TO_HOST));
     } else {
         void * transform_buffer = malloc(size);
@@ -2187,6 +2253,7 @@ static bool ggml_backend_cann_cpy_tensor_async(ggml_backend_t      backend_src,
         // // wait on dst stream for the copy to complete
         // ggml_cann_set_device(cann_ctx_dst->device);
         // ACL_CHECK(aclrtStreamWaitEvent(cann_ctx_dst->stream(), cann_ctx_src->copy_event));
+        CANND_DIAG_INC(synchronize_stream);
         ACL_CHECK(aclrtSynchronizeStream(cann_ctx_src->stream()));
     } else {
         // src and dst are on the same backend
@@ -2208,6 +2275,7 @@ static bool ggml_backend_cann_cpy_tensor_async(ggml_backend_t      backend_src,
 static void ggml_backend_cann_synchronize(ggml_backend_t backend) {
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
     ggml_cann_set_device(cann_ctx->device);
+    CANND_DIAG_INC(synchronize_stream);
     ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
 }
 
@@ -2327,6 +2395,7 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
  *         completes successfully, otherwise an appropriate error status.
  */
 static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, ggml_cgraph * cgraph) {
+    CANND_DIAG_INC(graph_evaluations);
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
     ggml_cann_set_device(cann_ctx->device);
     g_nz_workspaces[cann_ctx->device].clear();

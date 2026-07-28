@@ -691,6 +691,42 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - **Stage C (24h mixed) is now unblocked.**
 - All Stage C entry gates met: M6_CORE_MIXED_PATHS=PASS + CACHE_KEY_ISOLATION=PASS
 
+## 2026-07-28 08:45 | CHECKPOINT | PRE_COMPACT_OPERATOR_PROFILING
+
+- HEAD: 111a48a, branch: perf/operator-decode-speak
+- OP002 ADD+RMSNorm fusion: DEFINITIVELY REJECTED (NOT_REACHABLE_UNDER_CURRENT_OFFLOAD_POLICY)
+- 1,132 CANN graphs traced, zero 1152-dim, root cause = GGML_OP_OFFLOAD_MIN_BATCH=32
+- RoPE FP16: status corrected (TALKER_DECODE_ROPE_OPTIMIZED=NOT_PROVEN)
+- V0 CANN fusion A/B: NO_SIGNAL (r=0.999 with Δwav)
+- All diagnostic code cleaned up, binary SHA 10592a58
+- Next: Candidate E (Runtime Overhead Reduction) — profiling audit first
+- Git: STATUS.md modified, HANDOFF.md updated, untracked docs/experiments/operator-optimization/
+- No active runner. NPU idle.
+
+## 2026-07-28 07:45 | DECISION | OP002_FUSION_REJECTED
+
+- Runtime graph diag complete: 1,132 CANN graph evaluations, 0 with max_dim=1152
+- Root cause: op_offload_min_batch_size=32 > Talker decode ne[1]=1
+- MIN_BATCH=1 crashes scheduler (CPU buffer tensor clash)
+- Only 4096-dim flow model graphs reach CANN (~18 fusions/run)
+- Verdict: NOT_REACHABLE_UNDER_CURRENT_OFFLOAD_POLICY
+- OP002_RUNTIME_GRAPH_DIAG.md written
+- Pivot to Candidate E: Runtime Overhead Reduction
+
+## 2026-07-28 07:30 | DECISION | V0_FUSION_AB_NO_SIGNAL
+
+- 10-pair A/B: Δwall perfectly correlated with Δwav (r=0.999)
+- Pair 10 (matched wavs=6): Δ=+31ms (+0.06%) — noise
+- E2E wall-time A/B invalid for sub-1% effects against 41× LLM variance
+- V0_FUSION_VERDICT.md: INSUFFICIENT
+
+## 2026-07-28 07:00 | DECISION | ROPE_FP16_STATUS_CORRECTED
+
+- Previous docs implied Talker decode RoPE was optimized — INCORRECT
+- src0->type always f32, FP16 path NEVER hit
+- Talker RoPE ops also blocked by op_offload_min_batch=32 (same as OP002)
+- Corrected: ROPE_FP16_CANN_LOCAL_PATH=WEAK_POSITIVE, TALKER_DECODE_ROPE_OPTIMIZED=NOT_PROVEN
+
 ## 2026-07-28 03:48 | START | STAGE_D_72H_AUTO_LAUNCHED
 
 - Auto-chained from Stage C completion
