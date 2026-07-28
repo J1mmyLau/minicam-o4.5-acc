@@ -3086,7 +3086,12 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     int64_t tail_ne[GGML_MAX_DIMS] = { tail_dims, ne01, ne02, ne03 };
 
     // Step 1: Prepare trans tensors for F16 type conversion to F32 if needed
-    bool                 src_dst_need_trans = false;
+    // GGML_CANN_ROPE_FP16: when enabled, skip F16→F32→F16 round-trip for RoPE.
+    // The aclnnRotaryPositionEmbedding operator may accept F16 input natively.
+    // Default OFF — preserves existing F32 behavior.
+    static bool rope_fp16_enabled = parse_bool(get_env_as_lowercase("GGML_CANN_ROPE_FP16").value_or("off"));
+    bool        rope_use_fp16     = (rope_fp16_enabled && src0->type == GGML_TYPE_F16);
+    bool        src_dst_need_trans = false;
     ggml_cann_pool_alloc src_trans_allocator(ctx.pool());
     ggml_cann_pool_alloc dst_trans_allocator(ctx.pool());
     acl_tensor_ptr       acl_src_trans_tensor;
@@ -3094,7 +3099,7 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     void *               src_trans_buffer = nullptr;
     void *               dst_trans_buffer = nullptr;
     size_t               src_dst_trans_nb[GGML_MAX_DIMS];
-    if (src0->type == GGML_TYPE_F16) {
+    if (src0->type == GGML_TYPE_F16 && !rope_use_fp16) {
         src_dst_need_trans = true;
         src_trans_buffer   = src_trans_allocator.alloc(ggml_nelements(src0) * sizeof(float));
         dst_trans_buffer   = dst_trans_allocator.alloc(ggml_nelements(dst) * sizeof(float));
@@ -3113,29 +3118,38 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     // Step 2: Prepare head tensors for tail splitting if needed
     acl_tensor_ptr acl_src_head;
     acl_tensor_ptr acl_dst_head;
+    // When rope_use_fp16, use F16 data type for head tensors
+    aclDataType rope_dtype     = rope_use_fp16 ? ACL_FLOAT16 : ACL_FLOAT;
+    size_t      rope_elem_size = rope_use_fp16 ? ggml_type_size(GGML_TYPE_F16) : sizeof(float);
     if (has_tail) {
         // Create head views for RotaryPositionEmbedding (only first rope_dims dimensions)
         // RotaryPositionEmbedding requires contiguous dst tensor, so we use a temporary buffer
-        if (src_dst_need_trans) {
-            // Use F32 trans tensor strides
-            acl_src_head = ggml_cann_create_tensor((char *) src_trans_buffer, ACL_FLOAT, sizeof(float), head_ne,
-                                                   src_dst_trans_nb, GGML_MAX_DIMS);
+        if (src_dst_need_trans || rope_use_fp16) {
+            if (src_dst_need_trans) {
+                // Use F32 trans tensor strides
+                acl_src_head = ggml_cann_create_tensor((char *) src_trans_buffer, rope_dtype, rope_elem_size, head_ne,
+                                                       src_dst_trans_nb, GGML_MAX_DIMS);
+            } else {
+                // F16 path: use original F16 tensor strides
+                acl_src_head = ggml_cann_create_tensor((char *) src0->data, rope_dtype, rope_elem_size, head_ne,
+                                                       src0->nb, GGML_MAX_DIMS);
+            }
         } else {
             // Use original F32 tensor strides
-            acl_src_head = ggml_cann_create_tensor((char *) src0->data, ACL_FLOAT, sizeof(float), head_ne, src0->nb,
+            acl_src_head = ggml_cann_create_tensor((char *) src0->data, rope_dtype, rope_elem_size, head_ne, src0->nb,
                                                    GGML_MAX_DIMS);
         }
 
         int64_t              head_elements = rope_dims * ne01 * ne02 * ne03;
-        ggml_cann_pool_alloc dst_head_contiguous_allocator(ctx.pool(), head_elements * sizeof(float));
+        ggml_cann_pool_alloc dst_head_contiguous_allocator(ctx.pool(), head_elements * rope_elem_size);
         void *               dst_head_contiguous_buffer = dst_head_contiguous_allocator.get();
 
         size_t head_contiguous_nb[GGML_MAX_DIMS];
-        head_contiguous_nb[0] = sizeof(float);
+        head_contiguous_nb[0] = rope_elem_size;
         for (int i = 1; i < GGML_MAX_DIMS; i++) {
             head_contiguous_nb[i] = head_contiguous_nb[i - 1] * head_ne[i - 1];
         }
-        acl_dst_head = ggml_cann_create_tensor(dst_head_contiguous_buffer, ACL_FLOAT, sizeof(float), head_ne,
+        acl_dst_head = ggml_cann_create_tensor(dst_head_contiguous_buffer, rope_dtype, rope_elem_size, head_ne,
                                                head_contiguous_nb, GGML_MAX_DIMS);
     }
 
@@ -3148,11 +3162,11 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
         // Copy head result from contiguous buffer back to destination tensor
         if (src_dst_need_trans) {
             acl_tensor_ptr acl_dst_head_target = ggml_cann_create_tensor(
-                (char *) dst_trans_buffer, ACL_FLOAT, sizeof(float), head_ne, src_dst_trans_nb, GGML_MAX_DIMS);
+                (char *) dst_trans_buffer, rope_dtype, rope_elem_size, head_ne, src_dst_trans_nb, GGML_MAX_DIMS);
             cann_copy(ctx, acl_dst_head.get(), acl_dst_head_target.get());
         } else {
             acl_tensor_ptr acl_dst_head_target =
-                ggml_cann_create_tensor((char *) dst->data, ACL_FLOAT, sizeof(float), head_ne, dst->nb, GGML_MAX_DIMS);
+                ggml_cann_create_tensor((char *) dst->data, rope_dtype, rope_elem_size, head_ne, dst->nb, GGML_MAX_DIMS);
             cann_copy(ctx, acl_dst_head.get(), acl_dst_head_target.get());
         }
     } else if (src_dst_need_trans) {
@@ -3163,17 +3177,17 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
         // In-place on non-contiguous tensor: RotaryPositionEmbedding cannot safely
         // read and write the same non-contiguous buffer. Use contiguous temporaries.
         size_t contiguous_nb[GGML_MAX_DIMS];
-        contiguous_nb[0] = sizeof(float);
+        contiguous_nb[0] = rope_elem_size;
         for (int i = 1; i < GGML_MAX_DIMS; i++) {
             contiguous_nb[i] = contiguous_nb[i - 1] * src0->ne[i - 1];
         }
         int64_t              total_elements = ggml_nelements(src0);
-        ggml_cann_pool_alloc inplace_src_alloc(ctx.pool(), total_elements * sizeof(float));
-        ggml_cann_pool_alloc inplace_dst_alloc(ctx.pool(), total_elements * sizeof(float));
+        ggml_cann_pool_alloc inplace_src_alloc(ctx.pool(), total_elements * rope_elem_size);
+        ggml_cann_pool_alloc inplace_dst_alloc(ctx.pool(), total_elements * rope_elem_size);
 
-        acl_tensor_ptr acl_src_contig = ggml_cann_create_tensor(inplace_src_alloc.get(), ACL_FLOAT, sizeof(float),
+        acl_tensor_ptr acl_src_contig = ggml_cann_create_tensor(inplace_src_alloc.get(), rope_dtype, rope_elem_size,
                                                                 src0->ne, contiguous_nb, GGML_MAX_DIMS);
-        acl_tensor_ptr acl_dst_contig = ggml_cann_create_tensor(inplace_dst_alloc.get(), ACL_FLOAT, sizeof(float),
+        acl_tensor_ptr acl_dst_contig = ggml_cann_create_tensor(inplace_dst_alloc.get(), rope_dtype, rope_elem_size,
                                                                 dst->ne, contiguous_nb, GGML_MAX_DIMS);
 
         cann_copy(ctx, acl_src.get(), acl_src_contig.get());
@@ -3201,11 +3215,11 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
         };
 
         if (src_dst_need_trans) {
-            // Use F32 trans tensor strides and offsets
+            // Use trans tensor strides and offsets
             src_tail_offset = rope_dims * src_dst_trans_nb[0];
             dst_tail_offset = rope_dims * src_dst_trans_nb[0];
             copy_tail_device((char *) src_trans_buffer + src_tail_offset, (char *) dst_trans_buffer + dst_tail_offset,
-                             ACL_FLOAT, sizeof(float), src_dst_trans_nb, src_dst_trans_nb);
+                             rope_dtype, rope_elem_size, src_dst_trans_nb, src_dst_trans_nb);
         } else {
             // Use original tensor strides and offsets
             src_tail_offset = rope_dims * nb00;
