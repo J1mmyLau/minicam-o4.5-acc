@@ -134,10 +134,31 @@ delete_cache() {
     : > "$PREFIX_SEEN_FILE"
 }
 
+# Usage: corrupt_target_cache <cache_key_hash>
+corrupt_cache_by_key() {
+    local key_hash="$1"
+    local cf="${CACHE_DIR}/omni_kvcache_${key_hash}.bin"
+    if [ -f "$cf" ]; then
+        echo "  [corrupt] target=$key_hash file=$(basename $cf)" >&2
+        python3 -c "
+import sys
+with open('$cf', 'r+b') as f:
+    f.seek(128)
+    b = f.read(1)
+    f.seek(128)
+    f.write(bytes([b[0] ^ 0x01]))
+" 2>/dev/null || true
+    else
+        echo "  [corrupt] WARNING: target file not found: $cf" >&2
+    fi
+}
+
+# Legacy: corrupt first cache file (buggy for multi-entry — use corrupt_cache_by_key instead)
 corrupt_cache() {
     local cf
     cf=$(ls "${CACHE_DIR}"/omni_kvcache_*.bin 2>/dev/null | head -1) || cf=""
     if [ -n "$cf" ]; then
+        echo "  [corrupt] WARNING: using legacy head -1 on $(basename $cf) — may target wrong file" >&2
         python3 -c "
 import sys
 with open('$cf', 'r+b') as f:
