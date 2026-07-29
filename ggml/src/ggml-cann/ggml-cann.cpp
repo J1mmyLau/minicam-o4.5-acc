@@ -75,114 +75,22 @@
 thread_local int g_current_cann_device = -1;
 
 // ============================================================================
-// Runtime Overhead Diagnostic (Candidate E — V0 counters + sync audit)
-// Gate: GGML_CANN_RUNTIME_DIAG=1 (default OFF, zero overhead when OFF)
+// Runtime Diagnostic Counters (default OFF, zero overhead when OFF)
+// Gate: GGML_CANN_RUNTIME_DIAG=1
+// Category A: low-overhead telemetry — memcpy counters, graph evaluations
+// NB: SetDevice & sync trace instrumentation REMOVED (REJECTED candidates E1/E2).
 // ============================================================================
 
-// Sync callsite classification
-enum cannd_sync_callsite : uint16_t {
-    SYNC_D2D_COPY          = 0,  // cross-device D2D copy sync (line ~2251)
-    SYNC_BACKEND_PUBLIC    = 1,  // ggml_backend_cann_synchronize (line ~2272)
-    SYNC_OTHER             = 99,
-};
-
-static const char * cannd_sync_callsite_name(uint16_t cs) {
-    switch (cs) {
-        case SYNC_D2D_COPY:       return "SYNC_D2D_COPY";
-        case SYNC_BACKEND_PUBLIC: return "SYNC_BACKEND_PUBLIC";
-        default:                  return "SYNC_OTHER";
-    }
-}
-
-// Sync classification result
-enum cannd_sync_class : uint8_t {
-    SYNC_CLASS_DUPLICATE_NO_WORK    = 0,  // same stream, no new work since last sync
-    SYNC_CLASS_MANDATORY_BARRIER    = 1,  // graph boundary / scheduler barrier
-    SYNC_CLASS_CROSS_DEVICE         = 2,  // cross-device D2D sync
-    SYNC_CLASS_READBACK             = 3,  // before D2H readback
-    SYNC_CLASS_UNKNOWN              = 99,
-};
-
-static const char * cannd_sync_class_name(uint8_t cls) {
-    switch (cls) {
-        case SYNC_CLASS_DUPLICATE_NO_WORK: return "DUPLICATE_NO_WORK";
-        case SYNC_CLASS_MANDATORY_BARRIER: return "MANDATORY_BARRIER";
-        case SYNC_CLASS_CROSS_DEVICE:      return "CROSS_DEVICE";
-        case SYNC_CLASS_READBACK:          return "READBACK";
-        default:                           return "UNKNOWN";
-    }
-}
-
-// Per-sync trace record (~48 bytes)
-struct cannd_sync_trace {
-    uint64_t timestamp_ns;       // std::chrono::steady_clock
-    uint32_t graph_id;           // graph_evaluations counter at sync time
-    uint32_t thread_hash;        // hashed std::thread::id
-    uint64_t stream_hash;        // hashed stream pointer
-    uint16_t callsite;           // cannd_sync_callsite
-    uint8_t  sync_class;         // cannd_sync_class
-    uint8_t  _pad;
-    uint32_t submit_seq;         // global submit sequence at sync time
-    uint32_t last_sync_seq;      // this stream's previous sync submit_seq
-    uint32_t duration_ns;        // actual aclrtSynchronizeStream wall duration (ns)
-};
-
 struct cannd_runtime_diag {
-    // --- V0 counters ---
-    std::atomic<uint64_t> set_device_calls{0};
-    std::atomic<uint64_t> set_device_actual{0};
     std::atomic<uint64_t> graph_evaluations{0};
-    std::atomic<uint64_t> synchronize_stream{0};        // total (all callsites)
-    std::atomic<uint64_t> sync_by_callsite[4]{0,0,0,0}; // indexed by cannd_sync_callsite
-    std::atomic<uint64_t> sync_duplicate_no_work{0};    // duplicate syncs detected
     std::atomic<uint64_t> memcpy_host_to_device{0};
     std::atomic<uint64_t> memcpy_device_to_host{0};
     std::atomic<uint64_t> memcpy_device_to_device{0};
     std::atomic<uint64_t> memcpy_async{0};
-
-    // --- Sync trace buffer ---
-    static constexpr size_t kMaxSyncTrace = 16384;
-    cannd_sync_trace sync_traces[kMaxSyncTrace];
-    std::atomic<uint32_t> sync_trace_count{0};
-    std::mutex            sync_trace_mutex;
 };
 
 static cannd_runtime_diag g_runtime_diag;
 
-// Global submit sequence — incremented at graph launch and key async submits.
-// Used to detect DUPLICATE_NO_WORK: if a sync's submit_seq equals the
-// previous sync on the same stream, no work was submitted between them.
-static std::atomic<uint32_t> g_submit_seq{0};
-
-// Per-stream last sync state for duplicate detection.
-// Keyed by hashed stream pointer for fast lookup.
-struct cannd_stream_sync_state {
-    uint64_t stream_hash;
-    uint32_t last_sync_submit_seq;
-};
-static std::mutex                       g_stream_sync_mutex;
-static std::vector<cannd_stream_sync_state> g_stream_sync_states;  // guarded by g_stream_sync_mutex
-
-static uint32_t cannd_stream_get_last_sync_seq(uint64_t stream_hash) {
-    std::lock_guard<std::mutex> lock(g_stream_sync_mutex);
-    for (auto & s : g_stream_sync_states) {
-        if (s.stream_hash == stream_hash) return s.last_sync_submit_seq;
-    }
-    return UINT32_MAX;  // never synced before
-}
-
-static void cannd_stream_record_sync(uint64_t stream_hash, uint32_t submit_seq) {
-    std::lock_guard<std::mutex> lock(g_stream_sync_mutex);
-    for (auto & s : g_stream_sync_states) {
-        if (s.stream_hash == stream_hash) {
-            s.last_sync_submit_seq = submit_seq;
-            return;
-        }
-    }
-    g_stream_sync_states.push_back({stream_hash, submit_seq});
-}
-
-// Called at graph launch and async work submission to advance the global clock.
 static void cannd_runtime_diag_dump();
 
 static bool cannd_runtime_diag_enabled() {
@@ -197,149 +105,25 @@ static bool cannd_runtime_diag_enabled() {
     return enabled == 1;
 }
 
-static inline void cannd_bump_submit_seq() {
-    if (cannd_runtime_diag_enabled()) {
-        g_submit_seq.fetch_add(1, std::memory_order_relaxed);
-    }
-}
-
-// Record a sync event in the trace buffer.
-// Called from the CANND_SYNC_TRACE macro or directly from instrumented sites.
-static void cannd_record_sync(uint16_t callsite, uint64_t stream_hash, uint32_t duration_ns) {
-    if (!cannd_runtime_diag_enabled()) return;
-
-    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    uint32_t graph_id  = g_runtime_diag.graph_evaluations.load(std::memory_order_relaxed);
-    uint32_t submit_seq = g_submit_seq.load(std::memory_order_relaxed);
-    uint32_t last_seq  = cannd_stream_get_last_sync_seq(stream_hash);
-
-    // Classification
-    uint8_t cls = SYNC_CLASS_UNKNOWN;
-    if (last_seq != UINT32_MAX && submit_seq == last_seq) {
-        cls = SYNC_CLASS_DUPLICATE_NO_WORK;
-        g_runtime_diag.sync_duplicate_no_work.fetch_add(1, std::memory_order_relaxed);
-    } else if (callsite == SYNC_D2D_COPY) {
-        cls = SYNC_CLASS_CROSS_DEVICE;
-    } else if (callsite == SYNC_BACKEND_PUBLIC) {
-        cls = SYNC_CLASS_MANDATORY_BARRIER;
-    }
-
-    // Record per-stream state AFTER classification
-    cannd_stream_record_sync(stream_hash, submit_seq);
-
-    // Hash thread id
-    std::hash<std::thread::id> thasher;
-    uint32_t thread_hash = (uint32_t) thasher(std::this_thread::get_id());
-
-    // Write trace entry
-    uint32_t idx = g_runtime_diag.sync_trace_count.fetch_add(1, std::memory_order_relaxed);
-    if (idx < cannd_runtime_diag::kMaxSyncTrace) {
-        g_runtime_diag.sync_traces[idx] = {
-            (uint64_t) now, graph_id, thread_hash, stream_hash,
-            callsite, cls, 0, submit_seq, last_seq, duration_ns
-        };
-    }
-}
-
 static void cannd_runtime_diag_dump() {
     if (!cannd_runtime_diag_enabled()) return;
-    uint64_t sc = g_runtime_diag.set_device_calls.load();
-    uint64_t sa = g_runtime_diag.set_device_actual.load();
-    uint64_t sync_total = g_runtime_diag.synchronize_stream.load();
-    uint64_t sync_d2d  = g_runtime_diag.sync_by_callsite[SYNC_D2D_COPY].load();
-    uint64_t sync_api  = g_runtime_diag.sync_by_callsite[SYNC_BACKEND_PUBLIC].load();
-    uint64_t sync_dup  = g_runtime_diag.sync_duplicate_no_work.load();
-    uint32_t trace_n   = g_runtime_diag.sync_trace_count.load();
-    if (trace_n > cannd_runtime_diag::kMaxSyncTrace) trace_n = cannd_runtime_diag::kMaxSyncTrace;
-
     fprintf(stderr,
         "\n[CANND_RUNTIME_DIAG] ========================================\n"
-        "[CANND_RUNTIME_DIAG] set_device_calls       = %lu\n"
-        "[CANND_RUNTIME_DIAG] set_device_actual      = %lu (aclrtSetDevice)\n"
-        "[CANND_RUNTIME_DIAG] set_device_redundant   = %lu (guard hits)\n"
-        "[CANND_RUNTIME_DIAG] set_device_redundancy  = %.1f%%\n"
         "[CANND_RUNTIME_DIAG] graph_evaluations      = %lu\n"
-        "[CANND_RUNTIME_DIAG] synchronize_stream     = %lu (total)\n"
-        "[CANND_RUNTIME_DIAG]   SYNC_D2D_COPY        = %lu\n"
-        "[CANND_RUNTIME_DIAG]   SYNC_BACKEND_PUBLIC  = %lu\n"
-        "[CANND_RUNTIME_DIAG]   DUPLICATE_NO_WORK    = %lu\n"
-        "[CANND_RUNTIME_DIAG]   sync_per_graph       = %.1f\n"
         "[CANND_RUNTIME_DIAG] memcpy_h2d             = %lu\n"
         "[CANND_RUNTIME_DIAG] memcpy_d2h             = %lu\n"
         "[CANND_RUNTIME_DIAG] memcpy_d2d             = %lu\n"
         "[CANND_RUNTIME_DIAG] memcpy_async           = %lu\n"
-        "[CANND_RUNTIME_DIAG] sync_trace_entries     = %u\n"
         "[CANND_RUNTIME_DIAG] ========================================\n",
-        sc, sa, sc > sa ? sc - sa : 0,
-        sc > 0 ? 100.0 * (sc - sa) / (double)sc : 0.0,
         g_runtime_diag.graph_evaluations.load(),
-        sync_total, sync_d2d, sync_api, sync_dup,
-        g_runtime_diag.graph_evaluations.load() > 0
-            ? (double)sync_total / g_runtime_diag.graph_evaluations.load() : 0.0,
         g_runtime_diag.memcpy_host_to_device.load(),
         g_runtime_diag.memcpy_device_to_host.load(),
         g_runtime_diag.memcpy_device_to_device.load(),
-        g_runtime_diag.memcpy_async.load(),
-        trace_n);
-
-    // Dump classification summary
-    if (trace_n > 0) {
-        uint32_t class_counts[8] = {0};
-        for (uint32_t i = 0; i < trace_n; i++) {
-            uint8_t cls = g_runtime_diag.sync_traces[i].sync_class;
-            if (cls < 8) class_counts[cls]++;
-        }
-        fprintf(stderr,
-            "[CANND_RUNTIME_DIAG] --- Sync Classification Summary ---\n");
-        for (int c = 0; c < 8; c++) {
-            if (class_counts[c] > 0) {
-                fprintf(stderr,
-                    "[CANND_RUNTIME_DIAG]   %-25s = %u (%.1f%%)\n",
-                    cannd_sync_class_name((uint8_t)c), class_counts[c],
-                    100.0 * class_counts[c] / (double)trace_n);
-            }
-        }
-
-        // Dump full trace to file for offline analysis
-        const char * csv_path = std::getenv("GGML_CANN_SYNC_TRACE_CSV");
-        if (csv_path && csv_path[0]) {
-            FILE * f = fopen(csv_path, "w");
-            if (f) {
-                fprintf(f, "index,timestamp_ns,graph_id,thread_hash,stream_hash,"
-                           "callsite,class,submit_seq,last_sync_seq,duration_ns\n");
-                for (uint32_t i = 0; i < trace_n; i++) {
-                    auto & t = g_runtime_diag.sync_traces[i];
-                    fprintf(f, "%u,%lu,%u,%u,%lu,%s,%s,%u,%u,%u\n",
-                        i, t.timestamp_ns, t.graph_id, t.thread_hash, t.stream_hash,
-                        cannd_sync_callsite_name(t.callsite),
-                        cannd_sync_class_name(t.sync_class),
-                        t.submit_seq, t.last_sync_seq, t.duration_ns);
-                }
-                fclose(f);
-                fprintf(stderr,
-                    "[CANND_RUNTIME_DIAG] sync trace CSV written to %s (%u entries)\n",
-                    csv_path, trace_n);
-            } else {
-                fprintf(stderr,
-                    "[CANND_RUNTIME_DIAG] WARNING: could not write sync CSV to %s\n",
-                    csv_path);
-            }
-        }
-    }
+        g_runtime_diag.memcpy_async.load());
 }
 
 #define CANND_DIAG_INC(field) \
     do { if (cannd_runtime_diag_enabled()) g_runtime_diag.field.fetch_add(1, std::memory_order_relaxed); } while(0)
-
-#define CANND_SYNC_TRACE(callsite, stream_ptr, duration_ns) \
-    do { \
-        if (cannd_runtime_diag_enabled()) { \
-            uint64_t _sh = (uint64_t)(uintptr_t)(stream_ptr); \
-            CANND_DIAG_INC(synchronize_stream); \
-            CANND_DIAG_INC(sync_by_callsite[(callsite)]); \
-            cannd_record_sync((callsite), _sh, (duration_ns)); \
-        } \
-    } while(0)
 
 /**
  * @brief Set the CANN device to be used.
@@ -347,8 +131,6 @@ static void cannd_runtime_diag_dump() {
  * @param device The target device ID to set.
  */
 void ggml_cann_set_device(const int32_t device) {
-    CANND_DIAG_INC(set_device_calls);
-
     // int current_device = -1;
     // Note: In some CANN versions, if no device has been set yet,
     //       aclrtGetDevice(&current_device) may return 0 by default.
@@ -360,7 +142,6 @@ void ggml_cann_set_device(const int32_t device) {
     }
 
     // Switch to the new device.
-    CANND_DIAG_INC(set_device_actual);
     ACL_CHECK(aclrtSetDevice(device));
 
     // Update the global device record.
@@ -2460,13 +2241,7 @@ static bool ggml_backend_cann_cpy_tensor_async(ggml_backend_t      backend_src,
         // // wait on dst stream for the copy to complete
         // ggml_cann_set_device(cann_ctx_dst->device);
         // ACL_CHECK(aclrtStreamWaitEvent(cann_ctx_dst->stream(), cann_ctx_src->copy_event));
-        auto _t0_d2d = cannd_runtime_diag_enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         ACL_CHECK(aclrtSynchronizeStream(cann_ctx_src->stream()));
-        if (cannd_runtime_diag_enabled()) {
-            auto _dur = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - _t0_d2d).count();
-            CANND_SYNC_TRACE(SYNC_D2D_COPY, cann_ctx_src->stream(), (uint32_t)_dur);
-        }
     } else {
         // src and dst are on the same backend
         ACL_CHECK(aclrtMemcpyAsync(dst->data, copy_size, src->data, copy_size, ACL_MEMCPY_DEVICE_TO_DEVICE,
@@ -2487,13 +2262,7 @@ static bool ggml_backend_cann_cpy_tensor_async(ggml_backend_t      backend_src,
 static void ggml_backend_cann_synchronize(ggml_backend_t backend) {
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
     ggml_cann_set_device(cann_ctx->device);
-    auto _t0_sync = cannd_runtime_diag_enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
-    if (cannd_runtime_diag_enabled()) {
-        auto _dur = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - _t0_sync).count();
-        CANND_SYNC_TRACE(SYNC_BACKEND_PUBLIC, cann_ctx->stream(), (uint32_t)_dur);
-    }
 }
 
 /**
@@ -2598,8 +2367,6 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
     }
 #endif  // USE_ACL_GRAPH
 
-    // Bump global submit sequence — one batch of work submitted to stream
-    cannd_bump_submit_seq();
 }
 
 /**
