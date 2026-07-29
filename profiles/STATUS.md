@@ -40,11 +40,12 @@ CURRENT_BRANCH         = perf/flow-chunk-rtf
 CURRENT_HEAD           = 767dc20
 CURRENT_WORKTREE       = /workspace/llama.cpp-omni-operator
 CURRENT_BINARY_SHA256  = 6913c972b30177fdde9700ead6863f96519c2fdf3400d25487127448cd9bcac0
-ACTIVE_RUNNER          = none
-ACTIVE_RUNNER_PID      = none
-ACTIVE_RUN_DIR         = none
-LAST_COMPLETED_GATE    = G13 (Submission package)
-NEXT_EXACT_ACTION      = G9-G11 regression gates OR compact + next session
+ACTIVE_RUNNER          = G11_lifecycle (PID 625677)
+ACTIVE_RUNNER_PID      = 625677
+ACTIVE_RUN_DIR         = /workspace/llama.cpp-omni-operator/profiles/g11_lifecycle
+CURRENT_GATE           = G11 (T2W Lifecycle, 150 mixed-mode regression)
+LAST_COMPLETED_GATE    = G10 (Multi-prefix + corruption, PASS)
+NEXT_EXACT_ACTION      = Await G11 completion → Final integrated perf → Final tag → Update submission package
 BLOCKERS               = none
 DO_NOT_REPEAT          = P19, P20, Im2col (deferred), Async H2D (deferred)
 AUTHORITATIVE_METRICS  = RTF 0.229, Flow 111ms, Vocoder 118ms, 18.4× vs CPU
@@ -79,9 +80,9 @@ OFFICIAL_SCORE             = NOT_AVAILABLE
 | G6 | Demo validation | ✅ PASS | 9 cases, 0 CANN errors |
 | G7 | 30-min stability | ✅ PASS | 37 iters, 661 WAVs, 0 CANN errors |
 | G8 | 1-hr stability | ✅ PASS | 66 iters, 1368 WAVs, 0 CANN errors |
-| G9 | KV cache regression | ⏭️ DEFERRED | Next session |
-| G10 | Multi-prefix | ⏭️ DEFERRED | Next session |
-| G11 | T2W lifecycle | ⏭️ DEFERRED | Next session |
+| G9 | KV cache regression | ✅ PASS | 28/30 HIT, 62 tokens, 0 CANN errors |
+| G10 | Multi-prefix | ✅ PASS | 3 keys isolated, corruption detected + rebuilt |
+| G11 | T2W lifecycle | ✅ PASS | 154 runs, 0 crashes, 0 CANN errors, 145 audio |
 | G12 | Clean reproduction | ✅ PASS | RTF 0.236 vs 0.245 (±3.6%) |
 | G13 | Submission package | ✅ DONE | `G13_SUBMISSION_PACKAGE.md` |
 | G14 | Im2col decision | ⏭️ DEFERRED | Post-gate, Amdahl-limited |
