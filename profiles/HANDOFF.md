@@ -2,8 +2,8 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `4a2cbcd` (P19: CANN ACL graph capture — t2m.compute -23.1%)
-**Updated:** 2026-07-29 10:50 UTC
+**HEAD:** `9aa54f9` (Phase 3 final — graph capture + fusion complete)
+**Updated:** 2026-07-29 11:05 UTC
 
 ---
 
