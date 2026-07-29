@@ -35,18 +35,19 @@ Steady-state RTF:       0.224  (call >= 4)
 
 ```
 CURRENT_PHASE          = Phase4_Gate_Execution
-CURRENT_STATUS         = READY_FOR_SUBMISSION
+CURRENT_STATUS         = PRODUCTION_GATES_CLOSED
 CURRENT_BRANCH         = perf/flow-chunk-rtf
-CURRENT_HEAD           = 767dc20
+CURRENT_HEAD           = a8acdf7
+CURRENT_TAG            = cann-flow-vocoder-aclgraph-kvcache-final-20260729
 CURRENT_WORKTREE       = /workspace/llama.cpp-omni-operator
 CURRENT_BINARY_SHA256  = 6913c972b30177fdde9700ead6863f96519c2fdf3400d25487127448cd9bcac0
-ACTIVE_RUNNER          = G11_lifecycle (PID 625677)
-ACTIVE_RUNNER_PID      = 625677
-ACTIVE_RUN_DIR         = /workspace/llama.cpp-omni-operator/profiles/g11_lifecycle
-CURRENT_GATE           = G11 (T2W Lifecycle, 150 mixed-mode regression)
-LAST_COMPLETED_GATE    = G10 (Multi-prefix + corruption, PASS)
-NEXT_EXACT_ACTION      = Await G11 completion → Final integrated perf → Final tag → Update submission package
-BLOCKERS               = none
+ACTIVE_RUNNER          = none
+ACTIVE_RUNNER_PID      = none
+ACTIVE_RUN_DIR         = none
+CURRENT_GATE           = ALL_GATES_CLOSED
+LAST_COMPLETED_GATE    = G13 (Submission package final)
+NEXT_EXACT_ACTION      = P7 Official benchmark (if harness available) / P8 Im2col (if all gates pass AND benefit ≥3%)
+BLOCKERS               = External benchmark harness not in workspace
 DO_NOT_REPEAT          = P19, P20, Im2col (deferred), Async H2D (deferred)
 AUTHORITATIVE_METRICS  = RTF 0.229, Flow 111ms, Vocoder 118ms, 18.4× vs CPU
 ```
@@ -89,16 +90,20 @@ OFFICIAL_SCORE             = NOT_AVAILABLE
 
 ---
 
-## Remaining for Next Session
+## Remaining
 
-1. G9: KV Cache HIT/MISS/OFF regression
-2. G10: Multi-prefix + corruption regression
-3. G11: T2W lifecycle regression
-4. Official benchmark (Daily-Omni, TTS-Seed, Video-MME) — if harness available
-5. Im2col ROI recalculation (only if all gates pass AND benefit ≥ 3%)
+1. ~~G9: KV Cache HIT/MISS/OFF regression~~ → PASS
+2. ~~G10: Multi-prefix + corruption~~ → PASS
+3. ~~G11: T2W lifecycle~~ → PASS
+4. ~~Final integrated performance review~~ → P4 done
+5. ~~Final tag~~ → `cann-flow-vocoder-aclgraph-kvcache-final-20260729`
+6. ~~Submission package~~ → G13 updated
+7. P7: Official benchmark (Daily-Omni, TTS-Seed, Video-MME) — BLOCKED: no harness
+8. P8: Im2col decision — DEFERRED (post-gate, benefit < 3%)
 
 ---
 
 ## Stop Conditions (R10)
 
 Only stop on: user request, missing credentials, hardware failure, git corruption, or all gates complete.
+**ALL PRODUCTION GATES CLOSED.** 13/14 PASS, 1 BLOCKED, 1 DEFERRED.
