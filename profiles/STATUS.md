@@ -2,8 +2,8 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `4a2cbcd` (P19: CANN ACL graph capture — t2m.compute -23.1%)
-**Updated:** 2026-07-29 10:45 UTC
+**HEAD:** `7e46faf` (Phase 3 complete — graph capture + fusion)
+**Updated:** 2026-07-29 11:00 UTC
 **Competition Metric:** PER-CHUNK RTF = 0.229 (vs 0.274 baseline)
 
 ---
