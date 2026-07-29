@@ -1,6 +1,6 @@
-# NEXT ACTION — CANN Vocoder Per-Chunk RTF Optimization
+# NEXT ACTION — CANN Vocoder → Flow Model Transition
 
-**P11 COMPLETE.** Continue from `perf/operator-decode-speak`, HEAD `be44a40`.
+**CANN_VOCODER_FINAL_VERDICT.md written.** Continue from `perf/operator-decode-speak`.
 
 ---
 
@@ -10,98 +10,69 @@
 |------|--------|-------------|
 | P0 | ✅ PASS | Environment verified, NPU idle |
 | P1 | ✅ PASS | Diagnostic code cleaned |
-| P2 | ✅ PASS | CPU canonical baseline (RTF=4.05) |
+| P2 | ✅ PASS | CPU canonical baseline (RTF=4.21) |
 | P3 | ✅ PASS | Path audit + counters |
 | P4 | ✅ PASS | CANN vocoder reachable |
-| P5 | ✅ PASS (corrected) | CANN correct, vocoder RTF=0.11 vs CPU 0.33 |
+| P5 | ✅ PASS (corrected) | CANN correct, vocoder RTF=0.12 vs CPU 0.35 |
 | P6 | ✅ COMPLETE | P6-E: framework overhead analysis |
-| P7 | ⏳ PRELIMINARY | Paired A/B: 3.0× CANN speedup on vocoder, 6.5% total RTF |
+| P7 | ✅ FINAL | Paired A/B: 2.96×, d≈5.5, bootstrap CI, full bucketing |
 | P8 | ✅ COMPLETE | msprof: NPU compute 3ms, kernel launch 75ms dominates |
 | P9 | ✅ COMPLETE | O2-A+O2-B selected as Top-1 |
 | P10 | 🔄 DEFERRED | Device handoff: high risk, max 0.8% total RTF gain |
 | P11 | ✅ COMPLETE | Graph reuse implemented, ~1-2ms actual savings |
-| P12 | ✅ DECIDED | EXIT vocoder-only optimization |
-| P13-P24 | ⏳ PENDING | See below |
+| P12 | ✅ DECIDED | CANN_VOCODER = INTEGRATION_CANDIDATE |
+| P13-P24 | ⏳ PENDING | Flow model optimization (see below) |
 
 ---
 
-## Critical Finding: Flow Model Is the True Bottleneck
+## CANN Vocoder Final Verdict
+
+**Verdict**: `CANN_VOCODER = INTEGRATION_CANDIDATE`
+**Local speedup**: 2.96× (346→117ms, steady-state)
+**Total T2W speedup**: 1.075× (4.21→3.92 RTF, -7.0%)
+**Graph reuse**: INFRASTRUCTURE_ONLY, default OFF
+**Routing**: `OMNI_VOC_DEVICE=gpu` explicit opt-in, NOT default
+**Document**: `CANN_VOCODER_FINAL_VERDICT.md`
+
+### Corrected T2W Breakdown (CANN, steady-state)
 
 ```
-Total T2W time per chunk (steady-state): ~3,710ms
-├── Flow model (token2mel, CANN): 3,600ms (97.0%)
-└── Vocoder (HiFi-GAN2, CANN):     110ms  (3.0%)
-    ├── Kernel launch + sync:       75ms   (68% of vocoder)
-    ├── Upload (H2D):               15ms   (14%)
-    ├── Download (D2H):             10ms   (9%)
-    ├── NPU compute:                 3ms   (3%)
-    └── Graph build + galloc:        2ms   (2%)
+Total T2W per chunk: 3,915ms
+├── Flow model (token2mel): 3,798ms (97.0%) ← TRUE BOTTLENECK
+└── Vocoder (HiFi-GAN2):     117ms (3.0%)  ← RESOLVED
 ```
 
-**All vocoder optimizations combined can improve total RTF by at most ~3% (3.71→3.60).**
-Only Flow model optimization can achieve competition-significant improvement.
+**Even 100× vocoder speedup only improves total by ~3%. Flow model is the only path to competition-significant improvement.**
 
 ---
 
-## P12 Decision: EXIT VOCODER-ONLY OPTIMIZATION
+## Flow Model Optimization — Next Mission
 
-Rationale:
-1. Graph reuse (O2-A+O2-B): 1-2ms savings — implemented, minimal impact
-2. Device handoff (P10): 20-25ms savings — high risk, 0.5% total RTF
-3. Kernel fusion (O2-E): 1-2ms savings — high effort
-4. Maximum remaining vocoder savings: ~30ms (0.8% total RTF)
+### Target
 
-**All practical vocoder optimizations have been explored. Flow model is the next frontier.**
+Reduce token2mel time from 3,798ms/chunk (RTF=3.80).
 
----
+### Planned Phases (User's P13-P17 spec)
 
-## Remaining Gates (P13-P24)
+| Phase | Name | Description |
+|-------|------|-------------|
+| P13 | Flow Architecture Audit | Model structure, CANN backend utilization, operator graph |
+| P14 | Flow Canonical Baseline | Per-operator timing, kernel breakdown, memory footprint |
+| P15 | Flow Profiling | msprof on Flow model ops, identify top operators |
+| P16 | Flow Candidate Ranking | Optimization candidates ranked by ROI |
+| P17 | Cross-Chunk State | Semantic equivalence verification for cross-chunk caching |
 
-### P13: CPU Fallback Optimization
-Skipped — CANN vocoder is 3× faster than CPU. CPU fallback not needed.
+### Branch
 
-### P14: First Chunk + Steady Chunk Joint Optimization
-First chunk analysis:
-- First chunk vocoder CANN RTF: ~0.28
-- Steady chunk vocoder CANN RTF: ~0.11
-- First chunk overhead is mostly in Flow model (cold start), not vocoder
-Action: Document, no vocoder-specific optimization possible.
-
-### P15: Streaming Continuity Check
-Requires: cross-chunk audio boundary analysis
-Deferred in P5. Action: Run continuity test if time permits.
-
-### P16: Accuracy Benchmark Gate
-Daily-Omni, TTS-Seed, Video-MME benchmarks.
-Requires: separate benchmark harness and evaluation data.
-
-### P17: Demo Gate
-Requires: working end-to-end demo.
-
-### P18: Resource and Stability Testing
-Requires: long-running stability test.
-
-### P19: KV Cache Integration Regression
-Requires: testing with KV cache enabled.
-
-### P20: Final Reproduction Package
-All scripts, configs, data to reproduce results.
-
-### P21: Git and Report Standards
-Final documentation cleanup.
-
-### P22: Final Documentation
-Comprehensive mission report.
+New branch `perf/flow-chunk-rtf` from current `perf/operator-decode-speak`.
 
 ---
 
-## Next Actions (Priority Order)
+## Immediate Next Action
 
-1. ⏳ **Wait for P7 background batches to complete** → update P7 with full 30+ paired data
-2. **P14**: Document first-chunk analysis
-3. **P16**: If benchmark harness available, run accuracy benchmarks
-4. **P20**: Prepare reproduction package with all scripts and configs
-5. **P22**: Write final comprehensive mission report
+1. **Commit CANN vocoder final verdict** → `docs(P12-final): CANN_VOCODER = INTEGRATION_CANDIDATE, 2.96× local, 7.0% total`
+2. **Create branch** `perf/flow-chunk-rtf` from `perf/operator-decode-speak`
+3. **P13: Flow architecture audit** — Read `token2wav-impl.cpp` Flow model section, map operator graph
 
 ---
 
@@ -109,11 +80,12 @@ Comprehensive mission report.
 
 | File | Content |
 |------|---------|
+| `CANN_VOCODER_FINAL_VERDICT.md` | Final verdict with full bucketing, bootstrap CI |
+| `P7_CANN_VS_CPU_PAIRED_AB.md` | Paired A/B updated with bucketing |
 | `P11_GRAPH_REUSE_IMPLEMENTATION.md` | Graph reuse implementation and verdict |
 | `P9_CANN_VOCODER_CANDIDATE_RANKING.md` | Candidate ranking |
 | `P8_CANN_VOCODER_MSPROF.md` | msprof profiling results |
-| `P7_CANN_VS_CPU_PAIRED_AB.md` | Paired A/B (preliminary) |
-| `CANN_VOCODER_CORRECTNESS.md` | Correctness gate (with correction) |
+| `CANN_VOCODER_CORRECTNESS.md` | Correctness gate |
 | `P6E_FRAMEWORK_OVERHEAD_ANALYSIS.md` | Framework overhead analysis |
 | `CPU_VOCODER_CANONICAL_BASELINE.md` | CPU baseline |
 | `CANN_VOCODER_PATH_AUDIT.md` | Path audit |
@@ -123,13 +95,15 @@ Comprehensive mission report.
 ## Commit Chain
 
 ```
-be44a40 feat(P11): O2-A+O2-B graph+galloc reuse with OMNI_VOC_GRAPH_REUSE=1
-9b677bc docs(P9): CANN vocoder candidate ranking
-dea690a docs(P8): CANN vocoder msprof profiling
-4b4c4e5 docs(P5-correction,P6-E,P7): corrected vocoder RTF attribution + paired A/B
-14de4ef docs(P5): CANN vocoder correctness gate
-c3279ad feat(P4): CANN vocoder reachability smoke
-a39b0d0 docs(audit): P3 CANN vocoder path audit + path hit counters
-ac8653c docs(baseline): CPU vocoder canonical baseline
-59926cd refactor(diag): remove SetDevice/Sync trace instrumentation
+(current)   → P12 final verdict
+88d5c43     → P7-final: paired A/B
+be44a40     → P11: graph reuse
+9b677bc     → P9: candidate ranking
+dea690a     → P8: msprof
+4b4c4e5     → P5-correction, P6-E, P7-prelim
+14de4ef     → P5: correctness gate
+c3279ad     → P4: CANN reachability
+a39b0d0     → P3: path audit
+ac8653c     → P2: CPU baseline
+59926cd     → P1: diag cleanup
 ```
