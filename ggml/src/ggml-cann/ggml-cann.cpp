@@ -2286,7 +2286,9 @@ static bool ggml_cann_can_fuse(const struct ggml_cgraph *          cgraph,
     }
 
     // CANN backend supports fusing ADD + RMS_NORM operations
-    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD && ops.begin()[1] == GGML_OP_RMS_NORM) {
+    // and ADD + NORM (LayerNorm) operations
+    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD &&
+        (ops.begin()[1] == GGML_OP_RMS_NORM || ops.begin()[1] == GGML_OP_NORM)) {
         ggml_tensor * add_node = cgraph->nodes[node_idx];
         // TODO: support broadcast for ADD + RMS_NORM
         if (add_node->src[0]->ne[0] != add_node->src[1]->ne[0] || add_node->src[0]->ne[1] != add_node->src[1]->ne[1] ||
@@ -2332,6 +2334,11 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
             if (opt_fusion) {
                 if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_RMS_NORM })) {
                     ggml_cann_op_add_rms_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
+                    i++;
+                    continue;
+                }
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_NORM })) {
+                    ggml_cann_op_add_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
                     i++;
                     continue;
                 }
@@ -2421,6 +2428,7 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
     if (use_cann_graph) {
         static int graph_min_nodes =
             parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MIN_NODES").value_or("100"));
+
         if (cgraph->n_nodes < graph_min_nodes) {
             use_cann_graph = false;
         }
