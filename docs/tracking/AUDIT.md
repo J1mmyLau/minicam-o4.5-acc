@@ -37,3 +37,8 @@
 - RTF: 0.229 (18.4× vs CPU)
 
 ## 2026-07-29 12:50 | POLICY | AUTONOMOUS_CONTEXT_ROLLOVER_ENABLED
+## 2026-07-29 17:36 | GATE | G10_MULTI_PREFIX_PASS — 3 distinct keys, isolation confirmed, corruption detected+rebuilt
+## 2026-07-29 19:38 | GATE | G11_T2W_LIFECYCLE_PASS — 154 runs, 0 crashes, 0 CANN errors, 145 audio
+## 2026-07-29 19:45 | REVIEW | P4_FINAL_INTEGRATED_PERFORMANCE — KV cache HIT preserves Phase 3 performance (P50=0.250)
+## 2026-07-29 19:46 | TAG | cann-flow-vocoder-aclgraph-kvcache-final-20260729 — all production gates closed
+## 2026-07-29 19:50 | CHECKPOINT | G13_SUBMISSION_PACKAGE_FINAL — 13/14 PASS, 1 BLOCKED, 1 DEFERRED
