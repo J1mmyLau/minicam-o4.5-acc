@@ -1,0 +1,20 @@
+13:19:38.608 T2W线程: wav_0.wav | 0.84s audio | 352.4ms inference | RTF=0.42 | t=5179ms | queue_wait=0.0ms
+13:19:38.967 T2W线程: wav_1.wav | 1.00s audio | 267.4ms inference | RTF=0.27 | t=5538ms | queue_wait=0.0ms
+13:19:40.762 T2W线程: wav_2.wav | 1.00s audio | 236.7ms inference | RTF=0.24 | t=7333ms | queue_wait=0.0ms
+13:19:41.203 T2W线程: wav_3.wav | 1.00s audio | 223.5ms inference | RTF=0.22 | t=7773ms | queue_wait=0.0ms
+13:19:41.665 T2W线程: wav_4.wav | 1.00s audio | 225.2ms inference | RTF=0.23 | t=8235ms | queue_wait=0.0ms
+13:19:42.129 T2W线程: wav_5.wav | 1.00s audio | 223.6ms inference | RTF=0.22 | t=8700ms | queue_wait=0.0ms
+13:19:43.662 T2W线程: wav_6.wav | 1.00s audio | 224.3ms inference | RTF=0.22 | t=10232ms | queue_wait=0.0ms
+13:19:44.148 T2W线程: wav_7.wav | 1.00s audio | 223.2ms inference | RTF=0.22 | t=10718ms | queue_wait=0.0ms
+13:19:44.641 T2W线程: wav_8.wav | 1.00s audio | 223.5ms inference | RTF=0.22 | t=11211ms | queue_wait=0.0ms
+13:19:45.150 T2W线程: wav_9.wav | 1.00s audio | 223.9ms inference | RTF=0.22 | t=11721ms | queue_wait=0.0ms
+13:19:46.075 T2W线程: wav_10.wav | 1.00s audio | 229.7ms inference | RTF=0.23 | t=12645ms | queue_wait=0.0ms
+13:19:46.764 T2W线程: wav_11.wav | 1.00s audio | 224.2ms inference | RTF=0.22 | t=13334ms | queue_wait=0.0ms
+13:19:47.404 T2W线程: wav_12.wav | 1.00s audio | 226.6ms inference | RTF=0.23 | t=13975ms | queue_wait=0.0ms
+13:19:47.997 T2W线程: wav_13.wav | 1.00s audio | 226.4ms inference | RTF=0.23 | t=14568ms | queue_wait=0.0ms
+13:19:48.531 T2W线程: wav_14.wav | 1.00s audio | 237.6ms inference | RTF=0.24 | t=15102ms | queue_wait=0.0ms
+13:19:49.184 T2W线程: wav_15.wav | 1.00s audio | 227.2ms inference | RTF=0.23 | t=15755ms | queue_wait=0.1ms
+13:19:49.711 T2W线程: wav_16.wav | 1.00s audio | 239.7ms inference | RTF=0.24 | t=16282ms | queue_wait=0.1ms
+13:19:50.224 T2W线程: wav_17.wav | 1.00s audio | 224.3ms inference | RTF=0.22 | t=16794ms | queue_wait=0.0ms
+13:19:50.754 T2W线程: wav_18.wav | 1.00s audio | 223.1ms inference | RTF=0.22 | t=17324ms | queue_wait=0.0ms
+T2W terminal: AUDIO_SUCCESS (19 WAV(s))
