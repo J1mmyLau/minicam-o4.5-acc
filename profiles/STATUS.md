@@ -2,9 +2,18 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `6154b85` (Phase 3 FREEZE — graph capture + fusion)
-**Tag candidate:** `cann-flow-vocoder-aclgraph-rtf0229-20260729`
-**Updated:** 2026-07-29 12:45 UTC
+**HEAD:** `3e7bcf0` (Phase 3 FREEZE checkpoint)
+**Tag:** `cann-flow-vocoder-aclgraph-rtf0229-20260729`
+**Updated:** 2026-07-29 12:50 UTC
+
+---
+
+## AUTONOMOUS CONTEXT ROLLOVER ACTIVE
+
+- R0-R11 protocol in effect
+- Auto /compact enabled — do NOT prompt user
+- After /compact: read recovery docs → audit → continue next gate
+- STOP only on external hard blocker
 
 ---
 
@@ -23,6 +32,28 @@ Phase 3 relative:      -16.4% ((0.274 - 0.229) / 0.274)
 
 ---
 
+## CURRENT PHASE: Phase 3 → Phase 4 Gate Execution
+
+```
+CURRENT_PHASE          = Phase4_Gate_Execution
+CURRENT_GATE           = G1 (Performance consistency audit)
+CURRENT_STATUS         = IN_PROGRESS
+CURRENT_BRANCH         = perf/flow-chunk-rtf
+CURRENT_HEAD           = 3e7bcf0
+CURRENT_WORKTREE       = /workspace/llama.cpp-omni-operator
+CURRENT_BINARY_SHA256  = 6913c972b30177fdde9700ead6863f96519c2fdf3400d25487127448cd9bcac0
+ACTIVE_RUNNER          = none
+ACTIVE_RUNNER_PID      = none
+ACTIVE_RUN_DIR         = none
+LAST_COMPLETED_GATE    = Phase3_FREEZE
+NEXT_EXACT_ACTION      = Verify PHASE3_PERFORMANCE_RECONCILIATION.md numbers are self-consistent
+BLOCKERS               = none
+DO_NOT_REPEAT          = P19 code changes, P20 code changes, Im2col (deferred), Async H2D (deferred)
+AUTHORITATIVE_METRICS  = RTF 0.229, Flow 111ms, Vocoder 118ms, 18.4× vs CPU
+```
+
+---
+
 ## PHASE 3 FREEZE STATUS
 
 ```
@@ -34,10 +65,14 @@ ADD_LAYERNORM_FUSION       = WEAK_POSITIVE_INTEGRATED  (~1ms, 257 pairs)
 COMBINED_STEADY_RTF        ≈ 0.229  (n=29, 4 test cases)
 PHASE3_CANDIDATE_FROZEN    = YES
 OFFICIAL_SCORE             = NOT_AVAILABLE
-BENCHMARK_GATE             = PENDING
-DEMO_GATE                  = PENDING
-STABILITY_GATE             = PENDING
-CLEAN_MACHINE_GATE         = PENDING
+
+G1 (Perf consistency)      = IN_PROGRESS
+G2 (Graph cache audit)     = PENDING
+G3 (4-quadrant A/B)        = PENDING
+G4 (Chunk buckets)         = PENDING
+G5 (Benchmark harness)     = PENDING
+G6-G13 (Demo→Submission)   = PENDING
+G14 (Im2col decision)      = PENDING (post-gate only)
 ```
 
 **Explicitly NOT declared:**
@@ -48,67 +83,33 @@ CLEAN_MACHINE_GATE         = PENDING
 
 ---
 
-## Phase 3 Technical Summary
+## Gate Sequence (R8)
 
-### Rank 1: ACL Graph Capture (PRIMARY GAIN)
-
-| Change | Detail |
-|--------|--------|
-| Capture mode | `ACL_MODEL_RI_CAPTURE_MODE_RELAXED` (avoids H2D interference) |
-| Stream sync | `aclrtSynchronizeStream` before capture begin |
-| Min nodes filter | `GGML_CANN_GRAPH_MIN_NODES=100` (skips LLM decode tokens) |
-| LRU cache | Capacity 12, per-context isolation |
-
-**Result:** Flow t2m.compute **154.9ms → 111.3ms mean (-28.2%, -43.6ms)**
-Flow graph (n_nodes=11740): 1 capture → 19+ cache HITs across all test cases.
-
-### Rank 2: ADD+NORM Fusion (SECONDARY, DIMINISHING RETURNS)
-
-| Change | Detail |
-|--------|--------|
-| Fused op | `aclnnAddLayerNorm` for ADD + NORM (LayerNorm) |
-| Pairs fused | 257 in Flow graph (n_nodes=11740) |
-| Gain | ~1ms → graph capture already reduces launch overhead |
+1. G1: Performance consistency audit ← **NOW**
+2. G2: ACL Graph Capture cache-key/lifetime audit
+3. G3: Graph ON/OFF × Fusion ON/OFF 4-quadrant A/B
+4. G4: first/warmup/steady/tail chunk statistics
+5. G5: Official Benchmark harness audit
+6. G6: Demo full validation
+7. G7: 30-min stability
+8. G8: 1-hr stability
+9. G9: KV Cache HIT/MISS/OFF regression
+10. G10: Multi-prefix + corruption regression
+11. G11: T2W lifecycle regression
+12. G12: Clean-worktree reproduction
+13. G13: Submission package
+14. G14: Im2col decision gate
 
 ---
 
-## Phase History
+## Stop Conditions (R10)
 
-| Phase | Status | Key Result |
-|-------|--------|------------|
-| P0-P12: CANN Vocoder | COMPLETE ✅ | 2.92× local, INTEGRATION_CANDIDATE |
-| P13-P15: CANN Flow | COMPLETE ✅ | 24.1× speedup, BREAKTHROUGH |
-| Phase 1: Freeze | COMPLETE ✅ | Tag: `cann-flow-vocoder-rtf027-20260729` |
-| Phase 2: Production Gates | COMPLETE ✅ | All 7 gates PASS (1 deferred) |
-| **Phase 3: Optimization** | **FROZEN ✅** | **RTF 0.229, 18.4× vs CPU** |
+1. User explicitly requests stop
+2. Missing credentials/data/permissions
+3. Hardware failure (unrecoverable)
+4. Git state corruption
+5. All remaining candidates rejected by Amdahl/correctness
+6. All executable gates complete (submission candidate ready)
+7. Unrecoverable tool/platform limit
 
----
-
-## Next Session: Gate Sequence
-
-1. Restore Phase 3 candidate tag
-2. Graph Capture correctness extended tests (10 boundary conditions)
-3. First / warmup / steady / tail chunk statistics
-4. Official Benchmark harness audit
-5. Demo full validation
-6. 30-min + 1-hr stability
-7. KV Cache HIT/MISS/OFF regression
-8. Multi-prefix + corruption
-9. T2W lifecycle
-10. Clean-machine reproduction
-11. Submission package
-12. Im2col ONLY if all gates pass AND wall-time benefit ≥ 3%
-
----
-
-## Document Inventory
-
-| Document | Status |
-|----------|--------|
-| `PHASE3_PERFORMANCE_RECONCILIATION.md` | COMPLETE |
-| `ACL_GRAPH_CAPTURE_CORRECTNESS_AUDIT.md` | INITIAL (10 tests pending) |
-| `PHASE3_EVIDENCE_MANIFEST.md` | COMPLETE |
-| `P19_GRAPH_EXECUTION_REUSE.md` | COMPLETE |
-| `P16-P18` (Phase 2 gates) | COMPLETE |
-| `STATUS.md` | Updated |
-| `HANDOFF.md` | Updated |
+STOP_REASON must be explicit — never "context low" or "waiting for user"
