@@ -691,6 +691,24 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - **Stage C (24h mixed) is now unblocked.**
 - All Stage C entry gates met: M6_CORE_MIXED_PATHS=PASS + CACHE_KEY_ISOLATION=PASS
 
+## 2026-07-28 09:00 | CHECKPOINT | PRE_COMPACT_P11_PIPELINE_IDLE_DECOMPOSITION
+
+- HEAD: f43155a, branch: perf/operator-decode-speak
+- Candidate E (Runtime Overhead): DEFINITIVELY REJECTED
+  - E1 (SetDevice): 95.6% TLS guard hit rate. REJECTED_WITH_EVIDENCE (035839b)
+  - E2 (SynchronizeStream): 33ms total (0.17% wall), Amdahl bound. REJECTED_BY_AMDAHL_BOUND (f43155a)
+- 72.3s Wait (36% wall) NOT from CANN runtime API — SetDevice + Sync = 33ms total
+- P11: Pipeline Idle Decomposition initiated
+- E2E_PROFILE_COVERAGE_AUDIT.md written: 14/16 stages recorded, 2 NEVER recorded, 3 T0-T9 gaps
+- Pipeline trace design: 5 new event types, ring buffer 8192×32B=256KB, combined profiling strategy
+- Time budget: 11 mutually exclusive categories ready for attribution
+- GGML_CANN_RUNTIME_DIAG instrumentation: ~270 lines in ggml-cann.cpp, gate GGML_CANN_RUNTIME_DIAG=1
+- Pending: implement PE_DECODE_BEGIN + queue + thread events in omni.cpp, run MEDIUM diagnostic, attribute Wait
+- No active runner. NPU idle.
+- Git: STATUS.md + HANDOFF.md modified, untracked docs/experiments/operator-optimization/
+- Do NOT start large-scale instrumentation, long tests, or performance implementation in this session
+- Prompt user to manually type /compact (not via Bash)
+
 ## 2026-07-28 08:45 | CHECKPOINT | PRE_COMPACT_OPERATOR_PROFILING
 
 - HEAD: 111a48a, branch: perf/operator-decode-speak
@@ -726,6 +744,40 @@ MULTI_ENTRY_RETENTION = N/A for single-slot (design limitation, not failure).
 - src0->type always f32, FP16 path NEVER hit
 - Talker RoPE ops also blocked by op_offload_min_batch=32 (same as OP002)
 - Corrected: ROPE_FP16_CANN_LOCAL_PATH=WEAK_POSITIVE, TALKER_DECODE_ROPE_OPTIMIZED=NOT_PROVEN
+
+## 2026-07-29 14:00 | CHECKPOINT | BREAKTHROUGH_CHECKPOINT_COMPLETE
+
+- HEAD: 7f5f349, branch: perf/flow-chunk-rtf
+- CANN_FLOW = INTEGRATION_CANDIDATE, CANN_VOCODER = INTEGRATION_CANDIDATE
+- COMBINED_INTERNAL_STEADY_RTF ≈ 0.274
+- 4 audits complete: number reconciliation, reachability, env semantics, profile percentage
+- Evidence manifest + SHA256SUMS written (EVIDENCE_MANIFEST.md)
+- STATUS.md, HANDOFF.md, NEXT_ACTION.md, AUDIT.md updated
+- Flow: 24.1× speedup (3,726→155ms). Vocoder: 2.92× speedup (348→119ms). Total: 14.8×.
+- CANN Flow path via `cann-flow-only` (worker-thread deferred init). Fallback=0.
+- Im2col 42% (NPU kernel denominator) ≠ Launch overhead 72% (Flow wall denominator). Cannot sum.
+- Checkpoint files committed. Tag: cann-flow-vocoder-rtf027-20260729.
+- Next session: Demo smoke, bucket characterization, internal audio, 30min/1hr stability, KV cache regression.
+
+## 2026-07-29 13:30 | DECISION | P15A_CORRECTNESS_STABILITY_PASS
+
+- 60/60 CANN Flow wavs valid: 0 silence, 0 clipping, all 24kHz 16-bit mono
+- 5 independent batches, 68 steady-state chunks, 0 failures
+- RTF mean=0.2740, median=0.2737 across all steady chunks
+- Inter-batch CV of Flow means: 0.087 (good reproducibility)
+
+## 2026-07-29 13:00 | DECISION | P15_FLOW_CANN_BREAKTHROUGH
+
+- Flow model: CPU 3,726ms → CANN 155ms (24.1× speedup, corrected from 21.9×)
+- Root cause of "Flow=CANN" in prior docs: omni.cpp:4971 forces device_token2mel="cpu"
+- `cann-flow-only` defers init to worker thread → CANN backend works properly
+- Prior P5/P7/P13/P14 experiments ALL ran Flow on CPU (despite GGML_USE_CANN compiled)
+
+## 2026-07-29 12:30 | DECISION | P12_CANN_VOCODER_FINAL_VERDICT
+
+- CANN_VOCODER = INTEGRATION_CANDIDATE (2.92× local, 7.0% total T2W)
+- Full bucketing: FIRST/WARMUP/STEADY/TAIL, bootstrap 95% CI
+- Graph reuse: INFRASTRUCTURE_ONLY (O2-B enables O1-O5, no E2E benefit alone)
 
 ## 2026-07-28 03:48 | START | STAGE_D_72H_AUTO_LAUNCHED
 

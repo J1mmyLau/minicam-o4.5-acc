@@ -1,90 +1,89 @@
-# Operator Profiling Mission — HANDOFF
+# CANN Flow + Vocoder Optimization — HANDOFF
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
-**Branch:** `perf/operator-decode-speak`
-**HEAD:** `111a48a` (P7-P8 docs: baseline report, candidate ranking, stack decision)
-**Updated:** 2026-07-28 08:45 UTC
+**Branch:** `perf/flow-chunk-rtf`
+**HEAD:** `7f5f349` (P15-C: CANN Flow msprof — Im2col 42%, kernel launch overhead 73%)
+**Updated:** 2026-07-29 14:00 UTC
 
 ---
 
 ## Commit Chain
 
 ```
-111a48a (HEAD -> perf/operator-decode-speak) docs(P7-P8): baseline report, candidate ranking, stack decision
-7752c5f chore(P7-D): audit profiling commit — move raw msprof data out of git
-8a5abcb docs(P4-P6): profiling reports, candidate proposal, P6 verification
-b686120 feat(P6): RoPE F16 cast elimination — GGML_CANN_ROPE_FP16 gate
-4822478 (tag: kv-cache-optin-candidate-20260728) fix(runner): add corrupt_cache_by_key for multi-entry
+7f5f349 (HEAD -> perf/flow-chunk-rtf) docs(P15-C): CANN Flow msprof — Im2col 42%, kernel launch overhead 73%
+822d2e0 docs(status): COMPETITION METRIC RTF=0.27 — below realtime
+fff6ab0 docs(P15-A,P15-B): CANN Flow correctness + stability verification
+660fe91 docs(P15): Flow model CANN discovery — 21.9x speedup via cann-flow-only
+edf0661 docs(P13,P14): Flow model architecture audit + canonical baseline
+8a4de90 docs(P12-final): CANN_VOCODER = INTEGRATION_CANDIDATE
+88d5c43 docs(P7-final): CANN vocoder paired A/B — 3.14x speedup, d=4.0, 100% win
+5839200 docs(status): update NEXT_ACTION — EXIT vocoder-only optimization
+be44a40 feat(P11): O2-A+O2-B graph+galloc reuse with OMNI_VOC_GRAPH_REUSE=1
+9b677bc docs(P9): CANN vocoder candidate ranking — O2-A+O2-B selected as Top-1
 ```
-
-### Clean binary (no diagnostic code)
-
-- **llama-omni-cli:** SHA `6913c972` (baseline build)
-- **libggml-cann.so:** SHA `10592a58` (diagnostic code fully removed)
-- All fusion diagnostic instrumentation cleaned up from `ggml-cann.cpp` and `aclnn_ops.cpp`
 
 ---
 
-## Completed
+## BREAKTHROUGH COMPLETE
+
+### Key Numbers (Corrected)
+
+| Component | Metric | CPU | CANN | Speedup |
+|-----------|--------|-----|------|---------|
+| Flow (token2mel) | Steady mean | 3,725.8ms | 154.9ms | **24.1×** |
+| Vocoder | Steady mean | 348.2ms | 119.1ms | **2.92×** |
+| Total T2W | Steady mean | 4,049.4ms | 274.0ms | **14.8×** |
+| Per-Chunk RTF | Mean | 4.05 | **0.274** | — |
+
+All numbers: steady-state (call ≥ 4), n=36 CPU, n=65 CANN (5 independent batches).
+
+### How It Works
+
+1. **Flow CANN**: `OMNI_T2W_DEVICE=cann-flow-only` defers Flow session init to worker thread, which creates its own CANN backend → avoids cross-thread CANN context invalidation.
+2. **Vocoder CANN**: `OMNI_VOC_DEVICE=gpu` → maps to `ggml_backend_cann_init()` (no CUDA in build).
+3. **Both CANN**: Total T2W 274ms, RTF=0.274 (well below 1.0 realtime).
+
+### Why CANN Flow Wasn't Used Before
+
+`omni.cpp:4971` explicitly overrides `device_token2mel = "cpu"` under CANN builds. Every prior experiment (P5, P7, P13-P14) ran Flow on CPU despite `GGML_USE_CANN` being compiled in.
+
+---
+
+## Completed (CURRENT SESSION)
 
 | Phase | Description | Status | Evidence |
 |-------|-------------|--------|----------|
-| P0 | State recovery | PASS | KV cache freeze at kv-cache-optin-candidate-20260728 |
-| P2 | Environment checks | PASS | ascendc-env-check, npu-arch: dav-2201, CANN 9.1 |
-| P3 | Baseline measurement | **COMPLETE** | 15/15 clean, extreme LLM variance (2.3×-41×) |
-| P4 | msprof profiling | PASS | `profiles/decode-speak/PROF_000001_20260728064555800/` |
-| P4 | Profiling report | PASS | CANN kernel 0.164s (0.08% wall), wait 72.3s (36%) |
-| P5 | Candidate proposal | PASS | `profiles/CANDIDATE_PROPOSAL.md` — RoPE F16 |
-| P6 | Implementation | **COMMITTED** | b686120, +33/−19 in aclnn_ops.cpp |
-| P6 | Smoke tests | PASS | OFF and ON both produce valid audio |
-| P6 | Verification | PASS | `profiles/P6_VERIFICATION_REPORT.md` |
-| P7-A | Baseline audit | PASS | `DECODE_TO_SPEAK_BASELINE.md` |
-| P7-B | RoPE A/B | STOPPED | CONFIG INVALID — `-ngl 0` instead of production `-ngl 8` |
-| P7-C | RoPE verdict | **REJECTED_WITH_EVIDENCE** | src0->type always f32, FP16 path NEVER hit |
-| P7-D | Commit audit | PASS | 328 raw files removed, manifest created |
-| P7 | Candidate ranking | PASS | `KERNEL_CANDIDATE_RANKING.md` |
-| P8 | Stack decision | PASS | `OPERATOR_STACK_DECISION.md` |
-| P9 | Top-1 implement (OP002) | **REJECTED** | ADD+RMSNorm: Talker LLM ops NOT on CANN |
-| OP-002 | API audit | PASS | `ASCENDC_HIGH_LEVEL_API_AUDIT.md` |
-| OP-002 | Graph pattern audit | PASS | `OP002_GRAPH_PATTERN_AUDIT.md` — 54 fusion points |
-| OP-002 | Runtime graph diag | **COMPLETE** | `OP002_RUNTIME_GRAPH_DIAG.md` — definitive rejection |
-| V0 CANN fusion | A/B complete | **DONE** | `V0_FUSION_VERDICT.md` — E2E NO_SIGNAL (r=0.999) |
+| P0-P12 | CANN Vocoder optimization | INTEGRATION_CANDIDATE | `CANN_VOCODER_FINAL_VERDICT.md` |
+| P13 | Flow architecture audit | COMPLETE | `P13_FLOW_ARCHITECTURE_AUDIT.md` |
+| P14 | Flow canonical baseline | COMPLETE | `P14_FLOW_CANONICAL_BASELINE.md` |
+| P15 | CANN Flow discovery | COMPLETE | `P15_FLOW_CANN_DISCOVERY.md` |
+| P15-A | Correctness verification | COMPLETE | 60/60 wavs valid |
+| P15-B | Stability verification | COMPLETE | 5 batches, 0 failures |
+| P15-C | msprof profiling | COMPLETE | `P15C_CANN_FLOW_MSPROF.md` |
+| Audit 1 | Number reconciliation | COMPLETE | `PERFORMANCE_NUMBER_RECONCILIATION.md` |
+| Audit 2 | Path reachability | COMPLETE | `FLOW_CANN_REACHABILITY_AUDIT.md` |
+| Audit 3 | Env semantics | COMPLETE | `CANN_BACKEND_ENV_SEMANTICS.md` |
+| Audit 4 | Profile percentage | COMPLETE | `FLOW_PROFILE_PERCENTAGE_AUDIT.md` |
+| Evidence | Manifest + SHA256SUMS | COMPLETE | `EVIDENCE_MANIFEST.md` |
+| Checkpoint | STATUS/HANDOFF/AUDIT update | **IN PROGRESS** | This file |
 
 ---
 
-## Key Technical Findings
+## NOT DONE (Next Session)
 
-### OP002 ADD+RMSNorm Fusion — DEFINITIVELY REJECTED
-
-**Root cause:** `GGML_OP_OFFLOAD_MIN_BATCH=32` prevents element-wise ops (ne[1]=1) from CANN offload during decode.
-
-- 1,132 CANN graph evaluations, **zero** 1152-dim (Talker LLM)
-- Only 4096-dim flow model graphs reach CANN (~18 fusions/run)
-- MIN_BATCH=1 crashes scheduler (CPU buffer tensors clash with CANN backend)
-- Verdict: `NOT_REACHABLE_UNDER_CURRENT_OFFLOAD_POLICY`
-
-### RoPE FP16 — CORRECTED STATUS
-
-```
-ROPE_FP16_CANN_LOCAL_PATH      = WEAK_POSITIVE  (+4.1%, but on Flow/vision ROPE, not Talker)
-TALKER_DECODE_ROPE_OPTIMIZED   = NOT_PROVEN      (Talker RoPE ops not on CANN during decode)
-TARGET_PATH_E2E_BENEFIT        = NOT_PROVEN
-DEFAULT_ON                     = NO              (unconditionally)
-```
-
-### V0 CANN Fusion A/B
-
-- 10 pairs, r(Δwav, Δwall) = 0.999 — wall time dominated by output length
-- Pair 10 (matched wavs=6): Δ=+31ms (+0.06%) — within noise
-- E2E wall-time A/B cannot detect sub-1% effects against 41× LLM variance
-
----
-
-## In-Flight
-
-| Item | Detail |
-|------|--------|
-| Nothing active | All experiments complete, no background runners |
+| Task | Priority | Description |
+|------|----------|-------------|
+| Git tag | P0 | `git tag cann-flow-vocoder-rtf027-20260729` + commit all docs |
+| Demo smoke | P1 | Basic "does it work end-to-end" test |
+| First/warmup/steady/tail | P1 | Per-bucket characterization |
+| 30min stability | P2 | Extended soak with CANN Flow+Vocoder |
+| 1hr stability | P2 | Long-duration stability |
+| KV cache regression | P2 | HIT/MISS/OFF with CANN Flow+Vocoder |
+| Multi-prefix + T2W lifecycle | P2 | Production lifecycle validation |
+| Internal audio correctness | P2 | Blind A/B listening test |
+| Flow launch overhead | P3 | Graph execution reuse (#1 optimization target) |
+| Im2col optimization | P3 | Fused conv1d or custom kernel |
+| AscendC custom kernel | P3 | Only if launch overhead cannot be further reduced |
 
 ---
 
@@ -94,61 +93,34 @@ DEFAULT_ON                     = NO              (unconditionally)
 |----------|------|
 | Status | `profiles/STATUS.md` |
 | Handoff (this) | `profiles/HANDOFF.md` |
-| Baseline data | `profiles/baseline/` |
-| Profiling report | `profiles/decode-speak/PROFILING_REPORT.md` |
-| Candidate proposal | `profiles/CANDIDATE_PROPOSAL.md` |
-| P6 verification | `profiles/P6_VERIFICATION_REPORT.md` |
-| Decode-to-speak baseline | `docs/experiments/operator-optimization/DECODE_TO_SPEAK_BASELINE.md` |
-| Kernel candidate ranking | `docs/experiments/operator-optimization/KERNEL_CANDIDATE_RANKING.md` |
-| Stack decision | `docs/experiments/operator-optimization/OPERATOR_STACK_DECISION.md` |
-| OP002 API audit | `docs/experiments/operator-optimization/ASCENDC_HIGH_LEVEL_API_AUDIT.md` |
-| OP002 Graph pattern | `docs/experiments/operator-optimization/OP002_GRAPH_PATTERN_AUDIT.md` |
-| OP002 Runtime diag | `docs/experiments/operator-optimization/OP002_RUNTIME_GRAPH_DIAG.md` |
-| RoPE definitive verdict | `docs/experiments/operator-optimization/ROPE_FP16_DEFINITIVE_VERDICT.md` |
-| V0 fusion verdict | `docs/experiments/operator-optimization/V0_FUSION_VERDICT.md` |
-| CANNBot install audit | `docs/experiments/operator-optimization/CANNBOT_INSTALL_AUDIT.md` |
-| V0 fusion A/B data | `profiles/cann_fusion_v0/pairs.csv` |
-| RoPE A/B data | `profiles/rope_fp16_ab/pairs.csv` |
-
----
-
-## Next After /compact — Candidate E: Runtime Overhead Reduction
-
-### Constraint
-
-The user explicitly directed: **profile first, implement only if ROI proven**. Do NOT modify code based solely on `aclrtSetDevice` call counts.
-
-### V0: Profiling Audit (READ-ONLY)
-
-Add low-overhead counters only (no behavior change) to measure:
-
-| Metric | Target |
-|--------|--------|
-| `aclrtSetDevice` | call_count, total_time, avg/p95, thread_id, device, redundancy_rate (same-device consecutive calls) |
-| `aclrtSynchronizeStream` | call_count, total_time, per-callsite breakdown |
-| `aclrtMemcpy` / `aclrtMemcpyAsync` | call_count, total_time, direction |
-| Queue wait gap | Host→NPU gap decomposition |
-| Graph launch gap | Inter-graph idle time |
-
-### Implementation Gates
-
-1. **V0 counters only** — measure overhead, compute ROI
-2. **V1 thread-local cache** — IF `aclrtSetDevice` redundancy > threshold AND cumulative host time significant
-3. **Gate:** `GGML_CANN_CACHE_DEVICE_CONTEXT=0` (default OFF)
-4. **If cumulative benefit < measurable** → REJECTED_WITH_EVIDENCE
-
-### Key Code Location
-
-- `ggml/src/ggml-cann/ggml-cann.cpp` — `ggml_backend_cann_graph_compute()`, CANN backend init, device context management
+| Evidence manifest | `docs/experiments/operator-optimization/EVIDENCE_MANIFEST.md` |
+| Number reconciliation | `docs/experiments/operator-optimization/PERFORMANCE_NUMBER_RECONCILIATION.md` |
+| CANN backend env semantics | `docs/experiments/operator-optimization/CANN_BACKEND_ENV_SEMANTICS.md` |
+| Flow CANN reachability audit | `docs/experiments/operator-optimization/FLOW_CANN_REACHABILITY_AUDIT.md` |
+| Flow profile percentage audit | `docs/experiments/operator-optimization/FLOW_PROFILE_PERCENTAGE_AUDIT.md` |
+| CANN Vocoder final verdict | `docs/experiments/operator-optimization/CANN_VOCODER_FINAL_VERDICT.md` |
+| P7 CANN vs CPU A/B | `docs/experiments/operator-optimization/P7_CANN_VS_CPU_PAIRED_AB.md` |
+| P13 Flow architecture audit | `docs/experiments/operator-optimization/P13_FLOW_ARCHITECTURE_AUDIT.md` |
+| P14 Flow canonical baseline | `docs/experiments/operator-optimization/P14_FLOW_CANONICAL_BASELINE.md` |
+| P15 CANN Flow discovery | `docs/experiments/operator-optimization/P15_FLOW_CANN_DISCOVERY.md` |
+| P15-A Correctness + stability | `docs/experiments/operator-optimization/P15A_CORRECTNESS_AND_STABILITY.md` |
+| P15-C CANN Flow msprof | `docs/experiments/operator-optimization/P15C_CANN_FLOW_MSPROF.md` |
+| Chunk RTF baseline | `docs/experiments/operator-optimization/CHUNK_RTF_BASELINE.md` |
+| Competition metric alignment | `docs/experiments/operator-optimization/COMPETITION_METRIC_ALIGNMENT.md` |
+| E2E profile coverage audit | `docs/experiments/operator-optimization/E2E_PROFILE_COVERAGE_AUDIT.md` |
+| Pipeline attribution method audit | `docs/experiments/operator-optimization/PIPELINE_ATTRIBUTION_METHOD_AUDIT.md` |
+| P5 pipeline idle attribution | `docs/experiments/operator-optimization/P5_PIPELINE_IDLE_ATTRIBUTION.md` |
+| P6 top-1 candidate selection | `docs/experiments/operator-optimization/P6_TOP1_CANDIDATE_SELECTION.md` |
+| Talker CPU decode profile | `docs/experiments/operator-optimization/TALKER_CPU_DECODE_PROFILE.md` |
+| Vocoder candidate ranking | `docs/experiments/operator-optimization/VOCODER_CANDIDATE_RANKING.md` |
+| Vocoder optimization feasibility | `docs/experiments/operator-optimization/VOCODER_OPTIMIZATION_FEASIBILITY.md` |
 
 ---
 
 ## Git Status
 
-- Modified: `profiles/STATUS.md` (updated with OP002 verdict, RoPE correction, Candidate E plan)
-- Modified: `profiles/rope_fp16_ab/pairs.csv` (RoPE A/B partial data)
-- Untracked: Several new docs in `docs/experiments/operator-optimization/`
-- Untracked: `profiles/cann_fusion_v0/` (V0 fusion A/B data)
-- Untracked: `profiles/rope_fp16_ab/pair*` (individual run outputs)
-- Untracked: `scripts/operator-profiling/run_cann_fusion_v0.sh`
-- **No diagnostic code residual** — `ggml-cann.cpp` and `aclnn_ops.cpp` are clean
+- **Modified**: `profiles/STATUS.md`, `profiles/HANDOFF.md`, `docs/tracking/AUDIT.md`, `profiles/rope_fp16_ab/pairs.csv`, `tools/omni/omni.cpp`, `tools/omni/omni.h`
+- **Untracked (new docs)**: 12 files in `docs/experiments/operator-optimization/`
+- **Untracked (data)**: `profiles/cann_fusion_v0/`, `profiles/rope_fp16_ab/pair*`
+- **Untracked (scripts)**: `scripts/operator-profiling/run_cann_fusion_v0.sh`
+- **No active runner. NPU idle.**

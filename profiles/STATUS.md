@@ -1,68 +1,80 @@
-# Operator Profiling Mission — STATUS
+# CANN Flow + Vocoder Optimization — STATUS
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
-**Branch:** `perf/operator-decode-speak`
-**HEAD:** `111a48a` (P7-P8 docs)
-**Updated:** 2026-07-28 07:45 UTC
+**Branch:** `perf/flow-chunk-rtf`
+**HEAD:** `7f5f349` (P15-C: CANN Flow msprof — Im2col 42%, kernel launch overhead 73%)
+**Updated:** 2026-07-29 14:00 UTC
+**Competition Metric:** PER-CHUNK RTF = 0.274
+
+---
+
+## BREAKTHROUGH STATUS
+
+```
+CANN_FLOW       = INTEGRATION_CANDIDATE  (24.1× speedup, 3,726→155ms)
+CANN_VOCODER    = INTEGRATION_CANDIDATE  (2.92× speedup, 348→119ms)
+COMBINED_INTERNAL_STEADY_RTF ≈ 0.274    (n=65, 5 independent batches)
+PRODUCTION_READY  = NO                  (Phase 2 gates pending)
+OFFICIAL_RTF      = NOT_AVAILABLE       (external validation pending)
+GUARANTEED_15×    = NO                  (pending external benchmark)
+```
 
 ---
 
 ## Phase Status
 
-| Gate | Status | Commit | Key Finding |
-|------|--------|--------|-------------|
-| P0: State recovery | PASS | 4822478 | KV cache freeze at kv-cache-optin-candidate-20260728 |
-| P2: Environment | PASS | — | dav-2201, CANN 9.1, TileLang NOT_RUNNABLE, Triton NOT_REGISTERED |
-| P3: Baseline | **COMPLETE** | 111a48a | 15/15 clean. Extreme variance (2.3×-41×) due to LLM non-determinism |
-| P4: Profiling | PASS | 8a5abcb | msprof: CANN kernel 0.164s (0.08% wall), wait 72.3s (36%) |
-| P5: Candidate | PASS | 8a5abcb | Top-1 proposed: RoPE F16 Cast Elimination |
-| P6: Implementation | PASS | b686120 | RoPE F16 gate. Kernel +4.1%. Cast hypothesis DISPROVEN. |
-| P7-A: Baseline audit | PASS | 111a48a | DECODE_TO_SPEAK_BASELINE.md |
-| P7-B: RoPE A/B | STOPPED | — | CONFIGURATION INVALID — `-ngl 0` instead of production `-ngl 8` |
-| P7-C: RoPE verdict | **REJECTED_WITH_EVIDENCE** | — | src0->type always f32, FP16 path NEVER hit. See ROPE_FP16_DEFINITIVE_VERDICT.md |
-| P7-D: Commit audit | PASS | 7752c5f | 328 raw files removed, manifest created |
-| P7: Candidate ranking | PASS | 111a48a | KERNEL_CANDIDATE_RANKING.md (needs re-audit with ngl=8) |
-| P8: Stack decision | PASS | 111a48a | OPERATOR_STACK_DECISION.md |
-| P9: Top-1 implement | **REJECTED** | 10592a58 | ADD+RMSNorm fusion: Talker LLM ops NOT on CANN (op_offload_min_batch=32 > decode ne[1]=1). V0 fusion works for flow model only. |
-| P10: Candidate E | **REJECTED** | 035839b | E1 (SetDevice): 95.6% TLS guard already. E2 (Sync): 33ms total (0.17%), Amdahl bound. |
-| P11: Next candidate | **NEXT** | — | H2D aggregation, D2H readback, pipeline idle decomposition |
-| OP-002 API audit | PASS | 111a48a | ASCENDC_HIGH_LEVEL_API_AUDIT.md |
-| OP-002 Graph pattern | PASS | 111a48a | OP002_GRAPH_PATTERN_AUDIT.md — 54 fusion points confirmed at source level |
-| OP-002 Runtime diag | **COMPLETE** | 10592a58 | OP002_RUNTIME_GRAPH_DIAG.md — NOT_REACHABLE_UNDER_CURRENT_OFFLOAD_POLICY |
-| RoPE definitive verdict | PASS | 111a48a | ROPE_FP16_DEFINITIVE_VERDICT.md — F32 dtype + CANN unreachability |
-| V0 CANN fusion A/B | **DONE** | 10592a58 | V0_FUSION_VERDICT.md — E2E NO_SIGNAL (r=0.999 with Δwav) |
-| E1: SetDevice cache | **REJECTED** | 035839b | CANDIDATE_E1_SETDEVICE_VERDICT.md — TLS guard 95.6% hit rate |
-| E2: Sync reduction | **REJECTED** | pending | CANDIDATE_E2_SYNC_VERDICT.md — 33ms total (0.17%), DUPLICATE=74.3% but only 6.3ms |
+| Gate | Status | Key Finding |
+|------|--------|-------------|
+| P0-P12: CANN Vocoder optimization | COMPLETE | 2.92× local, 7.0% total T2W. INTEGRATION_CANDIDATE |
+| P13: Flow architecture audit | COMPLETE | Conformer encoder + 16-block ODE DiT, 11,740-node ggml graph |
+| P14: Flow canonical baseline | COMPLETE | CPU Flow 3,723ms steady (p50=3,644ms), CV=0.047 |
+| P15: Flow CANN discovery | COMPLETE | BREAKTHROUGH: `cann-flow-only` → 24.1× speedup |
+| P15-A: Correctness | COMPLETE | 60/60 wavs valid, 0 silence, 0 clipping |
+| P15-B: Stability | COMPLETE | 5 batches, 68 steady chunks, 0 failures, RTF=0.274 |
+| P15-C: msprof profiling | COMPLETE | Im2col 42% NPU, launch overhead 72% Flow wall |
+| BREAKTHROUGH_CHECKPOINT | **IN PROGRESS** | 4 audits complete, writing evidence manifest + checkpoint files |
 
-## P6 / RoPE Corrected Status
+---
 
-```text
-ROPE_FP16_CANN_LOCAL_PATH      = WEAK_POSITIVE  (+4.1%, but on Flow/vision ROPE, not Talker)
-TALKER_DECODE_ROPE_OPTIMIZED   = NOT_PROVEN      (Talker RoPE ops not on CANN during decode)
-TARGET_PATH_E2E_BENEFIT        = NOT_PROVEN
-DEFAULT_ON                     = NO              (unconditionally)
+## 4 Completed Audits
+
+| Audit | Document | Status |
+|-------|----------|--------|
+| 1. Number reconciliation | `PERFORMANCE_NUMBER_RECONCILIATION.md` | ✅ 24.1×/2.92×/14.8× corrected |
+| 2. Reachability audit | `FLOW_CANN_REACHABILITY_AUDIT.md` | ✅ Path confirmed, fallback=0 |
+| 3. Env semantics | `CANN_BACKEND_ENV_SEMANTICS.md` | ✅ `gpu`→CANN mapping documented |
+| 4. Profile percentage audit | `FLOW_PROFILE_PERCENTAGE_AUDIT.md` | ✅ Im2col 42% ≠ launch overhead 73% |
+
+---
+
+## Competition Metric
+
+```
+Per-Chunk RTF = (flow + vocoder) / audio_duration_ms
+              = (154.9 + 119.1) / 1000.0
+              = 0.2740 (mean, n=65 steady)
+              = 0.2737 (median, n=65 steady)
 ```
 
-## Candidate E — REJECTED (both sub-candidates)
+---
 
-### E1: aclrtSetDevice Caching → `REJECTED_WITH_EVIDENCE`
-- `ggml_cann_set_device`: 9,296 requests, 408 actual (95.6% TLS guard hit rate)
-- Remaining 6,150 calls from ACLNN/CAN internal (not modifiable)
-- See: `CANDIDATE_E1_SETDEVICE_VERDICT.md`
+## Future Work (Next Session)
 
-### E2: aclrtSynchronizeStream Reduction → `REJECTED_BY_AMDAHL_BOUND`
-- 3,861 syncs, 74.3% DUPLICATE_NO_WORK
-- Total sync time: 32.98ms (0.17% of request wall)
-- avg DUPLICATE: 2.2μs, avg MANDATORY: 26.9μs
-- Even 100% duplicate elimination saves only 6.3ms (0.03%)
-- See: `CANDIDATE_E2_SYNC_VERDICT.md`
+### Phase 1: Freeze Complete (CURRENT)
+- ✅ Evidence manifest + SHA256SUMS
+- ✅ 4 audits complete
+- ✅ Checkpoint files updated
+- ⬜ Git tag + commit all docs
 
-## Next Candidate (P11)
+### Phase 2: Production Gates (NEXT SESSION)
+- Internal audio correctness (blind A/B listening)
+- First/warmup/steady/tail chunk characterization
+- Demo smoke test
+- 30min + 1hr stability
+- KV Cache HIT/MISS/OFF regression
+- Multi-prefix + T2W lifecycle
 
-**Data Movement & Pipeline Auditing:**
-
-1. H2D small-transfer aggregation (2,293 H2D transfers per request)
-2. D2H readback frequency (928 D2H transfers)
-3. Graph launch gap analysis (inter-graph idle time)
-4. Pipeline idle decomposition (where does the 72.3s Wait actually come from?)
-5. Pinned host memory for transfer buffers
+### Phase 3: Further Optimization
+- Flow graph execution reuse (launch overhead #1 target)
+- Im2col fusion
+- Custom AscendC Kernel
