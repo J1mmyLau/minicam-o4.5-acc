@@ -2,15 +2,16 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `0973299` (P18: 1hr stability PASS — Phase 2 production gates complete)
-**Updated:** 2026-07-29 09:45 UTC
+**HEAD:** `4a2cbcd` (P19: CANN ACL graph capture — t2m.compute -23.1%)
+**Updated:** 2026-07-29 10:50 UTC
 
 ---
 
 ## Commit Chain
 
 ```
-0973299 (HEAD -> perf/flow-chunk-rtf) docs(P18): 1hr stability PASS — Phase 2 production gates complete
+4a2cbcd (HEAD -> perf/flow-chunk-rtf) feat(P19): CANN ACL graph capture for Flow model — RELAXED mode + min_nodes filter
+0973299 docs(P18): 1hr stability PASS — Phase 2 production gates complete
 3000af5 docs(P16-P17): Phase 2 gates — demo smoke, bucket, KV cache, 30min stability
 189fc96 docs(checkpoint): BREAKTHROUGH_CHECKPOINT — CANN Flow+Vocoder RTF=0.274 candidate freeze
 7f5f349 docs(P15-C): CANN Flow msprof — Im2col 42%, kernel launch overhead 73%
@@ -64,12 +65,12 @@ GUARANTEED_15×    = NO
 
 ## NOT DONE / Phase 3: Further Optimization
 
-| Rank | Task | Est. Impact | Approach |
-|------|------|-------------|----------|
-| 1 | Graph execution reuse | 20-60ms | Reduce 188k kernel launches, reuse CANN graph |
-| 2 | Operator fusion | 10-20ms | Element-wise fusion (Add+Mul+Cast), norm+scale |
-| 3 | Im2col custom kernel | 5-8ms | Fused conv1d or AscendC kernel |
-| 4 | Async H2D/D2H | 1-2ms | Async transfer, pinned memory |
+| Rank | Task | Est. Impact | Status |
+|------|------|-------------|--------|
+| 1 | Graph execution reuse | 20-60ms → **34ms ACHIEVED** | ✅ DONE (P19, commit `4a2cbcd`) |
+| 2 | Operator fusion | 10-20ms → **~1ms actual** | ✅ DONE (P20, commit `9a7f5c2`). Diminishing returns: graph capture already reduces kernel launch overhead |
+| 3 | Im2col custom kernel | 5-8ms | ⚡ NEXT (`aclnnFusedCausalConv1d` exists) |
+| 4 | Async H2D/D2H | 1-2ms | PENDING |
 
 ---
 
@@ -81,6 +82,7 @@ GUARANTEED_15×    = NO
 | P17: 30-min stability | `P17_30MIN_STABILITY_REPORT.md` |
 | P17: T2W lifecycle plan | `P17_T2W_LIFECYCLE_TEST_PLAN.md` |
 | P18: 1-hr stability | `P18_1HR_STABILITY_REPORT.md` |
+| P19: Graph execution reuse | `P19_GRAPH_EXECUTION_REUSE.md` |
 | Phase 2 gate results | `PHASE2_GATE_RESULTS.md` |
 | Evidence manifest | `EVIDENCE_MANIFEST.md` |
 | 4 audit docs | `FLOW_*_AUDIT.md`, `PERFORMANCE_*`, `CANN_BACKEND_*` |

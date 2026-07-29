@@ -2,19 +2,19 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `7f5f349` (P15-C: CANN Flow msprof — Im2col 42%, kernel launch overhead 73%)
-**Updated:** 2026-07-29 14:00 UTC
-**Competition Metric:** PER-CHUNK RTF = 0.274
+**HEAD:** `4a2cbcd` (P19: CANN ACL graph capture — t2m.compute -23.1%)
+**Updated:** 2026-07-29 10:45 UTC
+**Competition Metric:** PER-CHUNK RTF = 0.229 (vs 0.274 baseline)
 
 ---
 
 ## BREAKTHROUGH STATUS
 
 ```
-CANN_FLOW       = INTEGRATION_CANDIDATE  (24.1× speedup, 3,726→155ms)
+CANN_FLOW       = INTEGRATION_CANDIDATE  (24.1× speedup, 3,726→155ms→111ms with graph)
 CANN_VOCODER    = INTEGRATION_CANDIDATE  (2.92× speedup, 348→119ms)
-COMBINED_INTERNAL_STEADY_RTF ≈ 0.274    (n=65, 5 independent batches)
-PRODUCTION_READY  = NO                  (Phase 2 gates pending)
+COMBINED_INTERNAL_STEADY_RTF ≈ 0.229    (n=16+ steady, with CANN ACL graph capture)
+PRODUCTION_READY  = NO                  (Phase 2 gates pass, Phase 3 in progress)
 OFFICIAL_RTF      = NOT_AVAILABLE       (external validation pending)
 GUARANTEED_15×    = NO                  (pending external benchmark)
 ```
@@ -76,7 +76,17 @@ Per-Chunk RTF = (flow + vocoder) / audio_duration_ms
 - ⏭️ Multi-prefix: deferred to KV cache branch
 
 ### Phase 3: Further Optimization (CURRENT)
-- Flow graph execution reuse (launch overhead ~112ms, #1 target)
-- Operator fusion (element-wise, norm+scale)
-- Im2col custom kernel (only if launch overhead resolved)
-- Async H2D/D2H
+
+| Rank | Task | Status | Impact |
+|------|------|--------|--------|
+| 1 | Graph execution reuse | ✅ DONE (P19) | t2m.compute -23.1%, 34ms savings per chunk |
+| 2 | Operator fusion | ✅ DONE (P20) | ADD+NORM fusion implemented (257 pairs). ~1ms gain: diminishing returns with graph capture |
+| 3 | Im2col custom kernel / FusedCausalConv1d | ⚡ NEXT | 5-8ms est. `aclnnFusedCausalConv1d` exists in CANN 9.1 |
+| 4 | Async H2D/D2H | PENDING | 1-2ms est. |
+
+**Rank 1 results:**
+- ACL capture mode: RELAXED (avoids H2D interference)
+- t2m.compute: 144.0ms → 110.8ms p50 (-23.1%)
+- Per-chunk RTF: 0.250 → 0.229 (-8.4%)
+- Flow graph reuse: 1 capture → 19+ cache HITs
+- Config: `GGML_CANN_ACL_GRAPH=on`, `GGML_CANN_GRAPH_MIN_NODES=100`
