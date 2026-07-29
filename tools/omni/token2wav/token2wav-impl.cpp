@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <cmath>
 #include "ggml-backend.h"
@@ -25,6 +26,51 @@ extern std::atomic<int64_t> g_e2e_flow_start_ns;
 extern std::atomic<int64_t> g_e2e_flow_end_ns;
 extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
 extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
+
+// ============================================================================
+// P3: Vocoder path hit counters (default OFF, zero overhead when OFF)
+// Gate: OMNI_VOC_PATH_STATS=1
+// NB: These are GLOBAL across all sessions — one dump at process exit.
+// ============================================================================
+static std::atomic<int64_t> g_vocoder_cpu_dispatch_count{0};
+static std::atomic<int64_t> g_vocoder_cann_dispatch_count{0};
+static std::atomic<int64_t> g_vocoder_cann_success_count{0};
+static std::atomic<int64_t> g_vocoder_cann_failure_count{0};
+static std::atomic<int64_t> g_vocoder_cpu_fallback_count{0};
+
+static void vocoder_path_stats_dump();
+
+static bool vocoder_path_stats_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("OMNI_VOC_PATH_STATS");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            std::atexit(vocoder_path_stats_dump);
+        }
+    }
+    return enabled == 1;
+}
+
+#define VOC_PATH_INC(field) \
+    do { if (vocoder_path_stats_enabled()) field.fetch_add(1, std::memory_order_relaxed); } while(0)
+
+static void vocoder_path_stats_dump() {
+    if (!vocoder_path_stats_enabled()) return;
+    std::fprintf(stderr,
+        "\n[VOCODER_PATH_STATS] ========================================\n"
+        "[VOCODER_PATH_STATS] cpu_dispatch       = %ld\n"
+        "[VOCODER_PATH_STATS] cann_dispatch      = %ld\n"
+        "[VOCODER_PATH_STATS] cann_success       = %ld\n"
+        "[VOCODER_PATH_STATS] cann_failure       = %ld\n"
+        "[VOCODER_PATH_STATS] cpu_fallback       = %ld\n"
+        "[VOCODER_PATH_STATS] ========================================\n",
+        (long)g_vocoder_cpu_dispatch_count.load(),
+        (long)g_vocoder_cann_dispatch_count.load(),
+        (long)g_vocoder_cann_success_count.load(),
+        (long)g_vocoder_cann_failure_count.load(),
+        (long)g_vocoder_cpu_fallback_count.load());
+}
 
 static void e2e_record_ns(std::atomic<int64_t>& target) {
     if (!g_e2e_profile_enabled) return;
@@ -6617,8 +6663,8 @@ bool voc_hg2_model::voc_hg2_model_init_from_gguf(const std::string & gguf_path_i
     gguf_path   = gguf_path_in;
     num_threads = num_threads_in > 0 ? num_threads_in : 1;
     ggml_backend_load_all();
-    // Support "gpu", "gpu:0", "gpu:1" etc.
-    if (device.find("gpu") == 0) {
+    // Support "gpu", "gpu:0", "gpu:1", "cann", "cann:0" etc.
+    if (device.find("gpu") == 0 || device.find("cann") == 0) {
         int gpu_idx = 0;
         if (device.find("gpu:") == 0 && device.size() > 4) {
             try {
@@ -6643,6 +6689,10 @@ bool voc_hg2_model::voc_hg2_model_init_from_gguf(const std::string & gguf_path_i
         }
         if (!backend) {
             backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+            // P3: CANN/GPU was requested but we fell back to CPU
+            if (strstr(device.c_str(), "gpu") != nullptr || strstr(device.c_str(), "cann") != nullptr) {
+                VOC_PATH_INC(g_vocoder_cpu_fallback_count);
+            }
         }
         std::fprintf(stderr, "voc_hg2_model: init_backend device=%s, gpu_idx=%d, backend=%s\n",
                 device.c_str(), gpu_idx, backend ? ggml_backend_name(backend) : "null");
@@ -6751,6 +6801,13 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
     if (!model || !model->hg2 || !model->backend || !model->galloc) {
         return false;
     }
+    // P3: path hit counters
+    const bool is_cann_backend = (strstr(ggml_backend_name(model->backend), "CANN") != nullptr);
+    if (is_cann_backend) {
+        VOC_PATH_INC(g_vocoder_cann_dispatch_count);
+    } else {
+        VOC_PATH_INC(g_vocoder_cpu_dispatch_count);
+    }
     const int64_t B = 1;
     const int64_t C = 80;
     if (T_mel <= 0) {
@@ -6789,6 +6846,7 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         }
         if (!ggml_gallocr_alloc_graph(model->galloc, gf)) {
             LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_gallocr_alloc_graph failed\n");
+            if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
             ggml_free(ctx);
             return false;
         }
@@ -6818,9 +6876,11 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         const ggml_status st = ggml_backend_graph_compute(model->backend, gf);
         if (st != GGML_STATUS_SUCCESS) {
             LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_backend_graph_compute failed\n");
+            if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
             ggml_free(ctx);
             return false;
         }
+        if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_success_count);  // P3
     }
     omni::flow::profile::ScopeTimer _download_timer("voc.download");
     std::vector<float> wave_tb;
