@@ -65,7 +65,7 @@
 #include <aclnnop/aclnn_permute.h>
 #include <aclnnop/aclnn_pow.h>
 #include <aclnnop/aclnn_pow_tensor_tensor.h>
-#include <aclnnop/aclnn_recurrent_gated_delta_rule.h>
+// #include <aclnnop/aclnn_recurrent_gated_delta_rule.h>  // not available in CANN 25.5.1
 #include <aclnnop/aclnn_reduce_sum.h>
 #include <aclnnop/aclnn_reflection_pad1d.h>
 #include <aclnnop/aclnn_repeat.h>
@@ -73,7 +73,7 @@
 #include <aclnnop/aclnn_rms_norm.h>
 #include <aclnnop/aclnn_roll.h>
 #include <aclnnop/aclnn_softmax.h>
-#include <aclnnop/aclnn_softmax_cross_entropy_with_logits.h>
+// #include <aclnnop/aclnn_softmax_cross_entropy_with_logits.h>  // not available in CANN 25.5.1
 #include <aclnnop/aclnn_sub.h>
 #include <aclnnop/aclnn_sum.h>
 #include <aclnnop/aclnn_threshold.h>
@@ -584,68 +584,11 @@ void ggml_cann_l2_norm(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
 }
 
 void ggml_cann_cross_entropy_loss(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
-    ggml_tensor * src0 = dst->src[0];
-    ggml_tensor * src1 = dst->src[1];
-
-    const int64_t nc = src0->ne[0];
-    const int64_t nr = ggml_nrows(src0);
-
-    int64_t logits_ne[] = { nc, nr };
-    size_t  logits_nb[2];
-    logits_nb[0]              = ggml_type_size(src0->type);
-    logits_nb[1]              = logits_nb[0] * logits_ne[0];
-    acl_tensor_ptr acl_logits = ggml_cann_create_tensor(src0->data, ACL_FLOAT, sizeof(float), logits_ne, logits_nb, 2);
-
-    int64_t labels_ne[] = { nc, nr };
-    size_t  labels_nb[2];
-    labels_nb[0]              = ggml_type_size(src1->type);
-    labels_nb[1]              = labels_nb[0] * labels_ne[0];
-    acl_tensor_ptr acl_labels = ggml_cann_create_tensor(src1->data, ACL_FLOAT, sizeof(float), labels_ne, labels_nb, 2);
-
-    size_t               loss_per_sample_type_size = sizeof(float);
-    int64_t              loss_per_sample_n_bytes   = nr * loss_per_sample_type_size;
-    ggml_cann_pool_alloc loss_per_sample_allocator(ctx.pool(), loss_per_sample_n_bytes);
-    void *               loss_per_sample_buffer = loss_per_sample_allocator.get();
-
-    int64_t loss_per_sample_ne[] = { nr };
-    size_t  loss_per_sample_nb[1];
-    loss_per_sample_nb[0] = loss_per_sample_type_size;
-    acl_tensor_ptr acl_loss_per_sample = ggml_cann_create_tensor(
-        loss_per_sample_buffer, ACL_FLOAT, loss_per_sample_type_size, loss_per_sample_ne, loss_per_sample_nb, 1);
-
-    size_t               backprop_n_bytes = nr * nc * sizeof(float);
-    ggml_cann_pool_alloc backprop_allocator(ctx.pool(), backprop_n_bytes);
-    void *               backprop_buffer = backprop_allocator.get();
-    acl_tensor_ptr acl_backprop = ggml_cann_create_tensor(backprop_buffer, ACL_FLOAT, sizeof(float), logits_ne, logits_nb, 2);
-
-    GGML_CANN_CALL_ACLNN_OP(ctx, SoftmaxCrossEntropyWithLogits, acl_logits.get(), acl_labels.get(),
-                            acl_loss_per_sample.get(), acl_backprop.get());
-
-    size_t               total_sum_type_size = sizeof(float);
-    int64_t              total_sum_n_bytes   = 1 * total_sum_type_size;
-    ggml_cann_pool_alloc total_sum_allocator(ctx.pool(), total_sum_n_bytes);
-    void *               total_sum_buffer = total_sum_allocator.get();
-
-    int64_t total_sum_ne[] = { 1 };
-    size_t  total_sum_nb[1];
-    total_sum_nb[0] = total_sum_type_size;
-
-    acl_tensor_ptr acl_total_sum =
-        ggml_cann_create_tensor(total_sum_buffer, ACL_FLOAT, total_sum_type_size, total_sum_ne, total_sum_nb, 1);
-
-    std::vector<int64_t> total_sum_dims    = { 0 };
-    acl_int_array_ptr total_sum_dims_array = ggml_cann_create_int_array(total_sum_dims.data(), total_sum_dims.size());
-    bool              keep_dims            = false;
-
-    GGML_CANN_CALL_ACLNN_OP(ctx, ReduceSum, acl_loss_per_sample.get(), total_sum_dims_array.get(), keep_dims, ACL_FLOAT,
-                            acl_total_sum.get());
-
-    float          value        = 1.0f / static_cast<float>(nr);
-    acl_scalar_ptr scale_factor = ggml_cann_create_scalar(&value, aclDataType::ACL_FLOAT);
-    acl_tensor_ptr acl_dst =
-        ggml_cann_create_tensor(dst->data, ACL_FLOAT, sizeof(float), total_sum_ne, total_sum_nb, 1);
-
-    GGML_CANN_CALL_ACLNN_OP(ctx, Muls, acl_total_sum.get(), scale_factor.get(), acl_dst.get());
+    GGML_UNUSED(ctx);
+    GGML_UNUSED(dst);
+    // CANN 25.5.1 does not have aclnnSoftmaxCrossEntropyWithLogits.
+    // This op is only needed for training (finetune), not inference.
+    fprintf(stderr, "[CANN] cross_entropy_loss not supported on this CANN version, skipping\n");
 }
 
 void ggml_cann_group_norm(ggml_backend_cann_context & ctx, ggml_tensor * dst) {

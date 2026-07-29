@@ -15,6 +15,10 @@
 #ifdef GGML_USE_CUDA
 #include "ggml-cuda.h"
 #endif
+#ifdef GGML_USE_CANN
+#include "ggml-cann.h"
+#include <acl/acl.h>
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -588,9 +592,14 @@ static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threa
 }
 
 static int query_gpu_memory_used_mb(int device_id = 0) {
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA)
     size_t free_bytes = 0, total_bytes = 0;
     ggml_backend_cuda_get_device_memory(device_id, &free_bytes, &total_bytes);
+    if (total_bytes == 0) return -1;
+    return (int)((total_bytes - free_bytes) / (1024 * 1024));
+#elif defined(GGML_USE_CANN)
+    size_t free_bytes = 0, total_bytes = 0;
+    ggml_backend_cann_get_device_memory(device_id, &free_bytes, &total_bytes);
     if (total_bytes == 0) return -1;
     return (int)((total_bytes - free_bytes) / (1024 * 1024));
 #else
@@ -1431,7 +1440,7 @@ bool projector_init(projector_model & model, const std::string & fname, bool use
         return false;
     }
     
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA) || defined(GGML_USE_CANN)
     if (use_cuda) {
         model.backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, NULL);
         if (!model.backend) {
@@ -4343,7 +4352,12 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             
             // Device configuration - 使用 omni_init 传入的 token2wav_device 参数
             // 格式: "gpu", "gpu:0", "gpu:1", "cpu"
+#ifdef GGML_USE_CANN
+            std::string device_token2mel = "cpu";
+            print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，flow_matching暂用CPU\n");
+#else
             std::string device_token2mel = token2wav_device;
+#endif
 
             // Vocoder 设备策略：
             //   CUDA: vocoder 跟随 token2wav_device（GPU），因为 CUDA kernel launch 开销低
@@ -4356,12 +4370,15 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 device_vocoder = voc_dev_env;
                 print_with_timestamp("Token2Wav: vocoder device overridden by OMNI_VOC_DEVICE=%s\n", voc_dev_env);
             } else {
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA)
                 device_vocoder = token2wav_device;
                 print_with_timestamp("Token2Wav: CUDA detected, vocoder using GPU (%s)\n", device_vocoder.c_str());
+#elif defined(GGML_USE_CANN)
+                device_vocoder = "cpu";
+                print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，vocoder暂用CPU\n");
 #else
                 device_vocoder = "cpu";
-                print_with_timestamp("Token2Wav: non-CUDA backend, vocoder using CPU for better performance\n");
+                print_with_timestamp("Token2Wav: no GPU backend, vocoder using CPU for better performance\n");
 #endif
             }
             
@@ -8924,6 +8941,14 @@ void t2w_thread_func_python(struct omni_context * ctx_omni, common_params *param
 //   T2W线程检测到 simplex_round_idx != last_round_idx -> 更新 tts_wav_output_dir
 // ==============================================================================
 void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) {
+#ifdef GGML_USE_CANN
+    {
+        int32_t cur_dev;
+        if (aclrtGetDevice(&cur_dev) != ACL_SUCCESS) {
+            aclrtSetDevice(0);
+        }
+    }
+#endif
     print_with_timestamp("T2W thread (C++) started\n");
     fflush(stdout);
     

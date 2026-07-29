@@ -50,6 +50,9 @@ target_link_libraries     (omni PRIVATE Threads::Threads)
 target_include_directories(omni PUBLIC  .)
 target_include_directories(omni PRIVATE ../..)
 target_include_directories(omni PRIVATE ../../vendor)
+if (GGML_CANN)
+    target_include_directories(omni PRIVATE /usr/local/Ascend/ascend-toolkit/latest/include)
+endif()
 target_compile_features   (omni PRIVATE cxx_std_17)
 
 # Link CoreML and Accelerate frameworks when CoreML is enabled
