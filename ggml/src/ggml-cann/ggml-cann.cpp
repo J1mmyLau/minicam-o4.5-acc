@@ -2318,7 +2318,8 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                                             bool                        cann_graph_capture_required) {
 #ifdef USE_ACL_GRAPH
     if (use_cann_graph && cann_graph_capture_required) {  // Begin CANN graph capture
-        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_GLOBAL));
+        ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_RELAXED));
     }
 #endif  // USE_ACL_GRAPH
     // Only perform the graph execution if CANN graphs are not enabled, or we are capturing the graph.
@@ -2411,6 +2412,18 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
 
     if (!cann_ctx->acl_graph_mode) {
         use_cann_graph = false;
+    }
+
+    // Phase 3: Skip graph capture for small graphs (e.g. LLM decode tokens)
+    // that can never be reused. Each decode token changes the graph, so
+    // capture adds pure overhead. Large graphs (Flow model ~11740 nodes,
+    // LLM prefill ~2373 nodes) benefit from reuse across chunks/requests.
+    if (use_cann_graph) {
+        static int graph_min_nodes =
+            parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MIN_NODES").value_or("100"));
+        if (cgraph->n_nodes < graph_min_nodes) {
+            use_cann_graph = false;
+        }
     }
 
     if (use_cann_graph) {
