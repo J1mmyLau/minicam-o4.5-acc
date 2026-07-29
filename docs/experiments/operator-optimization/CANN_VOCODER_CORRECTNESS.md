@@ -145,3 +145,37 @@ Audio quality is acceptable. CANN vocoder produces valid audio with correct form
 4. **P10 (device handoff)** → eliminate D2H+H2D round-trip
 
 Without these, the 5% CANN gain is not competition-significant.
+
+---
+
+## 9. CORRECTION (2026-07-29): Metric Attribution Error
+
+**The P5 analysis above conflated total T2W time with vocoder-only time.** The `OMNI_E2E_PROFILE=1` mechanism measures per-chunk total time (token2mel + vocoder), not vocoder-only time. Re-analysis with `OMNI_T2W_PROFILE=2` gives per-component timing.
+
+### Corrected Breakdown (steady-state, per 1-second chunk)
+
+| Component | CPU Vocoder Config | CANN Vocoder Config | Delta |
+|-----------|-------------------|---------------------|-------|
+| token2mel (Flow, CANN) | 3,640ms (92%) | 3,600ms (97%) | — |
+| **vocoder (HiFi-GAN2)** | **330ms (8%)** | **110ms (3%)** | **-220ms (-67%)** |
+| Total T2W | 3,970ms | 3,710ms | -260ms (-6.5%) |
+| Audio duration | 1,000ms | 1,000ms | — |
+| **Vocoder RTF** | **0.33** | **0.11** | **3.0× CANN speedup** |
+| Total RTF | 3.97 | 3.71 | -6.5% |
+
+### Key Insight
+
+1. **The CANN vocoder is 3.0× faster than CPU on the vocoder portion (330ms → 110ms).**
+2. **But the vocoder is only 3-8% of total T2W time.** The Flow model (token2mel) dominates at 92-97%.
+3. **The total RTF improvement from CANN vocoder is 6.5%** — consistent with Amdahl's Law: 3× speedup on 8% of work ≈ 5-7% total gain.
+4. **The D2H+H2D round-trip** accounts for a significant fraction of the 110ms CANN vocoder time, but eliminating it saves at most ~50ms (1.3% of total RTF).
+5. **To achieve competition-significant RTF improvement, Flow model optimization is required.** The vocoder is already near-optimal on CANN (RTF=0.11, processing 9× real-time).
+
+### Corrected Optimization Priority
+
+| Rank | Target | Current Time | Potential | Impact on Total RTF |
+|------|--------|-------------|-----------|---------------------|
+| 1 | Flow model (token2mel) | 3,600ms | 2-4× with optimization | **Major** (RTF 3.71→1-2) |
+| 2 | Per-chunk graph/galloc reuse | Shared overhead | Eliminate | Moderate |
+| 3 | P10: Device handoff | ~50ms D2H+H2D | Eliminate | Minor (RTF 3.71→3.66) |
+| 4 | Vocoder CANN kernel tuning | 110ms → 50ms | 2× | Negligible (RTF 3.71→3.69) |
