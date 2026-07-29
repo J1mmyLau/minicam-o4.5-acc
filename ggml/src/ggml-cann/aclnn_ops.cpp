@@ -27,6 +27,7 @@
 
 
 #include <aclnnop/aclnn_add.h>
+#include <aclnnop/aclnn_add_layer_norm.h>
 #include <aclnnop/aclnn_add_rms_norm.h>
 #include <aclnnop/aclnn_addcdiv.h>
 #include <aclnnop/aclnn_argmax.h>
@@ -4376,6 +4377,73 @@ void ggml_cann_op_add_rms_norm_fused(ggml_backend_cann_context & ctx,
     GGML_CANN_CALL_ACLNN_OP(ctx, AddRmsNorm, acl_x1.get(), acl_x2.get(), acl_gamma.get(),
                             eps,  // double type
                             acl_yout.get(), acl_rstd.get(), acl_xout.get());
+}
+
+void ggml_cann_op_add_norm_fused(ggml_backend_cann_context & ctx,
+                                  ggml_tensor *               add_node,
+                                  ggml_tensor *               norm_node) {
+    // Get the two input tensors for ADD operation
+    ggml_tensor * x1 = add_node->src[0];
+    ggml_tensor * x2 = add_node->src[1];
+
+    // Create ACL tensors for the two ADD inputs
+    acl_tensor_ptr acl_x1 = ggml_cann_create_tensor(x1);
+    acl_tensor_ptr acl_x2 = ggml_cann_create_tensor(x2);
+
+    // Get epsilon parameter from norm_node
+    float eps;
+    memcpy(&eps, norm_node->op_params, sizeof(float));
+
+    // Build gamma tensor (ones — identity for no affine params)
+    // aclnnAddLayerNorm requires non-null gamma and beta
+    size_t acl_gamma_nb[GGML_MAX_DIMS];
+    acl_gamma_nb[0] = ggml_type_size(norm_node->type);
+    for (int i = 1; i < GGML_MAX_DIMS; i++) {
+        acl_gamma_nb[i] = acl_gamma_nb[i - 1] * x1->ne[i - 1];
+    }
+    acl_tensor_ptr acl_gamma =
+        get_cache_acl_tensor(ctx, &ctx.rms_norm_one_tensor_cache.cache,
+                             ctx.rms_norm_one_tensor_cache.size, x1->ne,
+                             acl_gamma_nb, norm_node->type,
+                             1,     // dims
+                             1.0f); // fill value (ones = identity for gamma)
+
+    // Build beta tensor (zeros — identity for no affine params)
+    acl_tensor_ptr acl_beta =
+        get_cache_acl_tensor(ctx, &ctx.rms_norm_zero_tensor_cache.cache,
+                             ctx.rms_norm_zero_tensor_cache.size, x1->ne,
+                             acl_gamma_nb, norm_node->type,
+                             1,     // dims
+                             0.0f); // fill value (zeros = identity for beta)
+
+    // Build rstdOut tensor (output for normalized standard deviation)
+    int64_t acl_rstd_ne[] = { 1, x1->ne[1], x1->ne[2], x1->ne[3] };
+    size_t  acl_rstd_nb[GGML_MAX_DIMS];
+    acl_rstd_nb[0] = sizeof(float);
+    for (int i = 1; i < GGML_MAX_DIMS; i++) {
+        acl_rstd_nb[i] = acl_rstd_nb[i - 1] * acl_rstd_ne[i - 1];
+    }
+    acl_tensor_ptr acl_rstd =
+        get_cache_acl_tensor(ctx, &ctx.rms_norm_zero_tensor_cache.cache,
+                             ctx.rms_norm_zero_tensor_cache.size,
+                             acl_rstd_ne, acl_rstd_nb, GGML_TYPE_F32, GGML_MAX_DIMS,
+                             0.0f);
+
+    // Build meanOut tensor (same shape as rstdOut)
+    acl_tensor_ptr acl_mean =
+        get_cache_acl_tensor(ctx, &ctx.rms_norm_zero_tensor_cache.cache,
+                             ctx.rms_norm_zero_tensor_cache.size,
+                             acl_rstd_ne, acl_rstd_nb, GGML_TYPE_F32, GGML_MAX_DIMS,
+                             0.0f);
+
+    acl_tensor_ptr acl_xout = ggml_cann_create_tensor(add_node);
+    acl_tensor_ptr acl_yout = ggml_cann_create_tensor(norm_node);
+
+    // Call fused ADD + LayerNorm operator
+    GGML_CANN_CALL_ACLNN_OP(ctx, AddLayerNorm, acl_x1.get(), acl_x2.get(),
+                            acl_gamma.get(), acl_beta.get(), nullptr,
+                            (double)eps, false,
+                            acl_yout.get(), acl_mean.get(), acl_rstd.get(), acl_xout.get());
 }
 
 void ggml_cann_gated_linear_attn(ggml_backend_cann_context & ctx, ggml_tensor * dst) {

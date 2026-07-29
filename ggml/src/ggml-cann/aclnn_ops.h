@@ -975,6 +975,10 @@ void ggml_cann_op_add_rms_norm_fused(ggml_backend_cann_context & ctx,
                                      ggml_tensor *               add_node,
                                      ggml_tensor *               rms_norm_node);
 
+void ggml_cann_op_add_norm_fused(ggml_backend_cann_context & ctx,
+                                  ggml_tensor *               add_node,
+                                  ggml_tensor *               norm_node);
+
 /**
  * @brief   Check whether a tensor is a weight tensor for matrix multiplication.
  *
