@@ -6780,10 +6780,36 @@ bool voc_hg2_runner::voc_hg2_runner_build_graph(ggml_context * ctx,
     *out_source_t1_b = source_t1_b;
     return true;
 }
+// ============================================================================
+// P11: Graph reuse feature (O2-A + O2-B)
+// Gate: OMNI_VOC_GRAPH_REUSE=1
+// When T_mel and Tc are unchanged between chunks, skip ggml_init, graph build,
+// and ggml_gallocr_alloc_graph. Only re-upload input tensor data and re-compute.
+// This eliminates ~60-90ms of per-chunk framework overhead.
+// ============================================================================
+bool voc_hg2_runner::graph_reuse_enabled() const {
+    static int v = [] {
+        const char * s = std::getenv("OMNI_VOC_GRAPH_REUSE");
+        if (!s || !*s) return 0;
+        return std::atoi(s) != 0 ? 1 : 0;
+    }();
+    return v != 0;
+}
+
+void voc_hg2_runner::graph_reuse_invalidate() {
+    if (cached_ctx) {
+        ggml_free(cached_ctx);
+        cached_ctx = nullptr;
+    }
+    cached_gf    = nullptr;
+    cached_T_mel = -1;
+    cached_Tc    = -1;
+}
+
 bool voc_hg2_runner::voc_hg2_runner_eval(const std::vector<float> & speech_feat_bct,
                                          int64_t                    T_mel,
                                          std::vector<float> &       out_wave_bt,
-                                         int64_t &                  out_T_audio) const {
+                                         int64_t &                  out_T_audio) {
     std::vector<float> out_source_dummy;
     int64_t            out_T_source_dummy = 0;
     std::vector<float> empty_cache;
@@ -6797,7 +6823,7 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
                                                 std::vector<float> &       out_wave_bt,
                                                 int64_t &                  out_T_audio,
                                                 std::vector<float> &       out_source_bt1,
-                                                int64_t &                  out_T_source) const {
+                                                int64_t &                  out_T_source) {
     if (!model || !model->hg2 || !model->backend || !model->galloc) {
         return false;
     }
@@ -6824,31 +6850,86 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         LOG_ERROR( "voc_hg2_runner_eval_stream: invalid cache_source_bt1 size\n");
         return false;
     }
-    ggml_init_params params{};
-    params.mem_size    = 2048ull * 1024ull * 1024ull;
-    params.mem_buffer  = nullptr;
-    params.no_alloc    = true;
-    ggml_context * ctx = ggml_init(params);
-    if (!ctx) {
-        return false;
-    }
-    ggml_tensor * speech_upload_tcb   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, T_mel, C, B);
-    ggml_tensor * speech_feat_c80_t_b = ggml_cont(ctx, ggml_permute(ctx, speech_upload_tcb, 1, 0, 2, 3));
-    ggml_tensor * cache_source_t1_b = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, Tc, 1, B);
-    ggml_tensor * wave_t_b    = nullptr;
-    ggml_tensor * source_t1_b = nullptr;
-    ggml_cgraph * gf = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
-    {
-        omni::flow::profile::ScopeTimer _t("voc.build_alloc");
-        if (!voc_hg2_runner_build_graph(ctx, gf, speech_feat_c80_t_b, cache_source_t1_b, &wave_t_b, &source_t1_b)) {
-            ggml_free(ctx);
+    // P11: Try graph reuse — skip ggml_init + graph build + galloc when shape unchanged
+    const bool try_reuse = graph_reuse_enabled()
+                        && cached_ctx != nullptr
+                        && cached_gf != nullptr
+                        && cached_T_mel == T_mel
+                        && cached_Tc == Tc;
+
+    ggml_context * ctx          = nullptr;
+    ggml_cgraph *  gf           = nullptr;
+    ggml_tensor *  speech_upload_tcb   = nullptr;
+    ggml_tensor *  speech_feat_c80_t_b = nullptr;
+    ggml_tensor *  cache_source_t1_b   = nullptr;
+    ggml_tensor *  wave_t_b    = nullptr;
+    ggml_tensor *  source_t1_b = nullptr;
+    bool           is_reusing  = false;
+
+    if (try_reuse) {
+        // Fast path: reuse cached graph, skip ~60-90ms of framework overhead
+        ctx              = cached_ctx;
+        gf               = cached_gf;
+        speech_upload_tcb = cached_speech_upload;
+        cache_source_t1_b = cached_cache_source;
+        wave_t_b          = cached_wave_out;
+        source_t1_b       = cached_source_out;
+        // speech_feat_c80_t_b is not needed for upload — it's a view/permute
+        speech_feat_c80_t_b = nullptr;
+        is_reusing        = true;
+        // P11 diagnostic: confirm graph reuse hit
+        if (omni::flow::profile::verbose()) {
+            std::fprintf(stderr, "[voc-reuse] hit T_mel=%lld Tc=%lld\n",
+                         (long long)T_mel, (long long)Tc);
+        }
+    } else {
+        // Invalidate old cache when shape changes or reuse is disabled
+        if (cached_ctx) {
+            graph_reuse_invalidate();
+        }
+
+        ggml_init_params params{};
+        params.mem_size    = 2048ull * 1024ull * 1024ull;
+        params.mem_buffer  = nullptr;
+        params.no_alloc    = true;
+        ctx = ggml_init(params);
+        if (!ctx) {
             return false;
         }
-        if (!ggml_gallocr_alloc_graph(model->galloc, gf)) {
-            LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_gallocr_alloc_graph failed\n");
-            if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
-            ggml_free(ctx);
-            return false;
+        speech_upload_tcb   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, T_mel, C, B);
+        speech_feat_c80_t_b = ggml_cont(ctx, ggml_permute(ctx, speech_upload_tcb, 1, 0, 2, 3));
+        cache_source_t1_b   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, Tc, 1, B);
+        wave_t_b    = nullptr;
+        source_t1_b = nullptr;
+        gf = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+        {
+            omni::flow::profile::ScopeTimer _t("voc.build_alloc");
+            if (!voc_hg2_runner_build_graph(ctx, gf, speech_feat_c80_t_b, cache_source_t1_b, &wave_t_b, &source_t1_b)) {
+                ggml_free(ctx);
+                return false;
+            }
+            if (!ggml_gallocr_alloc_graph(model->galloc, gf)) {
+                LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_gallocr_alloc_graph failed\n");
+                if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
+                ggml_free(ctx);
+                return false;
+            }
+        }
+
+        // Cache for future reuse
+        if (graph_reuse_enabled()) {
+            cached_ctx           = ctx;
+            cached_gf            = gf;
+            cached_speech_upload = speech_upload_tcb;
+            cached_cache_source  = cache_source_t1_b;
+            cached_wave_out      = wave_t_b;
+            cached_source_out    = source_t1_b;
+            cached_T_mel         = T_mel;
+            cached_Tc            = Tc;
+            if (omni::flow::profile::verbose()) {
+                std::fprintf(stderr, "[voc-reuse] build fresh T_mel=%lld Tc=%lld\n",
+                             (long long)T_mel, (long long)Tc);
+            }
         }
     }
     {
@@ -6877,7 +6958,8 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         if (st != GGML_STATUS_SUCCESS) {
             LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_backend_graph_compute failed\n");
             if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
-            ggml_free(ctx);
+            if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+            else { ggml_free(ctx); }
             return false;
         }
         if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_success_count);  // P3
@@ -6885,14 +6967,16 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
     omni::flow::profile::ScopeTimer _download_timer("voc.download");
     std::vector<float> wave_tb;
     if (!hg_read_tensor_2d_tb_f32(model->backend, wave_t_b, wave_tb)) {
-        ggml_free(ctx);
+        if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+        else { ggml_free(ctx); }
         return false;
     }
     out_T_audio = wave_t_b->ne[0];
     hg_tb_to_bt(wave_tb, out_T_audio, B, out_wave_bt);
     std::vector<float> source_tcb;
     if (!hg_read_tensor_3d_tcb_f32(model->backend, source_t1_b, source_tcb)) {
-        ggml_free(ctx);
+        if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+        else { ggml_free(ctx); }
         return false;
     }
     out_T_source = source_t1_b->ne[0];
@@ -6901,7 +6985,11 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         source_t1b[(size_t) t] = source_tcb[(size_t) t];
     }
     hg_t1b_to_bt1(source_t1b, out_T_source, B, out_source_bt1);
-    ggml_free(ctx);
+    // P11: When graph reuse is enabled, keep ctx alive for next chunk.
+    // Only free when reuse is disabled AND we're not reusing a cached ctx.
+    if (!is_reusing && !graph_reuse_enabled()) {
+        ggml_free(ctx);
+    }
     return true;
 }
 }  // namespace vocoder

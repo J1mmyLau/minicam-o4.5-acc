@@ -2015,7 +2015,7 @@ struct voc_hg2_runner {
     bool voc_hg2_runner_eval(const std::vector<float> & speech_feat_bct,
                              int64_t                    T_mel,
                              std::vector<float> &       out_wave_bt,
-                             int64_t &                  out_T_audio) const;
+                             int64_t &                  out_T_audio);
     bool voc_hg2_runner_eval_stream(const std::vector<float> & speech_feat_bct,
                                     int64_t                    T_mel,
                                     const std::vector<float> & cache_source_bt1,
@@ -2023,7 +2023,21 @@ struct voc_hg2_runner {
                                     std::vector<float> &       out_wave_bt,
                                     int64_t &                  out_T_audio,
                                     std::vector<float> &       out_source_bt1,
-                                    int64_t &                  out_T_source) const;
+                                    int64_t &                  out_T_source);
+
+    // P11: Graph reuse cache (O2-A + O2-B)
+    // Gate: OMNI_VOC_GRAPH_REUSE=1
+    // When T_mel and Tc are unchanged, skip ggml_init / graph build / galloc_alloc_graph.
+    ggml_context * cached_ctx           = nullptr;
+    ggml_cgraph *  cached_gf            = nullptr;
+    ggml_tensor *  cached_speech_upload = nullptr;  // input: mel data
+    ggml_tensor *  cached_cache_source  = nullptr;  // input: source cache
+    ggml_tensor *  cached_wave_out      = nullptr;  // output: waveform
+    ggml_tensor *  cached_source_out    = nullptr;  // output: source
+    int64_t        cached_T_mel         = -1;
+    int64_t        cached_Tc            = -1;
+    bool           graph_reuse_enabled() const;
+    void           graph_reuse_invalidate();
 };
 }  // namespace vocoder
 }  // namespace omni
