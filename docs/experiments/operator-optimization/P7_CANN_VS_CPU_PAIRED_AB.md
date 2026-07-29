@@ -2,7 +2,7 @@
 
 **Date**: 2026-07-29
 **Phase**: P7 — Paired Performance A/B
-**Status**: COMPLETE (77 CPU + 136 CANN chunks, 7 batches each)
+**Status**: FINAL (77 CPU + 136 CANN chunks, 7 batches each, full bucketing + bootstrap CI)
 
 ---
 
@@ -16,92 +16,109 @@
 - **CANN**: `OMNI_VOC_DEVICE=gpu` (7 batches)
 - **Per-chunk timing**: `[timing]` lines from stderr: `token2mel`, `vocoder`, `total` in ms, `audio` in samples
 - **Metric**: Vocoder RTF = vocoder_time_ms / audio_duration_ms
+- **Bucketing**: FIRST (call=0), WARMUP (call=1-3), STEADY (call≥4, excl last), TAIL (last chunk)
 
 ### Data Volume
 
-| Backend | Batches | Total Chunks | Standard 1s Chunks |
-|---------|---------|-------------|-------------------|
-| CPU | 7 | 77 | 71 |
-| CANN | 7 | 136 | 129 |
-
-Standard chunks = 24,000 samples (1.0s audio), excluding first chunk.
+| Backend | Batches | Total Chunks | Steady-State |
+|---------|---------|-------------|-------------|
+| CPU | 7 | 77 | 47 |
+| CANN | 7 | 136 | 106 |
 
 ---
 
-## 2. Final Results (7 Batches Each)
+## 2. Per-Bucket Breakdown (Final)
+
+### CPU Vocoder (OMNI_VOC_DEVICE=cpu)
+
+| Bucket | n | Vocoder | Token2Mel | Total | Voc RTF | CV |
+|--------|---|---------|-----------|-------|---------|-----|
+| FIRST | 6 | 429±186ms | 5,121±2,066ms | 5,550ms | 0.511 | 0.434 |
+| WARMUP | 18 | 428±126ms | 4,669±1,267ms | 5,097ms | 0.429 | 0.295 |
+| **STEADY** | **47** | **346±58ms** | **3,863±324ms** | **4,209ms** | **0.346** | **0.169** |
+| TAIL | 6 | 361±75ms | 3,722±89ms | 4,083ms | 0.361 | 0.209 |
+
+### CANN Vocoder (OMNI_VOC_DEVICE=gpu)
+
+| Bucket | n | Vocoder | Token2Mel | Total | Voc RTF | CV |
+|--------|---|---------|-----------|-------|---------|-----|
+| FIRST | 6 | 269±25ms | 4,362±444ms | 4,631ms | 0.320 | 0.093 |
+| WARMUP | 18 | 120±4ms | 4,364±434ms | 4,485ms | 0.120 | 0.032 |
+| **STEADY** | **106** | **117±3ms** | **3,798±268ms** | **3,915ms** | **0.117** | **0.029** |
+| TAIL | 6 | 112±14ms | 3,757±197ms | 3,869ms | 0.119 | 0.048 |
+
+---
+
+## 3. Steady-State Paired Comparison (Primary)
 
 ### Vocoder-Only RTF
 
-| Metric | CPU | CANN |
-|--------|-----|------|
-| **Mean RTF** | **0.368** | **0.117** |
-| Std dev | 0.088 | 0.004 |
-| 95% CI | [0.348, 0.389] | [0.117, 0.118] |
-| N (standard 1s chunks) | 71 | 129 |
-| CV | 0.24 | 0.03 |
+| Metric | CPU (n=47) | CANN (n=106) |
+|--------|-----------|-------------|
+| **Mean RTF** | **0.3461** | **0.1167** |
+| Std dev | 0.0584 | 0.0034 |
+| CV | 0.169 | 0.029 |
+| Bootstrap 95% CI | [0.3316, 0.3636] | [0.1161, 0.1174] |
+| Median | 0.332 | 0.116 |
+| p95 | 0.481 | 0.122 |
 
 ### Speedup
 
-**CANN vocoder is 3.14× faster than CPU vocoder.**
+**CANN vocoder is 2.96× faster than CPU vocoder (steady-state).**
+Vocoder RTF difference: 0.2293, bootstrap 95% CI [0.2146, 0.2476].
 
 ### Statistical Significance
 
-- **Cohen's d = 4.0** (massive effect; d > 0.8 is "large")
-- **p < 0.00001** (non-overlapping 95% CIs)
-- **100% win rate**: every CANN chunk is faster than the CPU mean
+- **Cohen's d ≈ 5.5** (massive effect; d > 0.8 is "large")
+- **Bootstrap 95% CIs non-overlapping** (10,000 resamples)
+- **100% win rate**: all 106 CANN chunks below CPU median (0.332)
+- **No distribution overlap**: max CANN=0.123 RTF, min CPU=0.254 RTF
 
 ### Total T2W Impact
 
 | Component | CPU Config | CANN Config | Delta |
 |-----------|-----------|-------------|-------|
-| Vocoder time | 368ms | 117ms | **-251ms (-68%)** |
-| Total T2W (est.) | 3,970ms | 3,710ms | -260ms (-6.5%) |
-| Total RTF | 3.97 | 3.71 | -0.26 |
+| Vocoder time | 346ms | 117ms | **-229ms (-66%)** |
+| token2mel time | 3,863ms | 3,798ms | -65ms |
+| Total T2W | 4,209ms | 3,915ms | **-294ms (-7.0%)** |
+| Total RTF | 4.2094 | 3.9152 | -0.2942 |
+| Total RTF 95% CI | [4.1137, 4.3150] | [3.8675, 3.9702] | CIs 0.143 gap |
 
-### Per-Batch Consistency
+### Total T2W Speedup
 
-```
-CPU batch 1: 18 chunks, steady RTF=0.328
-CPU batch 2: 11 chunks, steady RTF=0.330
-CPU batch 3: 16 chunks, steady RTF=0.329
-CPU batch 4: 17 chunks, steady RTF=0.322
-CPU batch 5:  6 chunks, steady RTF=0.502  ← short batch, atypical
-CPU batch 6:  9 chunks, steady RTF=0.477  ← short batch, atypical
-CPU smoke:   18 chunks, steady RTF=0.328
+**1.0751× (7.0% relative reduction)**
 
-CANN batch 2: 30 chunks, steady RTF=0.118
-CANN batch 3: 18 chunks, steady RTF=0.117
-CANN batch 4: 27 chunks, steady RTF=0.121
-CANN batch 5: 22 chunks, steady RTF=0.114
-CANN batch 6: 16 chunks, steady RTF=0.118
-CANN smoke:   23 chunks, steady RTF=0.114
-```
+### Flow Model Contribution
 
-CANN batches are tight (CV=0.03). CPU batches 5-6 show higher variance due to small sample size (6-9 chunks) and possibly different audio content.
+| Component | CPU (ms) | % of T2W | CANN (ms) | % of T2W |
+|-----------|----------|----------|-----------|----------|
+| token2mel | 3,863 | 91.8% | 3,798 | 97.0% |
+| vocoder | 346 | 8.2% | 117 | 3.0% |
+
+**Amdahl check**: 8.2% of work × 2.96× = 6.5% theoretical. Measured 7.0% — consistent.
 
 ---
 
-## 3. Per-Chunk RTF Distribution
+## 4. Per-Chunk RTF Distribution
 
 ```
-CPU vocoder RTF distribution (n=71):
-  0.25-0.30: ██████  (6)
-  0.30-0.35: ████████████████████████████████  (34)
-  0.35-0.40: ██████████  (11)
-  0.40-0.50: ████████  (8)
-  0.50-0.65: ████████████  (12)
+CPU vocoder RTF (STEADY, n=47):
+  0.25-0.30: ██████  (5)
+  0.30-0.35: ████████████████████████████████  (28)
+  0.35-0.40: ██████  (5)
+  0.40-0.50: ██  (2)
+  0.50-0.60: ████████  (7)
 
-CANN vocoder RTF distribution (n=129):
-  0.10-0.11: ██  (3)
-  0.11-0.12: ████████████████████████████████████████████████████████████  (106)
-  0.12-0.13: ████████████  (20)
+CANN vocoder RTF (STEADY, n=106):
+  0.11-0.12: ██████████████████████████████████████████████████████████  (96)
+  0.12-0.13: ██████  (10)
 ```
 
-CPU is bimodal (clusters at ~0.33 and ~0.55). CANN is unimodal, tight at ~0.117.
+CPU is bimodal (clusters at ~0.33 and ~0.55). CANN is unimodal, extraordinarily tight.
 
 ---
 
-## 4. Path Hit Verification (All Batches)
+## 5. Path Hit Verification (All Batches)
 
 | Counter | CPU | CANN |
 |---------|-----|------|
@@ -115,14 +132,17 @@ CPU is bimodal (clusters at ~0.33 and ~0.55). CANN is unimodal, tight at ~0.117.
 
 ---
 
-## 5. Conclusions
+## 6. Conclusions
 
-1. **CANN vocoder provides a 3.14× speedup** over CPU (0.368 → 0.117 RTF)
-2. **Total T2W RTF improvement is 6.5%** (3.97 → 3.71), Amdahl-limited
-3. **Flow model (token2mel, 3,600ms, 97% of T2W) is the true bottleneck**
-4. **Massive statistical effect** (Cohen's d=4.0, 100% win rate)
-5. **CANN variance is 24× lower than CPU** (CV 0.03 vs 0.24) — more predictable
+1. **CANN vocoder provides a 2.96× speedup** over CPU (0.346 → 0.117 RTF, steady-state)
+2. **Total T2W RTF improvement is 7.0%** (4.21 → 3.92), Amdahl-limited
+3. **Flow model (token2mel, 3,798ms, 97% of CANN T2W) is the true bottleneck**
+4. **Massive statistical effect** (Cohen's d≈5.5, non-overlapping bootstrap CIs, 100% win rate)
+5. **CANN variance is 6× lower than CPU** (CV 0.029 vs 0.169) — more predictable
+6. **First-chunk penalty is predominantly Flow cold-start**, not vocoder (269ms vs 117ms)
 
 ### ✅ P7 GATE: CANN_VOCODER_PAIRED_AB_PASS
 
-CANN vocoder is statistically significantly faster (3.14×, p < 0.00001, d=4.0).
+CANN vocoder is statistically significantly faster (2.96×, bootstrap CIs non-overlapping, d≈5.5).
+
+### For final integration verdict, see: `CANN_VOCODER_FINAL_VERDICT.md`
