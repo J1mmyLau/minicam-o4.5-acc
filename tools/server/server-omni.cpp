@@ -200,12 +200,42 @@ int main(int argc, char ** argv) {
         if (data.contains("voice_clone_prompt")) octx->omni_voice_clone_prompt = data["voice_clone_prompt"];
         if (data.contains("assistant_prompt")) octx->omni_assistant_prompt = data["assistant_prompt"];
 
+        // duplex sampling knobs (align with ws_handler::apply_session_config)
+        if (data.contains("listen_prob_scale") && data.at("listen_prob_scale").is_number()) {
+            octx->listen_prob_scale = data.at("listen_prob_scale").get<float>();
+        }
+        if (data.contains("force_listen_count") && data.at("force_listen_count").is_number_integer()) {
+            octx->force_listen_count = data.at("force_listen_count").get<int>();
+            octx->force_listen_used = 0;
+        }
+        if (data.contains("max_new_speak_tokens_per_chunk") && data.at("max_new_speak_tokens_per_chunk").is_number_integer()) {
+            octx->max_new_speak_tokens_per_chunk = data.at("max_new_speak_tokens_per_chunk").get<int>();
+        }
+        if (data.contains("tts_temperature") && data.at("tts_temperature").is_number()) {
+            octx->tts_temperature = data.at("tts_temperature").get<float>();
+        }
+        if (data.contains("temperature") && data.at("temperature").is_number()) {
+            params.sampling.temp = data.at("temperature").get<float>();
+        }
+        if (data.contains("seed") && data.at("seed").is_number_integer()) {
+            params.sampling.seed = data.at("seed").get<uint32_t>();
+        }
+
+        LOG_INF("omni_init: listen_prob_scale=%.3f force_listen_count=%d temp=%.3f seed=%u\n",
+                octx->listen_prob_scale, octx->force_listen_count, params.sampling.temp,
+                (unsigned) params.sampling.seed);
+
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             state.octx = octx;
         }
 
-        res_ok(res, {{"success", true}});
+        res_ok(res, {
+            {"success", true},
+            {"listen_prob_scale", octx->listen_prob_scale},
+            {"force_listen_count", octx->force_listen_count},
+            {"seed", params.sampling.seed},
+        });
     });
 
     // POST /v1/stream/prefill
@@ -349,6 +379,31 @@ int main(int argc, char ** argv) {
 
                 if (worker.joinable()) worker.join();
 
+                // Emit stage metrics for the chunk just decoded (VPM/APM/prefill/decode).
+                {
+                    json metrics = {{"event", "metrics"}};
+                    {
+                        std::lock_guard<std::mutex> lock(state.octx->stage_timings_mtx);
+                        if (state.octx->last_chunk_timings.valid) {
+                            metrics["cnt"] = state.octx->last_chunk_timings.index;
+                            metrics["vpm_ms"] = state.octx->last_chunk_timings.vpm_ms;
+                            metrics["apm_ms"] = state.octx->last_chunk_timings.apm_ms;
+                            metrics["llm_prefill_ms"] = state.octx->last_chunk_timings.llm_prefill_ms;
+                            metrics["cost_llm_ms"] = state.octx->last_chunk_timings.llm_decode_ms;
+                            if (state.octx->last_chunk_timings.tts_ms > 0.0) {
+                                metrics["cost_tts_ms"] = state.octx->last_chunk_timings.tts_ms;
+                            }
+                            if (state.octx->last_chunk_timings.token2wav_ms > 0.0) {
+                                metrics["cost_token2wav_ms"] = state.octx->last_chunk_timings.token2wav_ms;
+                            }
+                        }
+                    }
+                    if (!server_sent_event(sink, metrics)) {
+                        sink.done();
+                        return false;
+                    }
+                }
+
                 static const std::string ev_done = "data: [DONE]\n\n";
                 sink.write(ev_done.data(), ev_done.size());
                 sink.done();
@@ -357,10 +412,13 @@ int main(int argc, char ** argv) {
     });
 
     // POST /v1/stream/update_session_config
+    // Lightweight: update sampling knobs only. Do NOT clear KV / re-prefill system.
     svr.Post("/v1/stream/update_session_config", [&](const httplib::Request & req, httplib::Response & res) {
         json data = json::parse(req.body);
         int media_type = data.value("media_type", -1);
 
+        float listen_prob_scale = -1.0f;
+        int force_listen_count = -1;
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             if (state.octx == nullptr) {
@@ -370,9 +428,34 @@ int main(int argc, char ** argv) {
             if (media_type > 0) {
                 state.octx->media_type = media_type;
             }
+            if (data.contains("listen_prob_scale") && data.at("listen_prob_scale").is_number()) {
+                state.octx->listen_prob_scale = data.at("listen_prob_scale").get<float>();
+            }
+            if (data.contains("force_listen_count") && data.at("force_listen_count").is_number_integer()) {
+                state.octx->force_listen_count = data.at("force_listen_count").get<int>();
+                state.octx->force_listen_used = 0;
+            }
+            if (data.contains("max_new_speak_tokens_per_chunk") && data.at("max_new_speak_tokens_per_chunk").is_number_integer()) {
+                state.octx->max_new_speak_tokens_per_chunk = data.at("max_new_speak_tokens_per_chunk").get<int>();
+            }
+            if (data.contains("tts_temperature") && data.at("tts_temperature").is_number()) {
+                state.octx->tts_temperature = data.at("tts_temperature").get<float>();
+            }
+            if (data.contains("temperature") && data.at("temperature").is_number()) {
+                params.sampling.temp = data.at("temperature").get<float>();
+            }
+            listen_prob_scale = state.octx->listen_prob_scale;
+            force_listen_count = state.octx->force_listen_count;
         }
 
-        res_ok(res, {{"success", true}});
+        LOG_INF("update_session_config: listen_prob_scale=%.3f force_listen_count=%d (no KV reset)\n",
+                listen_prob_scale, force_listen_count);
+
+        res_ok(res, {
+            {"success", true},
+            {"listen_prob_scale", listen_prob_scale},
+            {"force_listen_count", force_listen_count},
+        });
     });
 
     //

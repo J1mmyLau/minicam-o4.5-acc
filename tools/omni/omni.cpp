@@ -3884,10 +3884,22 @@ struct DuplexEncodeReq {
     int         max_slice_nums;  // -1 = 使用全局
 };
 
+// Per-chunk stage timings (filled along duplex pipeline, exposed via SSE metrics).
+struct DuplexChunkTimings {
+    int    index = 0;
+    double vpm_ms = 0.0;
+    double apm_ms = 0.0;
+    double llm_prefill_ms = 0.0;
+    double llm_decode_ms = 0.0;
+    double tts_ms = 0.0;
+    double token2wav_ms = 0.0;
+};
+
 struct DuplexPrefillPacket {
     std::vector<std::vector<float>> vision_embed;  // [0]=overview, [1..]=slices
     std::vector<float>              audio_embed;
     int                             index = 0;
+    DuplexChunkTimings              timings;
 };
 
 struct DuplexDecodeReq {
@@ -5253,6 +5265,46 @@ static void filter_special_tokens(
     }
 }
 
+// Append one JSON line to output_<port>/stage_timing.jsonl (async TTS/t2w metrics).
+static void append_stage_timing_jsonl(struct omni_context * ctx_omni, const char * line) {
+    if (!ctx_omni || ctx_omni->base_output_dir.empty() || line == nullptr) {
+        return;
+    }
+    const std::string path = ctx_omni->base_output_dir + "/stage_timing.jsonl";
+    FILE * f = fopen(path.c_str(), "a");
+    if (!f) {
+        return;
+    }
+    fputs(line, f);
+    fputc('\n', f);
+    fclose(f);
+}
+
+// Wall-clock TTS codec time for one generate_audio_tokens_* call.
+struct OmniTtsStageTimer {
+    struct omni_context * ctx_omni = nullptr;
+    int chunk_idx = 0;
+    std::chrono::high_resolution_clock::time_point t0;
+
+    OmniTtsStageTimer(struct omni_context * ctx, int idx)
+        : ctx_omni(ctx), chunk_idx(idx), t0(std::chrono::high_resolution_clock::now()) {}
+
+    ~OmniTtsStageTimer() {
+        if (!ctx_omni) {
+            return;
+        }
+        const double ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - t0).count();
+        ctx_omni->speak_tts_ms_acc += ms;
+        char buf[320];
+        snprintf(buf, sizeof(buf),
+            "{\"event\":\"tts\",\"chunk_idx\":%d,\"tts_ms\":%.3f,\"speak_tts_acc_ms\":%.3f}",
+            chunk_idx, ms, ctx_omni->speak_tts_ms_acc);
+        append_stage_timing_jsonl(ctx_omni, buf);
+        print_with_timestamp("[prof] tts chunk=%d ms=%.1f\n", chunk_idx, ms);
+    }
+};
+
 // ==============================================================================
 // 单工版本的 TTS Audio Token Generation
 // 直接从 omni_sinplex.cpp 复制，保证单工模式行为完全一致
@@ -5292,6 +5344,8 @@ static bool generate_audio_tokens_local_simplex(
                 merged_embeddings.size(), n_tokens, tts_n_embd);
         return false;
     }
+
+    OmniTtsStageTimer tts_stage_timer(ctx_omni, chunk_idx);
     
     // 🔧 [修复] 在 prefill 之前动态添加 audio_bos embedding
     // Python 中 audio_bos 是在 TTS 类内部（TTSStreamingGenerator.generate_with_buffer）添加的
@@ -5709,6 +5763,8 @@ static bool generate_audio_tokens_local(
                 merged_embeddings.size(), n_tokens, tts_n_embd);
         return false;
     }
+
+    OmniTtsStageTimer tts_stage_timer(ctx_omni, chunk_idx);
     
     // 🔧 [修复] 在 prefill 之前动态添加 text_eos_embed（如果是轮次结束）和 audio_bos embedding
     // Python TTSStreamingGenerator.generate_with_buffer 逻辑：
@@ -9009,6 +9065,8 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             wav_idx = 0;                                                    // WAV 文件编号从 0 开始
             ctx_omni->wav_turn_base = effective_round_idx * 1000;           // 更新全局 WAV 编号基数
             token_buffer = {4218, 4218, 4218};                              // 重置 token buffer（3个静音前缀）
+            ctx_omni->speak_t2w_ms_acc = 0.0;
+            ctx_omni->speak_tts_ms_acc = 0.0;
             
             print_with_timestamp("T2W线程(C++): 新输出目录 %s\n", tts_wav_output_dir.c_str());
             
@@ -9133,6 +9191,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         }
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
                                             ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms);
+                        {
+                            ctx_omni->speak_t2w_ms_acc += t2w_ms;
+                            char buf[640];
+                            const int wav_id = ctx_omni->wav_turn_base + wav_idx;
+                            // tts_ms lives on event=tts from OmniTtsStageTimer; do not use queue_wait as TTS.
+                            snprintf(buf, sizeof(buf),
+                                "{\"event\":\"t2w\",\"wav\":\"wav_%d.wav\",\"token2wav_ms\":%.3f,"
+                                "\"t2w_queue_wait_ms\":%.3f,\"speak_t2w_acc_ms\":%.3f}",
+                                wav_id, t2w_ms, queue_wait_ms, ctx_omni->speak_t2w_ms_acc);
+                            append_stage_timing_jsonl(ctx_omni, buf);
+                        }
                         wav_idx++;
                     }
                 }
@@ -9373,6 +9442,8 @@ static void duplex_encoder_thread_func(omni_context * ctx_omni, common_params * 
 
         DuplexPrefillPacket * packet = new DuplexPrefillPacket();
         packet->index = req->index;
+        packet->timings.index = req->index;
+        packet->index = req->index;
 
         const bool has_img = !req->img_fname.empty() && ctx_omni->ctx_vision != nullptr;
         const bool has_aud = !req->aud_fname.empty();
@@ -9441,6 +9512,9 @@ static void duplex_encoder_thread_func(omni_context * ctx_omni, common_params * 
             "[prof] encoder index=%d VPM=%.1fms APM=%.1fms wall=%.1fms parallel_savings=%.1fms\n",
             req->index, vpm_ms, apm_ms, enc_wall_ms,
             (vpm_ms + apm_ms) - enc_wall_ms);
+
+        packet->timings.vpm_ms = vpm_ms;
+        packet->timings.apm_ms = apm_ms;
 
         delete req;
 
@@ -9708,6 +9782,7 @@ static bool duplex_do_prefill_one_fused(omni_context * ctx_omni, common_params *
         "[prof] llm prefill (fused) n_past=%d->%d tokens=%d ms=%.1f\n",
         n_past_0, ctx_omni->n_past,
         ctx_omni->n_past - n_past_0, ms);
+    packet->timings.llm_prefill_ms = ms;
     return true;
 }
 
@@ -9786,6 +9861,7 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
         "[prof] llm prefill n_past=%d->%d tokens=%d ms=%.1f\n",
         n_past_0, ctx_omni->n_past,
         ctx_omni->n_past - n_past_0, ms);
+    packet->timings.llm_prefill_ms = ms;
 }
 
 // ---------------------------------------------------------------------------
@@ -9796,7 +9872,8 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
 // 返回 false 表示内部异常或被 break 打断。
 // ---------------------------------------------------------------------------
 static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
-                             const std::string & debug_dir, int round_idx) {
+                             const std::string & debug_dir, int round_idx,
+                             double * out_decode_ms = nullptr) {
     // ---- 轮次同步（与老 stream_decode 对齐） ----
     if (round_idx >= 0) {
         if (ctx_omni->simplex_round_idx != round_idx) {
@@ -10068,6 +10145,9 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
         "[prof] llm decode n_past=%d->%d tokens=%d ms=%.1f listen=%d\n",
         n_past_dec_0, ctx_omni->n_past, ctx_omni->n_past - n_past_dec_0,
         dec_ms, (int)ctx_omni->ended_with_listen.load());
+    if (out_decode_ms) {
+        *out_decode_ms = dec_ms;
+    }
     return true;
 }
 
@@ -10143,6 +10223,8 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
         //   - chunk 0（老路径 prefill）：in_flight=0，直接 decode
         //   - chunk N (N≥1)：in_flight ≥ 1，必有 packet 在途；
         //     wait prefill_queue 非空，消费队头（encoder 是单线程 FIFO 顺序）
+        DuplexChunkTimings chunk_timings{};
+        bool have_packet_timings = false;
         if (dup->in_flight_prefill.load() > 0) {
             DuplexPrefillPacket * packet = nullptr;
             {
@@ -10165,6 +10247,8 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
                 if (!duplex_do_prefill_one_fused(ctx_omni, params, packet, hidden_size)) {
                     duplex_do_prefill_one(ctx_omni, params, packet, hidden_size);
                 }
+                chunk_timings = packet->timings;
+                have_packet_timings = true;
                 delete packet;
                 dup->in_flight_prefill.fetch_sub(1);
                 dup->in_flight_cv.notify_all();
@@ -10172,12 +10256,55 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
         }
 
         // ---- Phase 2: decode ----
+        double decode_ms = 0.0;
         if (!ctx_omni->break_event.load()) {
             bool ok = duplex_do_decode(ctx_omni, params,
-                                       decode_req->debug_dir, decode_req->round_idx);
+                                       decode_req->debug_dir, decode_req->round_idx,
+                                       &decode_ms);
             decode_req->ok.store(ok);
         } else {
             decode_req->ok.store(false);
+        }
+        int out_idx = 0;
+        double out_vpm = 0.0, out_apm = 0.0, out_pref = 0.0, out_dec = 0.0;
+        std::string out_dir;
+        {
+            std::lock_guard<std::mutex> lk(ctx_omni->stage_timings_mtx);
+            if (have_packet_timings) {
+                ctx_omni->last_chunk_timings.index = chunk_timings.index;
+                ctx_omni->last_chunk_timings.vpm_ms = chunk_timings.vpm_ms;
+                ctx_omni->last_chunk_timings.apm_ms = chunk_timings.apm_ms;
+                ctx_omni->last_chunk_timings.llm_prefill_ms = chunk_timings.llm_prefill_ms;
+            } else {
+                ctx_omni->last_chunk_timings.index = 0;
+                ctx_omni->last_chunk_timings.vpm_ms = 0.0;
+                ctx_omni->last_chunk_timings.apm_ms = 0.0;
+                ctx_omni->last_chunk_timings.llm_prefill_ms = 0.0;
+            }
+            ctx_omni->last_chunk_timings.llm_decode_ms = decode_ms;
+            ctx_omni->last_chunk_timings.tts_ms = 0.0;
+            ctx_omni->last_chunk_timings.token2wav_ms = 0.0;
+            ctx_omni->last_chunk_timings.valid = true;
+            out_idx = ctx_omni->last_chunk_timings.index;
+            out_vpm = ctx_omni->last_chunk_timings.vpm_ms;
+            out_apm = ctx_omni->last_chunk_timings.apm_ms;
+            out_pref = ctx_omni->last_chunk_timings.llm_prefill_ms;
+            out_dec = ctx_omni->last_chunk_timings.llm_decode_ms;
+            out_dir = ctx_omni->base_output_dir;
+        }
+        {
+            char buf[512];
+            snprintf(buf, sizeof(buf),
+                "{\"event\":\"chunk\",\"cnt\":%d,\"vpm_ms\":%.3f,\"apm_ms\":%.3f,"
+                "\"llm_prefill_ms\":%.3f,\"cost_llm_ms\":%.3f}",
+                out_idx, out_vpm, out_apm, out_pref, out_dec);
+            std::string path = out_dir + "/stage_timing.jsonl";
+            FILE * f = fopen(path.c_str(), "a");
+            if (f) {
+                fputs(buf, f);
+                fputc('\n', f);
+                fclose(f);
+            }
         }
         decode_req->done.store(true);
         dup->decode_done_cv.notify_all();

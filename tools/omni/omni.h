@@ -360,6 +360,24 @@ struct omni_context {
     bool text_streaming = false;
     bool text_done_flag = false;
 
+    // Last completed duplex chunk stage timings (set by llm_thread after decode).
+    // Protected by stage_timings_mtx; read by HTTP SSE after text_done.
+    std::mutex stage_timings_mtx;
+    struct {
+        int    index = 0;
+        double vpm_ms = 0.0;
+        double apm_ms = 0.0;
+        double llm_prefill_ms = 0.0;
+        double llm_decode_ms = 0.0;
+        double tts_ms = 0.0;
+        double token2wav_ms = 0.0;
+        bool   valid = false;
+    } last_chunk_timings;
+    // Accumulators for async TTS/t2w of the current SPEAK turn (written by t2w thread).
+    double speak_tts_ms_acc = 0.0;
+    double speak_t2w_ms_acc = 0.0;
+    int    speak_timing_index = -1;
+
     // llama inference mutex - 保护 ctx_llama 的推理操作
     std::mutex llama_mtx;
     
