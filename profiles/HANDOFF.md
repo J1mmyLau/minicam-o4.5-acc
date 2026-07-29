@@ -2,15 +2,20 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `9aa54f9` (Phase 3 final — graph capture + fusion complete)
-**Updated:** 2026-07-29 11:05 UTC
+**HEAD:** `6154b85` (Phase 3 FREEZE — graph capture + fusion)
+**Updated:** 2026-07-29 12:45 UTC
 
 ---
 
 ## Commit Chain
 
 ```
-4a2cbcd (HEAD -> perf/flow-chunk-rtf) feat(P19): CANN ACL graph capture for Flow model — RELAXED mode + min_nodes filter
+6154b85 (HEAD -> perf/flow-chunk-rtf) docs: HANDOFF — Phase 3 final commit chain updated
+9aa54f9 docs: Phase 3 final status — RTF 0.229 (-16.4%), all optimizations documented
+7e46faf docs: Phase 3 Rank 2 complete — ADD+NORM fusion, ~1ms gain
+9a7f5c2 feat(P20): ADD+NORM (Add+LayerNorm) operator fusion for CANN backend
+4a2cbcd feat(P19): CANN ACL graph capture for Flow model — RELAXED mode + min_nodes filter
+4f27f96 docs(status): Phase 2 complete — all 7 gates PASS
 0973299 docs(P18): 1hr stability PASS — Phase 2 production gates complete
 3000af5 docs(P16-P17): Phase 2 gates — demo smoke, bucket, KV cache, 30min stability
 189fc96 docs(checkpoint): BREAKTHROUGH_CHECKPOINT — CANN Flow+Vocoder RTF=0.274 candidate freeze
@@ -23,74 +28,117 @@ edf0661 docs(P13,P14): Flow model architecture audit + canonical baseline
 88d5c43 docs(P7-final): CANN vocoder paired A/B
 ```
 
-### Tag
+### Previous Tag
 
 `cann-flow-vocoder-rtf027-20260729` (HEAD: 189fc96)
 
+### New Tag Candidate
+
+`cann-flow-vocoder-aclgraph-rtf0229-20260729` (HEAD: 6154b85)
+
 ---
 
-## Current State
+## Current State — PHASE 3 FROZEN
 
 ```
-CANN_FLOW       = INTEGRATION_CANDIDATE  (24.1×, 3,726→155ms)
-CANN_VOCODER    = INTEGRATION_CANDIDATE  (2.92×, 348→119ms)
-COMBINED_INTERNAL_STEADY_RTF ≈ 0.274
-COMPETITION_METRIC: per-chunk RTF = 0.274 (mean, n=65 steady, 5 batches)
-PRODUCTION_READY  = NO
-OFFICIAL_RTF      = NOT_AVAILABLE
-GUARANTEED_15×    = NO
+CPU_BASELINE_RTF             ≈ 4.21
+PHASE2_CANN_FLOW_VOCODER_RTF ≈ 0.274  (Flow 155ms + Vocoder 119ms)
+PHASE3_GRAPH_FUSION_RTF      ≈ 0.229  (Flow 111ms + Vocoder 118ms)
+
+TOTAL_INTERNAL_SPEEDUP       ≈ 18.4×  (4.21 / 0.229)
+PHASE3_RELATIVE_REDUCTION    ≈ 16.4%  ((0.274 - 0.229) / 0.274)
+
+CANN_FLOW                  = INTEGRATION_CANDIDATE  (24.1×, 3,726→155→111ms)
+CANN_VOCODER               = INTEGRATION_CANDIDATE  (2.92×, 348→119ms)
+ACL_GRAPH_CAPTURE          = INTEGRATION_CANDIDATE  (RELAXED, 1 capture → 19+ HITs)
+ADD_LAYERNORM_FUSION       = WEAK_POSITIVE_INTEGRATED  (~1ms, 257 pairs)
+
+PHASE3_CANDIDATE_FROZEN    = YES
+OFFICIAL_SCORE             = NOT_AVAILABLE
+BENCHMARK_GATE             = PENDING
+DEMO_GATE                  = PENDING
+STABILITY_GATE             = PENDING
+CLEAN_MACHINE_GATE         = PENDING
 ```
+
+**Explicitly NOT declared:** PRODUCTION_READY, OFFICIAL_RTF, FULLY_OPTIMIZED, GUARANTEED_18X
 
 ---
 
 ## Completed
 
-### Phase 1: BREAKTHROUGH_CHECKPOINT
-- ✅ 4 audits (number reconciliation, reachability, env semantics, profile percentage)
-- ✅ Evidence manifest + SHA256SUMS
-- ✅ Git tag: `cann-flow-vocoder-rtf027-20260729`
+### Phase 1: BREAKTHROUGH_CHECKPOINT ✅
+- 4 audits, evidence manifest, SHA256SUMS
+- Git tag: `cann-flow-vocoder-rtf027-20260729`
 
-### Phase 2: Production Gates (ALL 7 PASS)
+### Phase 2: Production Gates ✅ (ALL 7 PASS)
 | Gate | Result | Key Data |
 |------|--------|----------|
 | Demo smoke | ✅ | 16 WAVs, RTF=0.28, 0 CANN errors |
-| Bucket characterization | ✅ | Steady RTF=0.261 (call≥4), first=0.567 |
-| KV cache regression | ✅ | HIT/MISS/OFF all compatible, 0 CANN errors |
-| 30-min stability | ✅ | 59/59 PASS, 302 WAVs, RTF mean=0.313 |
-| T2W lifecycle L2-L6 | ✅ | Rapid 5/5, 59 transitions, 0 failures |
-| 1-hr stability | ✅ | 118/118 PASS, 594 WAVs, RTF mean=0.324 |
-| Multi-prefix | ⏭️ | Deferred to KV cache production branch |
+| Bucket characterization | ✅ | Steady RTF=0.261 (call≥4) |
+| KV cache regression | ✅ | HIT/MISS/OFF all compatible |
+| 30-min stability | ✅ | 59/59 PASS, 302 WAVs |
+| T2W lifecycle L2-L6 | ✅ | Rapid 5/5, 59 transitions |
+| 1-hr stability | ✅ | 118/118 PASS, 594 WAVs |
+| Multi-prefix | ⏭️ | Deferred to KV cache branch |
+
+### Phase 3: Optimization ✅ (FROZEN)
+| Rank | Task | Impact | Status |
+|------|------|--------|--------|
+| 1 | Graph execution reuse | **-28.2% Flow compute** (-43.6ms) | ✅ DONE |
+| 2 | Operator fusion | ~1ms (diminishing returns) | ✅ DONE |
+| 3 | Im2col custom kernel | Deferred (high risk, all gates first) | ⏭️ |
+| 4 | Async H2D/D2H | Deferred (already async, 2-3ms p50) | ⏭️ |
 
 ---
 
-## NOT DONE / Phase 3: Further Optimization
+## NOT DONE / Next Session
 
-| Rank | Task | Est. Impact | Status |
-|------|------|-------------|--------|
-| 1 | Graph execution reuse | 20-60ms → **34ms ACHIEVED** | ✅ DONE (P19, commit `4a2cbcd`) |
-| 2 | Operator fusion | 10-20ms → **~1ms actual** | ✅ DONE (P20, commit `9a7f5c2`). Diminishing returns: graph capture already reduces kernel launch overhead |
-| 3 | Im2col custom kernel | 5-8ms | ⚡ NEXT (`aclnnFusedCausalConv1d` exists) |
-| 4 | Async H2D/D2H | 1-2ms | PENDING |
+### P0: Graph Capture Correctness (10 boundary conditions)
+1. Dynamic shape (different chunk lengths)
+2. Session reset mid-capture
+3. Abort during capture
+4. Model reload after session
+5. Multiple concurrent sessions
+6. Long-running stability (1hr+)
+7. KV cache HIT/MISS/OFF modes
+8. Multi-prefix isolation
+9. Clean-machine reproduction
+10. Capture failure fallback
+
+### P1: Production Gates (Phase 3 candidate)
+1. Demo full validation
+2. First/warmup/steady/tail chunk statistics
+3. Official Benchmark harness audit
+4. 30-min + 1-hr stability
+5. KV cache integration regression
+6. T2W lifecycle (L2-L6)
+7. Clean-machine reproduction
+8. Submission package
+
+### P2: Im2col (POST-GATE ONLY)
+- Requires: all gates pass + wall-time benefit ≥ 3% + audio correctness verifiable
+- Approach: `aclnnFusedCausalConv1d` or custom AscendC kernel
 
 ---
 
-## Document Inventory (new since checkpoint)
+## Document Inventory
 
-| Document | Path |
-|----------|------|
-| P16: Demo smoke + bucket + KV cache | `P16_DEMO_SMOKE_BUCKET_KVCACHE.md` |
-| P17: 30-min stability | `P17_30MIN_STABILITY_REPORT.md` |
-| P17: T2W lifecycle plan | `P17_T2W_LIFECYCLE_TEST_PLAN.md` |
-| P18: 1-hr stability | `P18_1HR_STABILITY_REPORT.md` |
-| P19: Graph execution reuse | `P19_GRAPH_EXECUTION_REUSE.md` |
-| Phase 2 gate results | `PHASE2_GATE_RESULTS.md` |
-| Evidence manifest | `EVIDENCE_MANIFEST.md` |
-| 4 audit docs | `FLOW_*_AUDIT.md`, `PERFORMANCE_*`, `CANN_BACKEND_*` |
+| Document | Path | Status |
+|----------|------|--------|
+| Phase 3 reconciliation | `PHASE3_PERFORMANCE_RECONCILIATION.md` | COMPLETE |
+| Graph capture audit | `ACL_GRAPH_CAPTURE_CORRECTNESS_AUDIT.md` | INITIAL |
+| Phase 3 evidence manifest | `PHASE3_EVIDENCE_MANIFEST.md` | COMPLETE |
+| P19: Graph execution reuse | `P19_GRAPH_EXECUTION_REUSE.md` | COMPLETE |
+| Phase 2 gate results | `PHASE2_GATE_RESULTS.md` | COMPLETE |
+| P15-C: msprof | `docs/experiments/operator-optimization/P15C_CANN_FLOW_MSPROF.md` | COMPLETE |
+| Evidence manifest (Phase 1) | `EVIDENCE_MANIFEST.md` | COMPLETE |
+| 4 audit docs | `FLOW_*_AUDIT.md`, `PERFORMANCE_*`, `CANN_BACKEND_*` | COMPLETE |
 
 ---
 
 ## Git Status
 
 - Modified: `profiles/STATUS.md`, `profiles/HANDOFF.md`, `profiles/rope_fp16_ab/pairs.csv`, `tools/omni/omni.cpp`, `tools/omni/omni.h`
-- Untracked: earlier-phase docs, rope_fp16 data, cann_fusion_v0 profile
+- Untracked: earlier-phase docs (`docs/experiments/operator-optimization/*`), rope_fp16 data, cann_fusion_v0 profile data
 - NPU idle
