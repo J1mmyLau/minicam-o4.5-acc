@@ -212,10 +212,37 @@ static bool g_kv_cache_per_case_ref_audio = ([](){
 // Forward declaration (defined later in this file)
 void print_with_timestamp(const char* format, ...);
 
+// ─── K6: Production Cache Directory Contract ─────────────────────────────────
+// The cache directory has configurable limits to prevent unbounded disk growth
+// in long-running servers. Eviction is LRU by mtime (oldest .bin files first).
+
 #define KV_CACHE_MAGIC            0x4B434D4F  // "OMKC" little-endian
 #define KV_CACHE_VERSION          2           // V2: added extended fingerprint header
 #define KV_CACHE_HEADER_SIZE      24          // Basic header: magic+version+key_hash+crc+size
 #define KV_CACHE_FINGERPRINT_SIZE 112         // Extended fingerprint block (new in V2)
+
+#define KV_CACHE_DEFAULT_MAX_ENTRIES  16      // Default max cache files
+#define KV_CACHE_DEFAULT_MAX_SIZE_MB  1024    // Default max total disk usage (1 GB)
+#define KV_CACHE_FILE_PERM            0600    // User rw only (model-derived data)
+#define KV_CACHE_DIR_PERM             0700    // User rwx only
+
+static int g_kv_cache_max_entries = ([](){
+    const char *v = getenv("OMNI_KV_CACHE_MAX_ENTRIES");
+    if (v && v[0]) {
+        int n = atoi(v);
+        return (n > 0) ? n : KV_CACHE_DEFAULT_MAX_ENTRIES;
+    }
+    return KV_CACHE_DEFAULT_MAX_ENTRIES;
+})();
+
+static int64_t g_kv_cache_max_size_bytes = ([](){
+    const char *v = getenv("OMNI_KV_CACHE_MAX_SIZE_MB");
+    int64_t mb = (v && v[0]) ? atoll(v) : KV_CACHE_DEFAULT_MAX_SIZE_MB;
+    if (mb <= 0) mb = KV_CACHE_DEFAULT_MAX_SIZE_MB;
+    return mb * 1024 * 1024;
+})();
+
+static int g_kv_cache_evictions = 0;
 
 // Simple FNV-1a 64-bit hash for cache key construction
 static uint64_t kv_cache_fnv1a_64(const void *data, size_t len, uint64_t hash = 0xcbf29ce484222325ULL) {
@@ -522,7 +549,84 @@ static std::string kv_cache_get_path(const std::string & cache_key) {
     return dir + "/omni_kvcache_" + cache_key + ".bin";
 }
 
-// ─── Safe save with atomic rename + header + checksum ───────────────────────
+// ─── K6: Eviction policy ────────────────────────────────────────────────────
+// Enforces MAX_ENTRIES and MAX_SIZE_MB limits. Evicts oldest .bin files (by
+// mtime) until the cache is within limits. Only evicts .bin files — temp files
+// are handled by the per-save stale cleanup in kv_cache_safe_save.
+// Called BEFORE saving a new entry to make room.
+
+static void kv_cache_enforce_limits(const std::string & dir_path,
+                                    const std::string & self_key) {
+    std::vector<std::pair<std::string, int64_t>> entries; // (path, size)
+
+    DIR *dp = opendir(dir_path.c_str());
+    if (!dp) return;
+    struct dirent *de;
+    while ((de = readdir(dp)) != nullptr) {
+        std::string name(de->d_name);
+        // Only consider .bin files (final cache entries)
+        if (name.size() < 4 || name.compare(name.size() - 4, 4, ".bin") != 0)
+            continue;
+        std::string full = dir_path + "/" + name;
+        struct stat st;
+        if (stat(full.c_str(), &st) != 0) continue;
+        if (!S_ISREG(st.st_mode)) continue;
+        entries.push_back({full, st.st_size});
+    }
+    closedir(dp);
+
+    // Sort by mtime ascending (oldest first) — stable eviction order
+    std::sort(entries.begin(), entries.end(),
+        [](const auto & a, const auto & b) {
+            struct stat sa, sb;
+            if (stat(a.first.c_str(), &sa) != 0) return false;
+            if (stat(b.first.c_str(), &sb) != 0) return true;
+            return sa.st_mtime < sb.st_mtime;
+        });
+
+    // Calculate current totals
+    int num_entries = (int)entries.size();
+    int64_t total_bytes = 0;
+    for (const auto & e : entries) total_bytes += e.second;
+
+    // Also count the entry we're about to save (estimated at typical ~10MB)
+    // The entry for self_key isn't among entries yet, so add 1 and estimate
+    int pending_entries = num_entries + 1;
+
+    // Evict until within limits
+    size_t evicted = 0;
+    for (const auto & e : entries) {
+        // Skip self (same key) — we'll overwrite it via atomic rename anyway
+        if (e.first.find(self_key) != std::string::npos) {
+            // This entry will be replaced by the new save; don't count it
+            pending_entries--;
+            total_bytes -= e.second;
+            continue;
+        }
+
+        bool over_entries = (g_kv_cache_max_entries > 0 && pending_entries > g_kv_cache_max_entries);
+        bool over_bytes  = (g_kv_cache_max_size_bytes > 0 && total_bytes > g_kv_cache_max_size_bytes);
+
+        if (!over_entries && !over_bytes) break;
+
+        print_with_timestamp("🔁 KV cache: evicting %s (%ld bytes, reason=%s)\n",
+                           e.first.c_str(), (long)e.second,
+                           over_entries ? "max_entries" : "max_bytes");
+        if (unlink(e.first.c_str()) == 0) {
+            evicted++;
+            pending_entries--;
+            total_bytes -= e.second;
+        }
+    }
+
+    if (evicted > 0) {
+        g_kv_cache_evictions += (int)evicted;
+        print_with_timestamp("🔁 KV cache: evicted %zu entries (%d total evictions)\n",
+                           evicted, g_kv_cache_evictions);
+    }
+}
+
+// ─── Safe save with atomic rename + header + checksum + K6 eviction ───────────
 
 // Returns data_size on success, 0 on failure.
 // The fingerprint must have been computed by kv_cache_compute_fingerprint() and
@@ -540,9 +644,13 @@ static size_t kv_cache_safe_save(
         dir = final_path.substr(0, last_slash);
     }
 
-    // Ensure directory exists
+    // K6: Ensure directory exists with correct permissions
     if (!dir.empty()) {
         cross_platform_mkdir_p(dir);
+        // Enforce directory permissions (0700 — user-only, model-derived data)
+        chmod(dir.c_str(), KV_CACHE_DIR_PERM);
+        // Enforce entry and size limits before saving (evicts oldest if needed)
+        kv_cache_enforce_limits(dir, cache_key);
     }
 
     // Step 1: Save llama state to temp file
@@ -622,6 +730,8 @@ static size_t kv_cache_safe_save(
         unlink(tmp_composite.c_str());
         return 0;
     }
+    // K6: Restrictive file permissions (user rw only, model-derived data)
+    chmod(final_path.c_str(), KV_CACHE_FILE_PERM);
     // K4: fsync parent directory to ensure rename is durable on disk.
     // Without this, a crash after rename can lose the directory entry,
     // leaving the cache in an inconsistent state (temp file may still exist).
@@ -843,10 +953,14 @@ static void kv_cache_print_stats() {
     fprintf(stderr, "  cache_hits:       %d\n", g_kv_cache_hits);
     fprintf(stderr, "  cache_misses:     %d\n", g_kv_cache_misses);
     fprintf(stderr, "  tokens_reused:    %d\n", g_kv_cache_tokens_reused);
+    fprintf(stderr, "  evictions:        %d\n", g_kv_cache_evictions);
+    fprintf(stderr, "  max_entries:      %d\n", g_kv_cache_max_entries);
+    fprintf(stderr, "  max_size_mb:      %ld\n", (long)(g_kv_cache_max_size_bytes / (1024 * 1024)));
     fprintf(stderr, "=================================\n");
     g_kv_cache_hits = 0;
     g_kv_cache_misses = 0;
     g_kv_cache_tokens_reused = 0;
+    // Note: evictions/max counters are NOT reset — they're cumulative server lifetime stats
 }
 
 void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
