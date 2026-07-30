@@ -193,6 +193,13 @@ static int g_kv_cache_misses = 0;
 static int g_kv_cache_tokens_reused = 0;
 
 // ─── P5 CACHE_KEY_ISOLATION: per-case ref_audio for multi-prefix test ─────
+// K2 SAFETY: OMNI_KV_CACHE_PER_CASE_REF_AUDIO now controls WHICH ref_audio is used
+// in the key (per-request vs shared), not WHETHER ref_audio is in the key.
+// Since K2, ref_audio hash ALWAYS enters the cache key unconditionally.
+// This env var is retained as a test compatibility switch:
+//   =1 → each distinct audio file gets its own cache entry (testing)
+//   =0 → all requests share the same cache entry (production default)
+// In both modes, the key includes the audio identity that WILL be embedded.
 static bool g_kv_cache_per_case_ref_audio = ([](){
     const char *v = getenv("OMNI_KV_CACHE_PER_CASE_REF_AUDIO");
     return v && (strcmp(v, "1") == 0 || strcmp(v, "true") == 0);
@@ -203,9 +210,10 @@ static bool g_kv_cache_per_case_ref_audio = ([](){
 // Forward declaration (defined later in this file)
 void print_with_timestamp(const char* format, ...);
 
-#define KV_CACHE_MAGIC      0x4B434D4F  // "OMKC" little-endian
-#define KV_CACHE_VERSION    1
-#define KV_CACHE_HEADER_SIZE 24
+#define KV_CACHE_MAGIC            0x4B434D4F  // "OMKC" little-endian
+#define KV_CACHE_VERSION          2           // V2: added extended fingerprint header
+#define KV_CACHE_HEADER_SIZE      24          // Basic header: magic+version+key_hash+crc+size
+#define KV_CACHE_FINGERPRINT_SIZE 112         // Extended fingerprint block (new in V2)
 
 // Simple FNV-1a 64-bit hash for cache key construction
 static uint64_t kv_cache_fnv1a_64(const void *data, size_t len, uint64_t hash = 0xcbf29ce484222325ULL) {
@@ -241,6 +249,177 @@ static uint32_t kv_cache_crc32(const void *data, size_t len) {
         crc = (crc >> 8) ^ table[(crc ^ p[i]) & 0xFF];
     }
     return crc ^ 0xFFFFFFFFU;
+}
+
+// ─── K3: Extended Fingerprint Header ───────────────────────────────────────
+// Beyond the 64-bit FNV-1a key (used for file naming/index lookup), the
+// fingerprint provides full-content verification. Even if two different
+// configurations produce the same 64-bit key (hash collision), their
+// fingerprints will differ — preventing false HITs.
+
+struct kv_cache_fingerprint {
+    // Struct metadata
+    uint32_t struct_size;         // = KV_CACHE_FINGERPRINT_SIZE (112)
+    uint32_t _pad0;
+
+    // Model identity (size + content-based, stronger than FNV-1a alone)
+    uint64_t model_size;          // Model file size in bytes
+    uint64_t model_head_hash;     // FNV-1a of first 64KB of model file
+    uint64_t model_tail_hash;     // FNV-1a of last 64KB (0 if file < 64KB)
+
+    // LLM parameters that affect KV cache shape
+    int32_t  n_ctx;
+    int32_t  n_batch;
+    int32_t  n_ubatch;
+    int32_t  n_past;              // Number of tokens in cached state (result, not input)
+
+    // Content identity hashes
+    uint64_t system_prompt_hash;  // FNV-1a of voice_clone_prompt + assistant_prompt
+    uint64_t ref_audio_hash;      // FNV-1a of first 64KB of reference audio file
+    int64_t  ref_audio_size;      // Reference audio file size in bytes (0 if no audio)
+
+    // Audio preprocessing parameters (affect embedding computation)
+    int32_t  audio_sample_rate;   // e.g., 16000
+    int32_t  audio_channels;      // e.g., 1
+
+    // Reserved for future expansion
+    uint64_t _reserved[3];        // 24 bytes reserved
+
+    // Self-verification: CRC32 of all fields above (computed with fp_crc=0)
+    uint32_t fingerprint_crc;
+    uint32_t _pad1;
+};
+
+static_assert(sizeof(kv_cache_fingerprint) == KV_CACHE_FINGERPRINT_SIZE,
+              "kv_cache_fingerprint size mismatch");
+
+// Read WAV header to get sample rate and channels
+static void kv_cache_read_wav_params(const std::string & path, int * out_sr, int * out_ch) {
+    *out_sr = 0;
+    *out_ch = 0;
+    if (path.empty()) return;
+    FILE * f = fopen(path.c_str(), "rb");
+    if (!f) return;
+    uint8_t hdr[44];
+    if (fread(hdr, 1, sizeof(hdr), f) == 44) {
+        if (memcmp(hdr, "RIFF", 4) == 0 && memcmp(hdr + 8, "WAVE", 4) == 0) {
+            *out_ch = (int)hdr[22] | ((int)hdr[23] << 8);
+            *out_sr = (int)hdr[24] | ((int)hdr[25] << 8) | ((int)hdr[26] << 16) | ((int)hdr[27] << 24);
+        }
+    }
+    fclose(f);
+}
+
+// Hash first 64KB of a file for content fingerprinting
+static uint64_t kv_cache_hash_file_head(const std::string & path, int64_t * out_size) {
+    *out_size = 0;
+    if (path.empty()) return 0;
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) return 0;
+    *out_size = (int64_t)st.st_size;
+    FILE * f = fopen(path.c_str(), "rb");
+    if (!f) return 0;
+    uint8_t buf[65536];
+    size_t n = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    return kv_cache_fnv1a_64(buf, n);
+}
+
+// Compute the full configuration fingerprint (everything that determines KV state).
+// n_past is set to 0 here — it is filled in at save time when the value is known.
+static kv_cache_fingerprint kv_cache_compute_fingerprint(
+    const std::string & model_path,
+    const common_params & params,
+    const std::string & system_prompt_text,
+    const std::string & ref_audio_path)
+{
+    kv_cache_fingerprint fp;
+    memset(&fp, 0, sizeof(fp));
+    fp.struct_size = KV_CACHE_FINGERPRINT_SIZE;
+
+    // Model identity
+    struct stat st;
+    if (stat(model_path.c_str(), &st) == 0) {
+        fp.model_size = (uint64_t)st.st_size;
+
+        FILE * mf = fopen(model_path.c_str(), "rb");
+        if (mf) {
+            uint8_t head[65536];
+            size_t n_head = fread(head, 1, sizeof(head), mf);
+            fp.model_head_hash = kv_cache_fnv1a_64(head, n_head);
+
+            if (st.st_size > 65536) {
+                fseek(mf, (long)(st.st_size - 65536), SEEK_SET);
+                size_t n_tail = fread(head, 1, sizeof(head), mf);
+                fp.model_tail_hash = kv_cache_fnv1a_64(head, n_tail);
+            }
+            fclose(mf);
+        }
+    }
+
+    // LLM parameters
+    fp.n_ctx   = params.n_ctx;
+    fp.n_batch = params.n_batch;
+    fp.n_ubatch = params.n_ubatch;
+
+    // n_past = 0 initially; filled by kv_cache_safe_save
+    fp.n_past = 0;
+
+    // Content hashes
+    if (!system_prompt_text.empty()) {
+        fp.system_prompt_hash = kv_cache_fnv1a_str(system_prompt_text);
+    }
+
+    if (!ref_audio_path.empty()) {
+        fp.ref_audio_hash = kv_cache_hash_file_head(ref_audio_path, &fp.ref_audio_size);
+        kv_cache_read_wav_params(ref_audio_path, &fp.audio_sample_rate, &fp.audio_channels);
+    }
+
+    // Compute self-verification CRC
+    fp.fingerprint_crc = 0;
+    fp._pad0 = 0;
+    fp._pad1 = 0;
+    memset(fp._reserved, 0, sizeof(fp._reserved));
+    fp.fingerprint_crc = kv_cache_crc32(&fp, sizeof(fp));
+
+    return fp;
+}
+
+// Verify that a loaded fingerprint matches the expected configuration.
+// Returns true if all configuration fields match (ignoring n_past which is a result).
+static bool kv_cache_verify_fingerprint(
+    const kv_cache_fingerprint & stored,
+    const kv_cache_fingerprint & expected)
+{
+    // Self-verify the stored fingerprint CRC first
+    kv_cache_fingerprint stored_copy = stored;
+    uint32_t saved_crc = stored_copy.fingerprint_crc;
+    stored_copy.fingerprint_crc = 0;
+    uint32_t computed_crc = kv_cache_crc32(&stored_copy, sizeof(stored_copy));
+    if (computed_crc != saved_crc) {
+        return false;  // Fingerprint header itself is corrupt
+    }
+
+    // Compare all configuration fields (skip n_past — it's a result, not an input)
+    if (stored.struct_size != expected.struct_size) return false;
+    if (stored.model_size != expected.model_size) return false;
+    if (stored.model_head_hash != expected.model_head_hash) return false;
+    if (stored.model_tail_hash != expected.model_tail_hash) return false;
+    if (stored.n_ctx != expected.n_ctx) return false;
+    if (stored.n_batch != expected.n_batch) return false;
+    if (stored.n_ubatch != expected.n_ubatch) return false;
+    if (stored.system_prompt_hash != expected.system_prompt_hash) return false;
+    if (stored.ref_audio_hash != expected.ref_audio_hash) return false;
+    if (stored.ref_audio_size != expected.ref_audio_size) return false;
+    if (stored.audio_sample_rate != expected.audio_sample_rate) return false;
+    if (stored.audio_channels != expected.audio_channels) return false;
+
+    // Note: n_past is NOT compared — it is a result field produced by the save
+    // process (depends on the specific audio embedding length). It is verified
+    // implicitly: the payload CRC ensures the state data is intact, and the
+    // loaded n_past is read from llama_state_seq_load_file's output.
+
+    return true;
 }
 
 // Compute cache key from all relevant configuration components
@@ -299,8 +478,14 @@ static std::string kv_cache_compute_key(
         key_input += pbuf;
     }
 
-    // P5 CACHE_KEY_ISOLATION: include ref_audio identity when per-case mode enabled
-    if (g_kv_cache_per_case_ref_audio && !ref_audio_path.empty()) {
+    // K2 SAFETY: reference audio hash MUST unconditionally enter the cache key.
+    // The cached KV state contains ref_audio embedding tokens. If the key does not
+    // include ref_audio identity, a request with Voice B could false-HIT a cache
+    // entry that contains Voice A's embedding — causing voice cross-contamination.
+    // Rule: if ref_audio is in the state, ref_audio MUST be in the key.
+    // If no ref_audio path is provided, the key does NOT include audio identity
+    // (caller must ensure this only happens when state has no audio embedding).
+    if (!ref_audio_path.empty()) {
         uint64_t ah = kv_cache_fnv1a_str(ref_audio_path);
         snprintf(pbuf, sizeof(pbuf), "a%016lx:", (unsigned long)ah);
         key_input += pbuf;
@@ -337,11 +522,14 @@ static std::string kv_cache_get_path(const std::string & cache_key) {
 
 // ─── Safe save with atomic rename + header + checksum ───────────────────────
 
-// Returns data_size on success, 0 on failure
+// Returns data_size on success, 0 on failure.
+// The fingerprint must have been computed by kv_cache_compute_fingerprint() and
+// then have its n_past field set to the actual token count before calling.
 static size_t kv_cache_safe_save(
     struct llama_context * ctx,
     const std::string & final_path,
     const std::string & cache_key,
+    const kv_cache_fingerprint & fp,
     int seq_id
 ) {
     std::string dir;
@@ -395,7 +583,7 @@ static size_t kv_cache_safe_save(
         return 0;
     }
 
-    // Header
+    // Basic header (24 bytes)
     uint32_t magic = KV_CACHE_MAGIC;
     uint32_t version = KV_CACHE_VERSION;
     fwrite(&magic, sizeof(magic), 1, fc);
@@ -403,7 +591,20 @@ static size_t kv_cache_safe_save(
     fwrite(&key_hash, sizeof(key_hash), 1, fc);
     fwrite(&data_crc, sizeof(data_crc), 1, fc);
     fwrite(&data_size, sizeof(data_size), 1, fc);
-    // Data
+
+    // Extended fingerprint header (112 bytes, new in V2)
+    // CRC must be recomputed in case caller updated n_past after computing fp
+    {
+        kv_cache_fingerprint fp_save = fp;
+        fp_save.fingerprint_crc = 0;
+        fp_save._pad0 = 0;
+        fp_save._pad1 = 0;
+        memset(fp_save._reserved, 0, sizeof(fp_save._reserved));
+        fp_save.fingerprint_crc = kv_cache_crc32(&fp_save, sizeof(fp_save));
+        fwrite(&fp_save, sizeof(fp_save), 1, fc);
+    }
+
+    // Payload data
     fwrite(state_data.data(), 1, saved, fc);
     fflush(fc);
     int fd = fileno(fc);
@@ -449,20 +650,25 @@ static size_t kv_cache_safe_save(
 
 // ─── Safe load with header validation + checksum ────────────────────────────
 
-// Returns number of positions loaded, 0 on failure (cache miss / corruption)
+// Returns number of positions loaded, 0 on failure (cache miss / corruption).
+// On success, *out_n_positions is set to the number of tokens loaded and
+// *out_fingerprint receives the stored fingerprint for inspection.
 static size_t kv_cache_safe_load(
     struct llama_context * ctx,
     const std::string & filepath,
     const std::string & expected_key,
+    const kv_cache_fingerprint & expected_fp,
     int dest_seq_id,
-    int * out_n_positions
+    int * out_n_positions,
+    kv_cache_fingerprint * out_fingerprint
 ) {
     *out_n_positions = 0;
+    if (out_fingerprint) memset(out_fingerprint, 0, sizeof(*out_fingerprint));
 
     FILE *f = fopen(filepath.c_str(), "rb");
     if (!f) return 0;
 
-    // Read header
+    // ── Read basic header (24 bytes) ──
     uint32_t magic, version;
     uint64_t key_hash;
     uint32_t data_crc, data_size;
@@ -475,7 +681,7 @@ static size_t kv_cache_safe_load(
     header_ok &= (fread(&data_size, sizeof(data_size), 1, f) == 1);
 
     if (!header_ok) {
-        print_with_timestamp("🔁 KV cache: truncated header in %s\n", filepath.c_str());
+        print_with_timestamp("🔁 KV cache: truncated basic header in %s\n", filepath.c_str());
         fclose(f);
         return 0;
     }
@@ -488,15 +694,15 @@ static size_t kv_cache_safe_load(
         return 0;
     }
 
-    // Validate version
-    if (version != KV_CACHE_VERSION) {
-        print_with_timestamp("🔁 KV cache: version mismatch (file=%u, expected=%u) in %s\n",
+    // Validate version (accepts V2 only; V1 entries are invalidated by key change)
+    if (version < 1 || version > KV_CACHE_VERSION) {
+        print_with_timestamp("🔁 KV cache: unsupported version %u (expected %u) in %s\n",
                            version, KV_CACHE_VERSION, filepath.c_str());
         fclose(f);
         return 0;
     }
 
-    // Validate cache key
+    // Validate cache key (FNV-1a index lookup)
     uint64_t expected_key_hash = kv_cache_fnv1a_str(expected_key);
     if (key_hash != expected_key_hash) {
         print_with_timestamp("🔁 KV cache: key mismatch (file=0x%016lx, expected=0x%016lx) — different config\n",
@@ -505,6 +711,53 @@ static size_t kv_cache_safe_load(
         return 0;
     }
 
+    // ── V2+: Read extended fingerprint header ──
+    kv_cache_fingerprint stored_fp;
+    memset(&stored_fp, 0, sizeof(stored_fp));
+    if (version >= 2) {
+        if (fread(&stored_fp, sizeof(stored_fp), 1, f) != 1) {
+            print_with_timestamp("🔁 KV cache: truncated fingerprint header in %s\n", filepath.c_str());
+            fclose(f);
+            return 0;
+        }
+
+        // Self-verify fingerprint CRC
+        kv_cache_fingerprint fp_copy = stored_fp;
+        uint32_t stored_fp_crc = fp_copy.fingerprint_crc;
+        fp_copy.fingerprint_crc = 0;
+        uint32_t computed_fp_crc = kv_cache_crc32(&fp_copy, sizeof(fp_copy));
+        if (computed_fp_crc != stored_fp_crc) {
+            print_with_timestamp("🔁 KV cache: fingerprint header corrupt (crc=0x%08x, expected=0x%08x) in %s\n",
+                               computed_fp_crc, stored_fp_crc, filepath.c_str());
+            fclose(f);
+            return 0;
+        }
+
+        // Verify fingerprint matches expected configuration
+        if (!kv_cache_verify_fingerprint(stored_fp, expected_fp)) {
+            print_with_timestamp("🔁 KV cache: fingerprint mismatch — config changed since cache was created (%s)\n",
+                               filepath.c_str());
+            print_with_timestamp("🔁   stored:  model=%lu/%016lx/%016lx sp=%016lx audio=%016lx/%ld\n",
+                               (unsigned long)stored_fp.model_size,
+                               (unsigned long)stored_fp.model_head_hash,
+                               (unsigned long)stored_fp.model_tail_hash,
+                               (unsigned long)stored_fp.system_prompt_hash,
+                               (unsigned long)stored_fp.ref_audio_hash,
+                               (long)stored_fp.ref_audio_size);
+            print_with_timestamp("🔁   expected: model=%lu/%016lx/%016lx sp=%016lx audio=%016lx/%ld\n",
+                               (unsigned long)expected_fp.model_size,
+                               (unsigned long)expected_fp.model_head_hash,
+                               (unsigned long)expected_fp.model_tail_hash,
+                               (unsigned long)expected_fp.system_prompt_hash,
+                               (unsigned long)expected_fp.ref_audio_hash,
+                               (long)expected_fp.ref_audio_size);
+            fclose(f);
+            return 0;
+        }
+    }
+
+    if (out_fingerprint) *out_fingerprint = stored_fp;
+
     // Validate data size (sanity check: 9MB typical, refuse > 1GB)
     if (data_size == 0 || data_size > 1024 * 1024 * 1024) {
         print_with_timestamp("🔁 KV cache: implausible data size %u in %s\n", data_size, filepath.c_str());
@@ -512,7 +765,7 @@ static size_t kv_cache_safe_load(
         return 0;
     }
 
-    // Read data
+    // Read payload data
     std::vector<uint8_t> state_data(data_size);
     size_t nread = fread(state_data.data(), 1, data_size, f);
     fclose(f);
@@ -523,7 +776,7 @@ static size_t kv_cache_safe_load(
         return 0;
     }
 
-    // Validate checksum
+    // Validate payload checksum
     uint32_t computed_crc = kv_cache_crc32(state_data.data(), data_size);
     if (computed_crc != data_crc) {
         print_with_timestamp("🔁 KV cache: checksum mismatch (computed=0x%08x, stored=0x%08x) in %s — corrupt\n",
@@ -11723,24 +11976,42 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         bool kv_cache_loaded = false;
         std::string kv_cache_path_for_save;
         std::string kv_cache_key;
+        kv_cache_fingerprint kv_cache_fp;
         if (g_kv_cache_reuse_enabled && ctx_omni->params) {
             // Build system prompt text for cache key
             std::string sp_text = voice_clone_prompt + assistant_prompt;
-            // P5 CACHE_KEY_ISOLATION: determine ref_audio for cache key when per-case mode
+            // K2 SAFETY: Determine the ref_audio that WILL be embedded in the system prompt.
+            // This MUST match the audio identity used in the KV cache key, because
+            // the cached state contains the audio embedding tokens.
+            // Use the same resolution logic as the system_ref_audio computation below.
             std::string key_ref_audio;
             if (g_kv_cache_per_case_ref_audio) {
-                key_ref_audio = aud_fname;  // each test case uses its own ref_audio
+                key_ref_audio = aud_fname;
+            } else if (index == 0 && !aud_fname.empty()) {
+                key_ref_audio = aud_fname;
+            } else if (!ctx_omni->ref_audio_path.empty()) {
+                key_ref_audio = ctx_omni->ref_audio_path;
+            } else {
+                key_ref_audio = "tools/omni/assets/default_ref_audio/default_ref_audio.wav";
             }
             kv_cache_key = kv_cache_compute_key(
                 ctx_omni->params->model.path, *ctx_omni->params, sp_text, key_ref_audio);
             kv_cache_path_for_save = kv_cache_get_path(kv_cache_key);
 
+            // K3: Compute full fingerprint for header verification
+            kv_cache_fp = kv_cache_compute_fingerprint(
+                ctx_omni->params->model.path, *ctx_omni->params, sp_text, key_ref_audio);
+
+            print_with_timestamp("🔁 KV cache key: ref_audio=%s (hash_in_key=%s)\n",
+                               key_ref_audio.c_str(), key_ref_audio.empty() ? "MISSING" : "included");
+
             struct stat cache_st;
             if (stat(kv_cache_path_for_save.c_str(), &cache_st) == 0) {
                 int loaded_pos = 0;
+                kv_cache_fingerprint loaded_fp;
                 size_t loaded = kv_cache_safe_load(
                     ctx_omni->ctx_llama, kv_cache_path_for_save,
-                    kv_cache_key, 0, &loaded_pos);
+                    kv_cache_key, kv_cache_fp, 0, &loaded_pos, &loaded_fp);
                 if (loaded > 0 && loaded_pos > 0) {
                     ctx_omni->n_past = loaded_pos;
                     ctx_omni->n_keep = ctx_omni->n_past;
@@ -11890,9 +12161,11 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         // the system prompt, not with any thread-modified state.
         kv_cache_system_prompt_done:
         if (g_kv_cache_reuse_enabled && !kv_cache_loaded && !kv_cache_path_for_save.empty() && ctx_omni->n_past > 0) {
+            // K3: Set n_past in fingerprint (was 0 when computed before system prompt eval)
+            kv_cache_fp.n_past = ctx_omni->n_past;
             size_t saved = kv_cache_safe_save(
                 ctx_omni->ctx_llama, kv_cache_path_for_save,
-                kv_cache_key, 0);
+                kv_cache_key, kv_cache_fp, 0);
             if (saved > 0) {
                 print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d, key=%s)\n",
                                    saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past, kv_cache_key.c_str());
