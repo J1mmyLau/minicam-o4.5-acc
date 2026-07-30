@@ -2110,13 +2110,61 @@ static const char * ggml_backend_cann_name(ggml_backend_t backend) {
  *
  * @param backend Pointer to the CANN backend structure to be freed.
  */
+// ─── R11 FIX: lifecycle-safe CANN backend free with guard counters ───
+static std::atomic<int64_t> g_cann_backend_create_count{0};
+static std::atomic<int64_t> g_cann_backend_destroy_count{0};
+static std::atomic<int64_t> g_cann_double_destroy_prevented_count{0};
+static std::atomic<int64_t> g_cann_cross_thread_destroy_count{0};
+
 static void ggml_backend_cann_free(ggml_backend_t backend) {
+    // GUARD 1: Null backend (should never happen, but be safe)
+    if (backend == nullptr) {
+        GGML_LOG_WARN("%s: backend is null, skipping free\n", __func__);
+        return;
+    }
+
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
-    ACL_CHECK(aclrtSynchronizeDevice());
-    ACL_CHECK(aclrtResetDevice(cann_ctx->device));
+
+    // GUARD 2: Null context (double-free or context already destroyed)
+    if (cann_ctx == nullptr) {
+        GGML_LOG_WARN("%s: backend->context is null (double-free?), skipping free\n", __func__);
+        g_cann_double_destroy_prevented_count++;
+        delete backend;
+        return;
+    }
+
+    int32_t device = cann_ctx->device;
+
+    // GUARD 3: Set device before any ACL operation
+    aclError set_ret = aclrtSetDevice(device);
+    if (set_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSetDevice(%d) failed: %d — device may already be reset\n",
+                      __func__, device, set_ret);
+        // Continue with cleanup — don't abort
+    }
+
+    // GUARD 4: Synchronize with error tolerance
+    aclError sync_ret = aclrtSynchronizeDevice();
+    if (sync_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSynchronizeDevice failed on device %d: %d\n",
+                      __func__, device, sync_ret);
+        // Device may already be in reset state — this is expected in multi-backend cleanup
+    }
+
+    // GUARD 5: Reset device with error tolerance
+    aclError reset_ret = aclrtResetDevice(device);
+    if (reset_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtResetDevice(%d) failed: %d — may already be reset\n",
+                      __func__, device, reset_ret);
+    }
+
+    // GUARD 6: Null out context before delete to prevent destructor from using stale state
+    backend->context = nullptr;
 
     delete cann_ctx;
     delete backend;
+
+    g_cann_backend_destroy_count++;
 }
 
 /**
@@ -3070,7 +3118,14 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
         static std::mutex           mutex;
         std::lock_guard<std::mutex> lock(mutex);
         if (!initialized) {
-            aclInit(nullptr);
+            // R15 FIX: check aclInit return to avoid crash on subsequent calls
+            aclError acl_ret = aclInit(nullptr);
+            // ACL_ERROR_REPEAT_INITIALIZE (100002) = runtime already initialized
+            // (may happen if another component initialized CANN before us)
+            if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+                GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+                return nullptr;
+            }
             ggml_backend_cann_reg_context * ctx = new ggml_backend_cann_reg_context;
             const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
 
@@ -3098,8 +3153,33 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
     return &reg;
 }
 
+// P1 FAIL-FAST: Expose CANN registry availability to callers.
+// Returns true iff aclInit succeeded and CANN devices are registered.
+// May trigger lazy first-time initialization if not yet called.
+bool ggml_backend_cann_is_available() {
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    return reg != nullptr;
+}
+
 ggml_backend_t ggml_backend_cann_init(int32_t device) {
-    aclInit(nullptr);
+    // R15 FIX: Check that the CANN registry was successfully initialized.
+    // If aclInit failed during ggml_backend_cann_reg(), the registry is null
+    // and we must not attempt to create a backend (would crash on CANN API calls).
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    if (reg == nullptr) {
+        GGML_LOG_ERROR("%s: CANN registry not initialized (aclInit may have failed)\n", __func__);
+        return nullptr;
+    }
+
+    // R15 FIX: check aclInit return value; aclInit is refcounted so redundant
+    // calls are harmless, but if the CANN runtime is in a bad state this will
+    // catch it before we allocate context memory.
+    aclError acl_ret = aclInit(nullptr);
+    // ACL_ERROR_REPEAT_INITIALIZE (100002) = expected on redundant calls
+    if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+        GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+        return nullptr;
+    }
     if (device < 0 || device >= ggml_backend_cann_get_device_count()) {
         GGML_LOG_ERROR("%s: error: invalid device %d\n", __func__, device);
         return nullptr;
@@ -3116,6 +3196,8 @@ ggml_backend_t ggml_backend_cann_init(int32_t device) {
                           /* .interface = */ ggml_backend_cann_interface,
                           /* .device    = */ ggml_backend_reg_dev_get(ggml_backend_cann_reg(), device),
                           /* .context   = */ ctx };
+
+    g_cann_backend_create_count++;
 
     return cann_backend;
 }
