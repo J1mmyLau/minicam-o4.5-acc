@@ -4760,10 +4760,11 @@ bool sliding_window_enforce(struct omni_context * ctx_omni) {
 // omni main
 //
 std::condition_variable g_decode_cv;
-bool prefill_done = true;
+// K5: Thread-safety — prefill_done is read by decode thread and written by LLM
+// thread. std::atomic ensures no data race (previously plain bool).
+std::atomic<bool> prefill_done{true};
 std::mutex speek_mtx;
 std::condition_variable speek_cv;
-bool last_speek_done_flag = false;
 
 // 让 thread 可以结束
 std::atomic<bool> llm_thread_running(true);
@@ -8403,7 +8404,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
             
             // 🔧 [诊断] 打印取出数据后的关键状态
             print_with_timestamp("TTS: after queue pop - speek_done=%d, llm_finish=%d, llm_text.empty=%d, token_ids.size=%zu\n",
-                                ctx_omni->speek_done, llm_finish, llm_text.empty(), current_chunk_token_ids.size());
+                                ctx_omni->speek_done.load(), llm_finish, llm_text.empty(), current_chunk_token_ids.size());
             
             // If speek_done is true but we received llm_finish=true, handle state transition
             if (ctx_omni->speek_done && llm_finish) {
@@ -12461,8 +12462,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         ctx_omni->llm_thread_info->cv.notify_all();
         print_with_timestamp("wait prefill done\n");
         std::unique_lock<std::mutex> lock(ctx_omni->llm_thread_info->mtx);
-        g_decode_cv.wait(lock, []{ return prefill_done; });
-        prefill_done = false;
+        g_decode_cv.wait(lock, []{ return prefill_done.load(); });
+        prefill_done.store(false);
         // Pipeline trace: decode loop starts (T2)
         g_pipeline_trace.record(PE_DECODE_BEGIN,
             (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),

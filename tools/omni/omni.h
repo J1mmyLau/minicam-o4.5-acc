@@ -499,8 +499,8 @@ struct omni_context {
     // omni_free 时若仍存在，会被强制 session_end 释放。
     DuplexSession * duplex_session = NULL;
     
-    volatile bool need_speek = false;
-    volatile bool speek_done = true;
+    std::atomic<bool> need_speek{false};
+    std::atomic<bool> speek_done{true};
     
     // 预热标志：第一轮对话视为预热（例如音色克隆参考音频），完成后设为 true
     std::atomic<bool> warmup_done{false};
