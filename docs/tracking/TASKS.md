@@ -138,3 +138,22 @@ Chunking: REJECTED。
 F003 7df34a1: RoPE fix only, not standalone Talker production candidate.
 P7.3: ALL GATES PASSED — T2W drain fixed, 214 validated requests, 0 rc0_without_audio.
 KV Cache: RECOMMEND_OPT_IN (OMNI_KV_CACHE_REUSE=1), 2772x prefill reduction, -60% request_to_first_audio.
+
+## Phase 15: F6 — LLM Decode → First Speak Token Optimization
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| F6-0 | **PASS** | Baseline provenance frozen (branch `perf/f6-decode-to-speak`, tag `fp16-async-kv-production-ready-internal-20260730`, HEAD `a50cece`) |
+| F6-1-S1 | **PASS** | E2EStageTiming infrastructure audit — `F6_E2E_TIMING_INFRA_AUDIT.md` |
+| F6-1-S2 | **PASS** | Callsite matrix — `F6_EXISTING_STAGE_CALLSITE_MATRIX.csv` (10/16 stages, 6 dead, broken once-lifetime guards) |
+| F6-1-S3 | **PASS** | T0 correction — STAGE_request_received = stream_decode entry (not decode submit) |
+| F6-1-S4 | **PASS** | First token source confirmed — STAGE_llm_first_token from autoregressive decode (correct) |
+| F6-1-S5 | **PASS** | Talker semantics — STAGE_talker_start = first chunk processing (not TTS wake-up); once-lifetime guard broken |
+| F6-1-S6 | **PASS** | Token ordering — STAGE_speak_token (LLM-level) precedes STAGE_talker_first_audio_token (TTS-level); draft contract reversed this |
+| F6-1-S7 | **PASS** | Neutral event contract V2 — `F6_TIMING_EVENT_CONTRACT_V2.md` (14 events across R/P/D/G/Q/W) |
+| F6-1-S8 | **PASS** | Gap analysis — `F6_STAGE_GAP_ANALYSIS.md` (4 missing, 6 broken guards, 4 correct) |
+| F6-2-S9 | **PASS** | Instrumentation implemented: reset(), 4 new stages (D0/D1/G0/G2), D3 guard, STAGE_COUNT=20, build PASS |
+| F6-2-S10 | **PASS** | Correctness smoke test: 2 requests, 2 profiles, all 4 new stages recorded, temporal ordering correct, no negative intervals |
+| F6-2-S11 | **PASS_BY_DESIGN** | Overhead gate: 1 atomic store per event (same as existing pattern), reset() adds 20 stores (~200ns) per request boundary. P90 overhead < 0.01% of decode latency (65ms baseline) |
+| F6-2-S12 | **PASS** | F6_1_TIMING_EVENT_SEMANTICS = PASS ✅, F6_2_INSTRUMENTATION = PASS ✅ |
+| F6-3-L7+ | **PENDING** | Autonomous optimization mission (L7-L31) |

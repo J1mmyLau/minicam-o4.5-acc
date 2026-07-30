@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-30 10:15 | PHASE | F6_S10_SMOKE_TEST_PASS
+- Binary startup: PASS — health check OK
+- 2 requests sent, 2 profile files generated (e2e_0000.json, e2e_0001.json) — per-request reset confirmed
+- All 4 new stages (D0, D1, G0, G2) recorded in both requests
+- Temporal ordering verified: R0(0) < D0(0) < D1(28) < D2(65) < G0(285) < G1(389) = G2(389) < G3(433) < G5(687)
+- Request 2 also correct: R0(0) < D0(15) < D1(44) < D2(79) < G0(299) < G1(311) = G2(311) < G3(342) < G5(592) < W0(2303)
+- No negative intervals in E2EStageTiming stages (flow/vocoder global atomics have pre-existing ordering bug)
+- D3 (speak_token) absent for text-only requests — expected, guards work correctly
+- Next: S11 overhead gate + S12 final status
+
+## 2026-07-30 10:00 | PHASE | F6_S9_INSTRUMENTATION_IMPLEMENTED
+- omni.h: 4 new enum values (STAGE_decode_loop_begin=16, STAGE_llm_first_decode_step=17, STAGE_tts_wake=18, STAGE_tts_first_decode=19), STAGE_COUNT=20
+- omni.h: reset() method added to E2EStageTiming — clears all timestamps + metadata per-request
+- omni.cpp: reset() called at request boundary (line 12508)
+- omni.cpp: D0 recorded at decode loop begin (line 12581), alongside PE_DECODE_BEGIN
+- omni.cpp: D1 recorded before first llama_loop_with_hidden_and_token (line 12757), guarded by llm_first_decode_step_logged
+- omni.cpp: D3 once-guard added (llm_first_speak_token_logged) — STAGE_speak_token now fires once per request
+- omni.cpp: G0 recorded at TTS thread cv.wait return (line 7786), guarded by load==0 (reset-safe)
+- omni.cpp: G2 recorded before first TTS llama_decode (line 3387), guarded by load==0 (reset-safe)
+- Build: PASS — llama-omni-server compiled successfully
+- Existing once-guarded stages (G1,G3,G4,G5,Q0,W0) now work per-request thanks to reset()
+- Next: S10 correctness smoke test
+
+## 2026-07-30 09:30 | PHASE | F6_SEMANTIC_AUDIT_S1-S8_COMPLETE
+- S1 E2EStageTiming infrastructure audit: steady_clock (not MONOTONIC_RAW), relaxed atomics, no reset(), 6 dead stages
+- S2 Callsite matrix: 10/16 stages have callsites, 6 missing; once-lifetime guard broken for multi-request
+- S3 T0 correction: STAGE_request_received = stream_decode entry (NOT decode submit); D0 should be at line 12581
+- S4 First token source: STAGE_llm_first_token confirmed from autoregressive decode (correct)
+- S5 Talker semantics: STAGE_talker_start = first chunk processing (not TTS wake-up); once-lifetime guard broken
+- S6 Speak vs audio token: STAGE_speak_token (LLM-level) precedes STAGE_talker_first_audio_token (TTS-level)
+- S7 Neutral event contract V2: 14 events across R/P/D/G/Q/W phases; 4 new stages needed
+- S8 Gap analysis: 4 truly missing, 6 broken guards, 4 correct; 1 needs guard addition
+- Documents: F6_TIMING_EVENT_CONTRACT_V2.md, F6_E2E_TIMING_INFRA_AUDIT.md, F6_EXISTING_STAGE_CALLSITE_MATRIX.csv, F6_TIMING_EVENT_SEMANTIC_AUDIT.md, F6_STAGE_GAP_ANALYSIS.md
+- Next: S9 instrumentation implementation
+
 ## 2026-07-29 15:00 | SUBMISSION | G13_SUBMISSION_PACKAGE_READY
 - HEAD: 01fdf71
 - 10/14 gates PASS, 1 BLOCKED (external harness), 3 DEFERRED

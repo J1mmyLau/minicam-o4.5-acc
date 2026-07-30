@@ -3383,7 +3383,12 @@ bool prefill_with_emb_tts(struct omni_context* ctx_omni, common_params* params, 
         
         // Enable embeddings output for TTS model (needed for head_code logits calculation)
         llama_set_embeddings(ctx_omni->ctx_tts_llama, true);
-        
+
+        // F6 S9: G2 — first TTS llama_decode call (once per request via reset)
+        if (ctx_omni->e2e_stage.timestamps_ns[STAGE_tts_first_decode].load(std::memory_order_relaxed) == 0) {
+            ctx_omni->e2e_stage.record(STAGE_tts_first_decode);
+        }
+
         if (llama_decode(ctx_omni->ctx_tts_llama, batch)) {
             LOG_ERR("%s : failed to eval TTS embeddings. pos %d/%d (batch size %d, n_past %d)\n", 
                     __func__, i, n_pos, n_batch, *n_past_tts);
@@ -7782,7 +7787,13 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
             if (!tts_thread_running) {
                 break;
             }
-            
+
+            // F6 S9: G0 — TTS thread wakes from cv.wait with data to process
+            // Reset-safe: once-guard via timestamps_ns==0 check works per-request after reset()
+            if (ctx_omni->e2e_stage.timestamps_ns[STAGE_tts_wake].load(std::memory_order_relaxed) == 0) {
+                ctx_omni->e2e_stage.record(STAGE_tts_wake);
+            }
+
             // 清空 current_chunk 数据
             current_chunk_token_ids.clear();
             current_chunk_hidden_states.clear();
@@ -8474,6 +8485,12 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
             if (!tts_thread_running) {
                 break;
             }
+
+            // F6 S9: G0 — TTS thread (simplex) wakes from cv.wait with data to process
+            if (ctx_omni->e2e_stage.timestamps_ns[STAGE_tts_wake].load(std::memory_order_relaxed) == 0) {
+                ctx_omni->e2e_stage.record(STAGE_tts_wake);
+            }
+
             // 🔧 [关键修复] 每次只处理一个 chunk，不要一次性取出所有
             // 之前的问题：while (!queue.empty()) 会取出所有 chunk，导致：
             // - llm_text 累积了多个 chunk 的文本
@@ -12505,6 +12522,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     
     // Record start time (t=0) for WAV file naming
     ctx_omni->stream_decode_start_time = std::chrono::high_resolution_clock::now();
+    // F6 S9: reset per-request stage timestamps so once-guards fire correctly
+    ctx_omni->e2e_stage.reset();
     ctx_omni->e2e_stage.record(STAGE_request_received);
     // Reset global flow/vocoder atomics for new request
     g_e2e_flow_start_ns.store(0, std::memory_order_relaxed);
@@ -12582,6 +12601,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         g_pipeline_trace.record(PE_DECODE_BEGIN,
             (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
             pipeline_thread_hash());
+        // F6 S9: D0 — decode loop begins after prefill complete
+        ctx_omni->e2e_stage.record(STAGE_decode_loop_begin);
     }
 
     // 🔧 [unit 记账] 现在 prefill 已经写完 KV、unit_history 里也已经
@@ -12693,6 +12714,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     tts_output.resize(1/* batch_size */ * (ctx_omni->params->n_ctx /* seq_len */ * 2) * 256);
     bool llm_finish = false;
     bool llm_first_token_logged = false;
+    bool llm_first_decode_step_logged = false;   // F6 S9: D1 once-guard
+    bool llm_first_speak_token_logged = false;   // F6 S9: D3 once-guard
     
     // 🔧 [修复双工缺字问题] 记录当前 chunk 是否是 turn 的结束
     // 此变量随 LLMOut 一起传递给 TTS 线程，避免全局状态的时序问题
@@ -12750,6 +12773,11 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
 
                 llama_token sampled_token = 0;
                 {
+                    // F6 S9: D1 — first autoregressive decode step
+                    if (!llm_first_decode_step_logged) {
+                        llm_first_decode_step_logged = true;
+                        ctx_omni->e2e_stage.record(STAGE_llm_first_decode_step);
+                    }
                     std::lock_guard<std::mutex> llama_lock(ctx_omni->llama_mtx);
                     // 使用新函数获取token文本、hidden state和token ID
                     tmp = llama_loop_with_hidden_and_token(ctx_omni, ctx_omni->params, ctx_omni->ctx_sampler, ctx_omni->n_past, hidden_states, sampled_token);
@@ -12812,7 +12840,11 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 // 🔧 [使用 token ID 检测] 使用缓存的 token ID 进行检测，比字符串比较更高效
                 OmniTokenType token_type = get_token_type(ctx_omni, sampled_token);
                 if (token_type == OmniTokenType::SPEAK) {
-                    ctx_omni->e2e_stage.record(STAGE_speak_token);
+                    // F6 S9: D3 — first SPEAK-tagged LLM token (once-guard)
+                    if (!llm_first_speak_token_logged) {
+                        llm_first_speak_token_logged = true;
+                        ctx_omni->e2e_stage.record(STAGE_speak_token);
+                    }
                     g_pipeline_trace.record(PE_FIRST_SPEAK_TOKEN,
                         (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
                         pipeline_thread_hash());
