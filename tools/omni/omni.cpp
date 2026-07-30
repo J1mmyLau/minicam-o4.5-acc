@@ -11723,7 +11723,7 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         bool kv_cache_loaded = false;
         std::string kv_cache_path_for_save;
         std::string kv_cache_key;
-        if (g_kv_cache_reuse_enabled && ctx_omni->params && !ctx_omni->async) {
+        if (g_kv_cache_reuse_enabled && ctx_omni->params) {
             // Build system prompt text for cache key
             std::string sp_text = voice_clone_prompt + assistant_prompt;
             // P5 CACHE_KEY_ISOLATION: determine ref_audio for cache key when per-case mode
@@ -11884,7 +11884,24 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         sliding_window_register_system_prompt(ctx_omni);
 
         print_with_timestamp("n_past = %d\n", ctx_omni->n_past);
-        
+
+        // ─── P1 KV Cache Reuse: safe save freshly computed system prompt ──
+        // Must happen BEFORE thread start so the KV cache is saved with only
+        // the system prompt, not with any thread-modified state.
+        kv_cache_system_prompt_done:
+        if (g_kv_cache_reuse_enabled && !kv_cache_loaded && !kv_cache_path_for_save.empty() && ctx_omni->n_past > 0) {
+            size_t saved = kv_cache_safe_save(
+                ctx_omni->ctx_llama, kv_cache_path_for_save,
+                kv_cache_key, 0);
+            if (saved > 0) {
+                print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d, key=%s)\n",
+                                   saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past, kv_cache_key.c_str());
+            } else {
+                print_with_timestamp("🔁 KV cache SAVE FAILED: %s (key=%s) — continuing without cache\n",
+                                   kv_cache_path_for_save.c_str(), kv_cache_key.c_str());
+            }
+        }
+
         if (ctx_omni->async){
             print_with_timestamp("create llm & tts thread (duplex=%d)\n", (int)ctx_omni->duplex_mode);
 
@@ -11918,21 +11935,6 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                 t2w_thread_running = true;
                 ctx_omni->t2w_thread = std::thread(t2w_thread_func, ctx_omni, ctx_omni->params);
                 print_with_timestamp("create t2w thread success\n");
-            }
-        }
-
-        // ─── P1 KV Cache Reuse: safe save freshly computed system prompt ──
-        kv_cache_system_prompt_done:
-        if (g_kv_cache_reuse_enabled && !kv_cache_loaded && !kv_cache_path_for_save.empty() && ctx_omni->n_past > 0) {
-            size_t saved = kv_cache_safe_save(
-                ctx_omni->ctx_llama, kv_cache_path_for_save,
-                kv_cache_key, 0);
-            if (saved > 0) {
-                print_with_timestamp("🔁 KV cache SAVED: %zu bytes to %s (n_past=%d, key=%s)\n",
-                                   saved, kv_cache_path_for_save.c_str(), ctx_omni->n_past, kv_cache_key.c_str());
-            } else {
-                print_with_timestamp("🔁 KV cache SAVE FAILED: %s (key=%s) — continuing without cache\n",
-                                   kv_cache_path_for_save.c_str(), kv_cache_key.c_str());
             }
         }
 
