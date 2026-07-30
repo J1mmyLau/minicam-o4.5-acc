@@ -223,9 +223,9 @@ FP16_TTS_EOS_DRAIN                = PASS
 ⬜ K1:  A/B/C Isolation + Corruption Evidence   (extract per-entry matrix from C7/C12 logs)
 ⬜ K2:  Reference Audio Key Safety              (ref_audio hash MUST enter key unconditionally)
 ✅ K3:  Entry Fingerprint + Header Validation   (full fingerprint beyond FNV-1a) → commit 37f31a7
-⬜ K4:  Atomic Save + Crash Safety              (tmp→fsync→rename, crash recovery)
-⬜ K5:  Thread Data Race Closeout               (prefill_done atomic, dual-owner elimination)
-⬜ K6:  Production Cache Directory Contract     (MAX_ENTRIES, MAX_BYTES, eviction, permissions)
+✅ K4:  Atomic Save + Crash Safety              (tmp→fsync→rename→fsync(parent_dir), crash tested) → commit c7b48da
+✅ K5:  Thread Data Race Closeout               (prefill_done/need_speek/speek_done → atomic, dead code removed) → commit 8d10aa2
+✅ K6:  Production Cache Directory Contract     (MAX_ENTRIES, MAX_SIZE_MB, eviction, perms, metrics) → commit 0a6147d
 ⬜ K7:  Fail-Open / Fail-Fast Boundary          (cache bypass on corruption, never false HIT)
 ⬜ K8:  FP16 E2E First-Audio A/B                (30 matched pairs, CACHE_DISABLED vs CACHE_HIT)
 ⬜ K9:  Final Binary Stability (150+)           (30 HIT + 20 MISS + 20 SWITCH + 10 CORRUPT + 20 TTS + 20 VIDEO + 10 DISCON + 10 RESTART + 10 DISABLED)
