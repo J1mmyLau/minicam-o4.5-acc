@@ -42,3 +42,6 @@
 ## 2026-07-29 19:45 | REVIEW | P4_FINAL_INTEGRATED_PERFORMANCE — KV cache HIT preserves Phase 3 performance (P50=0.250)
 ## 2026-07-29 19:46 | TAG | cann-flow-vocoder-aclgraph-kvcache-final-20260729 — all production gates closed
 ## 2026-07-29 19:50 | CHECKPOINT | G13_SUBMISSION_PACKAGE_FINAL — 13/14 PASS, 1 BLOCKED, 1 DEFERRED
+## 2026-07-30 03:22 | TEST | F2_F4_MATCHED_PAIRS — 30 OFF/HIT pairs launched
+## 2026-07-30 04:05 | RESULT | F2_F4_COMPLETE — 29/30 cache HIT, P50 diff +0.007, no RTF degradation
+## 2026-07-30 04:10 | EVIDENCE | F0-F7 RECONCILIATION COMPLETE — terminology corrected, gates counted, official benchmarks BLOCKED_EXTERNAL
