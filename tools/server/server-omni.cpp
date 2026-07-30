@@ -198,6 +198,12 @@ int main(int argc, char ** argv) {
         // voice clone / assistant prompt
         if (data.contains("voice_clone_prompt")) octx->omni_voice_clone_prompt = data["voice_clone_prompt"];
         if (data.contains("assistant_prompt")) octx->omni_assistant_prompt = data["assistant_prompt"];
+        // K2: propagate voice_audio to ref_audio_path for KV cache key safety.
+        // The cache key includes ctx_omni->ref_audio_path unconditionally.
+        // Without this propagation, different voice_audio values produce identical
+        // cache keys (always falling through to default_ref_audio.wav), causing
+        // false cache HITs across different voice clones.
+        if (!voice_audio.empty()) octx->ref_audio_path = voice_audio;
 
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
