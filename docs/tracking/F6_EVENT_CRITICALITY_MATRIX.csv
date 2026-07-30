@@ -1,0 +1,17 @@
+event,text-only,audio-understanding,image,video,video+audio,TTS,is_critical,allow_missing_condition
+R0,required,required,required,required,required,required,true,never — always first event in stream_decode
+P0,required,required,required,required,required,required,false,missing instrumentation; can be derived from D0-R0 gap in async mode
+P1,required,required,required,required,required,required,false,missing instrumentation; can be derived from D0-R0 gap in async mode
+D0,required,required,required,required,required,required,true,never — decode loop always begins
+D1,required,required,required,required,required,required,true,never — decode always has first step
+D2,required,required,required,required,required,required,true,never — decode always produces at least one token
+D3,optional,required,optional,optional,required,required,false,absent when no SPEAK token generated (text-only, image-understanding without speech response)
+G0,optional,required,optional,optional,required,required,false,absent when use_tts=false or TTS thread never wakes (no LLMOut pushed)
+G1,optional,required,optional,optional,required,required,false,absent when use_tts=false
+G2,optional,required,optional,optional,required,required,false,absent when use_tts=false
+G3,optional,required,optional,optional,required,required,false,absent when use_tts=false
+G4,optional,required,optional,optional,required,required,false,absent when use_tts=false or audio tokens < 28
+G5,optional,required,optional,optional,required,required,false,absent when use_tts=false or no T2W queue push
+Q0,optional,required,optional,optional,required,required,false,absent when use_tts=false or no T2W dequeued
+W0,optional,required,optional,optional,required,required,false,absent when use_tts=false or no WAV produced; REQUIRED when audio expected
+W1,optional,required,optional,optional,required,required,false,absent when use_tts=false or no audio emitted; REQUIRED when audio expected

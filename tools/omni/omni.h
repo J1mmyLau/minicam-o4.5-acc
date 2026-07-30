@@ -250,18 +250,69 @@ struct E2EStageTiming {
     int cannerror = 0;
     int crash = 0;
 
-    void record(E2EStage stage) {
-        if (!enabled || stage < 0 || stage >= STAGE_COUNT) return;
+    // Non-atomic — accessed only by the owning thread.
+    uint32_t tts_thread_generation = 0;
+    uint32_t t2w_thread_generation = 0;
+    // Monotonically increasing per-request epoch.
+    // Bumped by reset(). Workers snapshot this after their per-request wake-up.
+    // record() rejects writes whose generation does not match active_generation_id.
+    std::atomic<uint32_t> active_generation_id{0};
+
+    // Counters for stale-write detection (accumulate across requests, never reset).
+    std::atomic<uint32_t> stale_write_count{0};
+    std::atomic<uint32_t> cross_request_write_count{0};
+
+    // Generation-safe record.
+    // Returns true if timestamp was stored, false if generation mismatch (stale).
+    // generation_id: the epoch this caller believes is current.
+    //   Must be obtained from active_generation_id AFTER the caller's per-request
+    //   synchronisation point (e.g. after cv.wait return for worker threads,
+    //   or after reset() for the HTTP handler thread).
+    bool record(E2EStage stage, uint32_t generation_id) {
+        if (!enabled || stage < 0 || stage >= STAGE_COUNT) return false;
+
+        // Acquire: pairs with release in reset() so caller sees cleared timestamps.
+        uint32_t current_gen = active_generation_id.load(std::memory_order_acquire);
+        if (generation_id != current_gen) {
+            stale_write_count.fetch_add(1, std::memory_order_relaxed);
+            // If the caller's generation is behind, this is a cross-request late write.
+            if (generation_id < current_gen) {
+                cross_request_write_count.fetch_add(1, std::memory_order_relaxed);
+            }
+            return false;
+        }
+
         auto now = std::chrono::steady_clock::now().time_since_epoch();
+        // Release: pairs with acquire in elapsed_ms() / t0_ns() so the summary
+        // reader sees the complete timestamp after load != 0.
         timestamps_ns[stage].store(
             std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
-            std::memory_order_relaxed);
+            std::memory_order_release);
+        return true;
+    }
+
+    // Legacy record without generation guard.
+    // Uses the current generation at call time (racy for worker threads).
+    // Prefer record(stage, generation_id) when a stable epoch is available.
+    void record_unsafe(E2EStage stage) {
+        uint32_t gen = active_generation_id.load(std::memory_order_acquire);
+        (void)record(stage, gen);
+    }
+
+    // Snapshot the active generation for this caller.
+    // Call ONCE per request per thread after the thread's synchronisation point.
+    uint32_t capture_generation() const {
+        return active_generation_id.load(std::memory_order_acquire);
     }
 
     // Reset all timestamps for a new request.
-    // Must be called at the request boundary (start of stream_decode)
-    // so that load==0 once-guards fire correctly for every request.
+    // Bumps active_generation_id (release) to invalidate any in-flight record()
+    // calls from the previous generation.
+    // Must be called at the request boundary (start of stream_decode).
     void reset() {
+        // Release: pairs with acquire in record() so late workers see the new generation.
+        active_generation_id.fetch_add(1, std::memory_order_release);
+        // After releasing the new generation, clear timestamps.
         for (int i = 0; i < STAGE_COUNT; i++) {
             timestamps_ns[i].store(0, std::memory_order_relaxed);
         }
@@ -273,14 +324,14 @@ struct E2EStageTiming {
 
     // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
     int64_t elapsed_ms(E2EStage stage, int64_t t0_ns) const {
-        int64_t ts = timestamps_ns[stage].load(std::memory_order_relaxed);
+        int64_t ts = timestamps_ns[stage].load(std::memory_order_acquire);
         if (ts == 0) return -1;
         return (ts - t0_ns) / 1'000'000;
     }
 
     // Get t0 reference (request_received timestamp in ns)
     int64_t t0_ns() const {
-        return timestamps_ns[STAGE_request_received].load(std::memory_order_relaxed);
+        return timestamps_ns[STAGE_request_received].load(std::memory_order_acquire);
     }
 
     const char* stage_name(E2EStage s) const {
