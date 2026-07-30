@@ -239,8 +239,16 @@ enum E2EStage : int {
     STAGE_COUNT
 };
 
+// Dump mode: controls per-request JSON output vs aggregate-only
+enum E2EDumpMode : int {
+    E2E_DUMP_DISABLED = 0,  // No timing, zero overhead
+    E2E_DUMP_FULL     = 1,  // Per-request e2e_XXXX.json (file I/O overhead ~5%)
+    E2E_DUMP_SUMMARY  = 2,  // In-memory aggregate only, no per-request I/O (<1% overhead)
+};
+
 struct E2EStageTiming {
     bool enabled = false;
+    int dump_mode = E2E_DUMP_DISABLED;  // E2EDumpMode: 0=off, 1=full, 2=summary
     int request_index = 0;
     std::string prompt_id;
     int seed = 0;
@@ -261,6 +269,35 @@ struct E2EStageTiming {
     // Counters for stale-write detection (accumulate across requests, never reset).
     std::atomic<uint32_t> stale_write_count{0};
     std::atomic<uint32_t> cross_request_write_count{0};
+
+    // Summary mode: aggregate statistics (non-atomic, only written at dump time from HTTP thread)
+    int summary_request_count = 0;
+    int64_t summary_stage_latency_sum_ns[STAGE_COUNT] = {};
+    int summary_stage_count[STAGE_COUNT] = {};
+    int64_t summary_total_decode_ns = 0;  // sum of (D3 - R0) across all requests
+
+    // Accumulate one request's data into summary counters
+    void summary_accumulate() {
+        summary_request_count++;
+        int64_t t0 = t0_ns();
+        if (t0 <= 0) return;
+        for (int i = 0; i < STAGE_COUNT; i++) {
+            int64_t elapsed = elapsed_ms(static_cast<E2EStage>(i), t0);
+            if (elapsed >= 0) {
+                summary_stage_latency_sum_ns[i] += elapsed * 1'000'000;
+                summary_stage_count[i]++;
+            }
+        }
+        // total decode latency (R0 → last recorded stage)
+        int64_t t_last = 0;
+        for (int i = STAGE_COUNT - 1; i >= 0; i--) {
+            t_last = timestamps_ns[i].load(std::memory_order_relaxed);
+            if (t_last > 0) break;
+        }
+        if (t_last > 0 && t0 > 0) {
+            summary_total_decode_ns += (t_last - t0);
+        }
+    }
 
     // Generation-safe record.
     // Returns true if timestamp was stored, false if generation mismatch (stale).

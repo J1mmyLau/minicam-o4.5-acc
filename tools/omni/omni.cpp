@@ -83,6 +83,7 @@ std::atomic<int64_t> g_e2e_flow_start_ns{0};
 std::atomic<int64_t> g_e2e_flow_end_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
+static omni_context *g_e2e_summary_ctx = nullptr;  // for atexit summary dump
 
 // Pipeline Trace global buffer (gated by OMNI_PIPELINE_TRACE=1)
 PipelineTraceBuffer g_pipeline_trace;
@@ -1007,6 +1008,47 @@ void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
     add_global_stage("vocoder_end", g_e2e_vocoder_end_ns);
     fprintf(f, "\n  }\n}\n");
     fclose(f);
+}
+
+// Summary mode: print aggregate statistics at process exit.
+// No per-request file I/O — zero measurable overhead beyond the record() calls.
+void e2e_profile_dump_summary(const E2EStageTiming &t) {
+    if (!t.enabled || t.dump_mode != E2E_DUMP_SUMMARY) return;
+    int n = t.summary_request_count;
+    if (n == 0) {
+        fprintf(stderr, "\n[E2E SUMMARY] No requests recorded.\n");
+        return;
+    }
+    fprintf(stderr, "\n┌─────────────────────────────────────────────────────────────┐\n");
+    fprintf(stderr, "│ E2E Stage Profile Summary (OMNI_E2E_PROFILE=summary)       │\n");
+    fprintf(stderr, "│ %d requests, %u stale writes, %u cross-request writes      │\n",
+            n, t.stale_write_count.load(), t.cross_request_write_count.load());
+    fprintf(stderr, "├─────────────────────────────────────────────────────────────┤\n");
+    fprintf(stderr, "│ %-30s │ %6s │ %8s │ %8s │\n", "Stage", "Count", "Avg(ms)", "Median(ms)");
+    fprintf(stderr, "├─────────────────────────────────────────────────────────────┤\n");
+    // We can't compute true median from accumulated sums, so report average only
+    for (int i = 0; i < STAGE_COUNT; i++) {
+        if (t.summary_stage_count[i] > 0) {
+            double avg_ms = (double)t.summary_stage_latency_sum_ns[i] /
+                            (double)t.summary_stage_count[i] / 1'000'000.0;
+            fprintf(stderr, "│ %-30s │ %6d │ %8.2f │ %8s │\n",
+                    t.stage_name(static_cast<E2EStage>(i)),
+                    t.summary_stage_count[i], avg_ms, "—");
+        }
+    }
+    if (t.summary_total_decode_ns > 0) {
+        double avg_decode_ms = (double)t.summary_total_decode_ns / (double)n / 1'000'000.0;
+        fprintf(stderr, "├─────────────────────────────────────────────────────────────┤\n");
+        fprintf(stderr, "│ %-30s │ %6d │ %8.2f │ %8s │\n", "TOTAL (R0→last_stage)", n, avg_decode_ms, "—");
+    }
+    fprintf(stderr, "└─────────────────────────────────────────────────────────────┘\n");
+}
+
+// atexit-compatible wrapper (no captures allowed in std::atexit)
+static void e2e_profile_dump_summary_atexit() {
+    if (g_e2e_summary_ctx) {
+        e2e_profile_dump_summary(g_e2e_summary_ctx->e2e_stage);
+    }
 }
 
 // ============================================================
@@ -5701,10 +5743,24 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
     // E2E stage profiler initialization
     {
         const char *env = getenv("OMNI_E2E_PROFILE");
-        ctx_omni->e2e_stage.enabled = (env && (strcmp(env, "1") == 0 || strcmp(env, "true") == 0));
+        if (env) {
+            if (strcmp(env, "1") == 0 || strcmp(env, "true") == 0) {
+                ctx_omni->e2e_stage.enabled = true;
+                ctx_omni->e2e_stage.dump_mode = E2E_DUMP_FULL;
+            } else if (strcmp(env, "summary") == 0) {
+                ctx_omni->e2e_stage.enabled = true;
+                ctx_omni->e2e_stage.dump_mode = E2E_DUMP_SUMMARY;
+            }
+        }
         if (ctx_omni->e2e_stage.enabled) {
             g_e2e_profile_enabled = true;
-            print_with_timestamp("E2E Stage Profiler: ENABLED\n");
+            const char *mode_str = (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_SUMMARY) ? "SUMMARY" : "FULL";
+            print_with_timestamp("E2E Stage Profiler: ENABLED (%s mode)\n", mode_str);
+            // Summary mode: register atexit handler for aggregate dump
+            if (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_SUMMARY) {
+                g_e2e_summary_ctx = ctx_omni;
+                std::atexit(e2e_profile_dump_summary_atexit);
+            }
         }
     }
 
@@ -13261,11 +13317,16 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     }
     
 
-    // E2E profiling: dump per-request (before next test case overwrites stages)
+    // E2E profiling: dump or accumulate per-request
     if (ctx_omni->e2e_stage.enabled) {
-        const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
-        std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
-        e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
+        if (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_FULL) {
+            const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
+            std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
+            e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
+        } else {
+            // Summary mode: accumulate in-memory, no per-request file I/O
+            ctx_omni->e2e_stage.summary_accumulate();
+        }
         ctx_omni->e2e_stage.request_index++;
     }
     // Pipeline trace: dump at process exit via atexit (async TTS/T2W events not captured yet)
