@@ -162,13 +162,16 @@
 - User input in cache: NO — guarded by system_prompt_initialized flag
 - Report: docs/tracking/C4_KV_CACHE_BOUNDARY_AUDIT.md
 
-## 2026-07-30 12:35 | GATE | C13_KV_CACHE_PERFORMANCE_PASS
+## 2026-07-30 12:35 | GATE | C13_KV_PREFIX_STAGE_PERFORMANCE_PASS
 - 15 HIT + 15 MISS matched pairs + 10 alternating, all OK
-- HIT: mean=76.1ms, p50=75.9ms, p95=81.5ms
-- MISS: mean=220.0ms, p50=220.6ms, p95=224.9ms
-- Speedup: 2.9× (Δ=144ms) — system prompt compute time saved
-- NOTE: C7 showed 7.9× (582ms→74ms) because C7 MISS included model loading in omni_init
-- Pure system-prompt-computation saving: 144ms per request
+- FP16_ASYNC_KV_PREFIX_STAGE_HIT_MEAN_MS = 76.1
+- FP16_ASYNC_KV_PREFIX_STAGE_MISS_MEAN_MS = 220.0
+- FP16_ASYNC_KV_PREFIX_STAGE_SAVING_MS = 144
+- FP16_ASYNC_KV_PREFIX_STAGE_SPEEDUP ≈ 2.9×
+- FP16_ASYNC_KV_PREFIX_STAGE_REDUCTION ≈ 65.5%
+- ⚠️  This is PREFIX-STAGE only (system prompt processing), NOT request-to-first-audio
+- ⚠️  The original 59% was ORIGINAL_Q4_REQUEST_TO_FIRST_AUDIO_REDUCTION on a different workload
+- FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO = PENDING_REMEASUREMENT
 - Report: /tmp/c13_kv_perf/c13_results.json
 
 ## 2026-07-30 12:40 | PILOT | C8_SHALLOW_BENCHMARK_CONDITIONAL
@@ -181,7 +184,13 @@
   - /workspace/benchmarks/Video-MME/ repo cloned, evaluation scripts present, no videos
 - Gate: CONDITIONAL_PASS — pipeline functional, accuracy evaluation blocked on data + adapter maturity
 
-## 2026-07-30 12:30 | GATE | C12_THREAD_LIFECYCLE_REGRESSION_PASS
+## 2026-07-30 13:15 | GATE | K3_ENTRY_FINGERPRINT_PASS
+- KV_CACHE_VERSION bumped 1→2, 112-byte fingerprint block added
+- Fields: model size+head/tail hash, LLM params (n_ctx/batch/ubatch), system prompt hash, ref_audio hash+size+sample_rate+channels, n_past
+- Self-verifying CRC32; V1 cache auto-invalidated via version-bumped key
+- Cache file verified: magic=0x4B434D4F, version=2, fingerprint=112 bytes
+- MISS→SAVE path confirmed; key differs from V1 (1dc2a059 vs 21aeb5cc)
+- Commit: 37f31a7, libomni.so: 0ba7d109
 - 60/60 requests: 20 HIT + 10 MISS + 10 A/B/C SWITCH + 5 CORRUPT + 10 TTS + 5 DISCON
 - 0 failures, 0 CANN errors, 0 crashes, server alive
 - HIT avg=76ms, MISS avg=90ms, SWITCH avg=75ms, CORRUPT avg=132ms, TTS avg=83ms, DISCON avg=77ms

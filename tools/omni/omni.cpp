@@ -12,6 +12,8 @@
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 
+#include <fcntl.h>   // K4: O_RDONLY, O_DIRECTORY for parent dir fsync
+
 #ifdef GGML_USE_CUDA
 #include "ggml-cuda.h"
 #endif
@@ -613,12 +615,22 @@ static size_t kv_cache_safe_save(
     }
     fclose(fc);
 
-    // Step 4: Atomic rename
+    // Step 4: Atomic rename + parent directory fsync for durability
     if (rename(tmp_composite.c_str(), final_path.c_str()) != 0) {
         print_with_timestamp("🔁 KV cache: atomic rename failed: %s → %s (errno=%d)\n",
                            tmp_composite.c_str(), final_path.c_str(), errno);
         unlink(tmp_composite.c_str());
         return 0;
+    }
+    // K4: fsync parent directory to ensure rename is durable on disk.
+    // Without this, a crash after rename can lose the directory entry,
+    // leaving the cache in an inconsistent state (temp file may still exist).
+    {
+        int dir_fd = open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+        if (dir_fd >= 0) {
+            fsync(dir_fd);
+            close(dir_fd);
+        }
     }
 
     // Step 5: Clean up any stale temp files in the directory

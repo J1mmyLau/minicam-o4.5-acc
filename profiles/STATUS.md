@@ -93,6 +93,38 @@ FP16_KV_CACHE_GATE                       = PASS (C7: 9/9 OK, 3 keys, corruption�
 FP16_CLEAN_BUILD_PASS                    = PASS (llama-omni-server + libomni.so built 2026-07-30)
 ```
 
+### KV Cache Performance Metrics (CORRECTED — must not conflate)
+
+```
+ORIGINAL_Q4_REQUEST_TO_FIRST_AUDIO_REDUCTION = 59.0% on earlier frozen Q4_K_M workload
+  (30 matched pairs, p50=9642ms, 95% CI [8742, 11470])
+
+FP16_ASYNC_KV_PREFIX_STAGE_MISS_MEAN_MS      = 220
+FP16_ASYNC_KV_PREFIX_STAGE_HIT_MEAN_MS       = 76
+FP16_ASYNC_KV_PREFIX_STAGE_SAVING_MS         = 144
+FP16_ASYNC_KV_PREFIX_STAGE_REDUCTION         ≈ 65.5%
+FP16_ASYNC_KV_PREFIX_STAGE_SPEEDUP           ≈ 2.9×
+
+FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO         = PENDING_REMEASUREMENT
+  ⚠️  Prefix-stage 2.9× measures system-prompt processing only.
+  NOT the original 59% request-to-first-audio metric.
+  NOT an RTF improvement claim.
+  NOT an official benchmark score.
+```
+
+### KV Cache Key Safety
+
+```
+KV_CACHE_KEY_SAFETY = CONDITIONAL
+  Current: reference audio embedding IS in cached state
+           BUT reference audio hash is ONLY in key when OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1
+  Risk:   cache state contains Voice A, key doesn't include Voice A
+           → Voice B request gets false HIT to Voice A cache
+  Required: ref_audio hash MUST unconditionally enter cache key
+            OR cache must be bypassed when ref_audio hash unavailable
+  Gate:    unsafe_key_hit = 0
+```
+
 ### Data / External
 
 ```
@@ -186,11 +218,22 @@ FP16_TTS_EOS_DRAIN                = PASS
 ✅ C4:  KV Cache Boundary Audit               → COMPLETE (10/10 Q answered, docs/tracking/C4_KV_CACHE_BOUNDARY_AUDIT.md)
 ✅ C6:  Thread Ownership Audit                 → COMPLETE (dual-owner TTS/T2W found, docs/tracking/C6_THREAD_OWNERSHIP_AUDIT.md)
 ✅ C12: Thread Lifecycle Regression            → PASS (60/60: 20 HIT + 10 MISS + 10 SWITCH + 5 CORRUPT + 10 TTS + 5 DISCON)
-✅ C13: KV Performance Comparison              → PASS (2.9× speedup: 220ms MISS→76ms HIT, 15+15 matched pairs)
+✅ C13: KV Prefix-Stage Performance             → PASS (FP16_ASYNC_KV_PREFIX_STAGE: MISS=220ms, HIT=76ms, saving=144ms, 2.9× stage speedup)
 ⬜ C8:  Shallow Benchmark Pilot                → CONDITIONAL_PASS (Daily-Omni pipeline OK, Seed-TTS/Video-MME blocked on data)
-⬜ C9:  Data + Evaluator Acquisition           (ModelScope, shared drives, mirrors)
-⬜ C10: FP16 Candidate Re-freeze               (new tag after all above pass)
-⬜ C14: Split Commits                          (fix + test + docs, not mixed)
+⬜ K1:  A/B/C Isolation + Corruption Evidence   (extract per-entry matrix from C7/C12 logs)
+⬜ K2:  Reference Audio Key Safety              (ref_audio hash MUST enter key unconditionally)
+✅ K3:  Entry Fingerprint + Header Validation   (full fingerprint beyond FNV-1a) → commit 37f31a7
+⬜ K4:  Atomic Save + Crash Safety              (tmp→fsync→rename, crash recovery)
+⬜ K5:  Thread Data Race Closeout               (prefill_done atomic, dual-owner elimination)
+⬜ K6:  Production Cache Directory Contract     (MAX_ENTRIES, MAX_BYTES, eviction, permissions)
+⬜ K7:  Fail-Open / Fail-Fast Boundary          (cache bypass on corruption, never false HIT)
+⬜ K8:  FP16 E2E First-Audio A/B                (30 matched pairs, CACHE_DISABLED vs CACHE_HIT)
+⬜ K9:  Final Binary Stability (150+)           (30 HIT + 20 MISS + 20 SWITCH + 10 CORRUPT + 20 TTS + 20 VIDEO + 10 DISCON + 10 RESTART + 10 DISABLED)
+⬜ K10: Freeze Runtime Candidate Tag            (fp16-async-kv-production-candidate-20260730)
+⬜ K11: Benchmark Assets (independent)           (Daily-Omni, Seed-TTS, Video-MME data + evaluators)
+
+FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO = PENDING_REMEASUREMENT
+⚠️  C13 prefix-stage 2.9× ≠ original 59% request-to-first-audio reduction
 ```
 
 ---
