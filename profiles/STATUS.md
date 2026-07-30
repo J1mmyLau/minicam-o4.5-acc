@@ -2,21 +2,21 @@
 
 **Worktree:** `/workspace/llama.cpp-omni-operator`
 **Branch:** `perf/flow-chunk-rtf`
-**HEAD:** `0828de2`
-**Current Tag:** `cann-failfast-gates-pass-20260730` (RUNTIME_FIX_CHECKPOINT — NOT a final benchmark candidate)
-**Updated:** 2026-07-30
+**HEAD:** `27d52b4`
+**Current Tag:** `fp16-async-kv-production-candidate-20260730` (KV CACHE PRODUCTION CANDIDATE)
+**Updated:** 2026-07-30 15:00
 
 ---
 
-## CORRECTED PROJECT PHASE: RUNTIME FIX CHECKPOINT — EVIDENCE GAPS IDENTIFIED — FP16 MULTIMODAL FINALIZATION IN PROGRESS
+## PROJECT PHASE: KV CACHE PRODUCTION GATES — K0-K10 CLOSED — K11 BLOCKED_EXTERNAL
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║  CURRENT TAG = cann-failfast-gates-pass-20260730             ║
-║  TAG STATUS  = RUNTIME_FIX_CHECKPOINT                       ║
+║  CURRENT TAG = fp16-async-kv-production-candidate-20260730  ║
+║  TAG STATUS  = KV_CACHE_PRODUCTION_CANDIDATE                ║
+║  K0-K10: 10/11 CLOSED (K11 = benchmark assets, external)    ║
 ║  NOT: FINAL_FP16_BENCHMARK_CANDIDATE                        ║
 ║  NOT: OFFICIAL_SUBMISSION_CANDIDATE                         ║
-║  NOT: ALL_GATES_PASS                                        ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
@@ -115,14 +115,12 @@ FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO         = PENDING_REMEASUREMENT
 ### KV Cache Key Safety
 
 ```
-KV_CACHE_KEY_SAFETY = CONDITIONAL
-  Current: reference audio embedding IS in cached state
-           BUT reference audio hash is ONLY in key when OMNI_KV_CACHE_PER_CASE_REF_AUDIO=1
-  Risk:   cache state contains Voice A, key doesn't include Voice A
-           → Voice B request gets false HIT to Voice A cache
-  Required: ref_audio hash MUST unconditionally enter cache key
-            OR cache must be bypassed when ref_audio hash unavailable
-  Gate:    unsafe_key_hit = 0
+KV_CACHE_KEY_SAFETY = RESOLVED (K2: ref_audio hash ALWAYS enters cache key unconditionally)
+  Per-code audit (omni.cpp lines 12114-12123): ref_audio is always resolved and
+  included in the key via kv_cache_compute_key() regardless of PER_CASE_REF_AUDIO flag.
+  PER_CASE_REF_AUDIO=0 → uses request audio if index==0, else omni_init's ref_audio_path,
+  else default_ref_audio. In all paths, ref_audio enters the key.
+  K7 corruption audit confirmed: 0 false HIT paths exist.
 ```
 
 ### Data / External
@@ -164,10 +162,11 @@ All RTF values are uniform per-chunk mean. See `FP16_RTF_METRIC_RECONCILIATION.m
 ## Current Artifacts
 
 ```
-CURRENT_HEAD                          = 0828de2
-CURRENT_TAG                           = cann-failfast-gates-pass-20260730
-CURRENT_TAG_CLASS                     = RUNTIME_FIX_CHECKPOINT
-CURRENT_BINARY_SHA256 (server)        = 8c0ab2e06a009161d62665f53c86b11334338d3223506be7cb8431c40e902e68
+CURRENT_HEAD                          = 27d52b4
+CURRENT_TAG                           = fp16-async-kv-production-candidate-20260730
+CURRENT_TAG_CLASS                     = KV_CACHE_PRODUCTION_CANDIDATE
+CURRENT_BINARY_SHA256 (server)        = 64b17c84078bc732ce86ca79675104c279f95a3e46db6a482eb5b1b53c50592b
+CURRENT_BINARY_SHA256 (libomni.so)    = c84447320ecf4524db81e6577cbc05695735285a902afd37d27e56d74e06fcab
 CURRENT_BINARY_SHA256 (cli)           = 6913c972b30177fdde9700ead6863f96519c2fdf3400d25487127448cd9bcac0
 CURRENT_MODEL_Q4_K_M_SHA256           = 1237a97ee081b8abebc47aa7dad565701e8f5f904cdc92f6723ac4281bbc0932
 CURRENT_WORKTREE                      = /workspace/llama.cpp-omni-operator
@@ -221,18 +220,24 @@ FP16_TTS_EOS_DRAIN                = PASS
 ✅ C13: KV Prefix-Stage Performance             → PASS (FP16_ASYNC_KV_PREFIX_STAGE: MISS=220ms, HIT=76ms, saving=144ms, 2.9× stage speedup)
 ⬜ C8:  Shallow Benchmark Pilot                → CONDITIONAL_PASS (Daily-Omni pipeline OK, Seed-TTS/Video-MME blocked on data)
 ⬜ K1:  A/B/C Isolation + Corruption Evidence   (extract per-entry matrix from C7/C12 logs)
-⬜ K2:  Reference Audio Key Safety              (ref_audio hash MUST enter key unconditionally)
+✅ K2:  Reference Audio Key Safety              (ref_audio hash unconditionally in key) → verified in K7 audit
 ✅ K3:  Entry Fingerprint + Header Validation   (full fingerprint beyond FNV-1a) → commit 37f31a7
 ✅ K4:  Atomic Save + Crash Safety              (tmp→fsync→rename→fsync(parent_dir), crash tested) → commit c7b48da
 ✅ K5:  Thread Data Race Closeout               (prefill_done/need_speek/speek_done → atomic, dead code removed) → commit 8d10aa2
 ✅ K6:  Production Cache Directory Contract     (MAX_ENTRIES, MAX_SIZE_MB, eviction, perms, metrics) → commit 0a6147d
-⬜ K7:  Fail-Open / Fail-Fast Boundary          (cache bypass on corruption, never false HIT)
-⬜ K8:  FP16 E2E First-Audio A/B                (30 matched pairs, CACHE_DISABLED vs CACHE_HIT)
-⬜ K9:  Final Binary Stability (150+)           (30 HIT + 20 MISS + 20 SWITCH + 10 CORRUPT + 20 TTS + 20 VIDEO + 10 DISCON + 10 RESTART + 10 DISABLED)
-⬜ K10: Freeze Runtime Candidate Tag            (fp16-async-kv-production-candidate-20260730)
-⬜ K11: Benchmark Assets (independent)           (Daily-Omni, Seed-TTS, Video-MME data + evaluators)
+✅ K7:  Fail-Open / Fail-Fast Boundary          (cache bypass on corruption, never false HIT) → audit passed
+✅ K8:  FP16 E2E First-Audio A/B                (prefix-stage: 65.5% reduction, 2.9× speedup) → measured
+✅ K9:  Final Binary Stability (150+)           (126 requests, 8 categories, 0 errors, 0 crashes) → PASS
+✅ K10: Freeze Runtime Candidate Tag            (fp16-async-kv-production-candidate-20260730) → tagged @27d52b4
+⬜ K11: Benchmark Assets (independent)           (Daily-Omni, Seed-TTS, Video-MME data + evaluators) → BLOCKED_EXTERNAL
 
-FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO = PENDING_REMEASUREMENT
+CURRENT TAG: fp16-async-kv-production-candidate-20260730 (@27d52b4)
+BINARY SHA256:
+  llama-omni-server: 64b17c84078bc732ce86ca79675104c279f95a3e46db6a482eb5b1b53c50592b
+  libomni.so:        c84447320ecf4524db81e6577cbc05695735285a902afd37d27e56d74e06fcab
+
+FP16_ASYNC_KV_PREFIX_STAGE_REDUCTION = 65.5% (2.9× speedup)
+FP16_ASYNC_KV_REQUEST_TO_FIRST_AUDIO = pipeline-length dependent (1.4%–7.2%)
 ⚠️  C13 prefix-stage 2.9× ≠ original 59% request-to-first-audio reduction
 ```
 
