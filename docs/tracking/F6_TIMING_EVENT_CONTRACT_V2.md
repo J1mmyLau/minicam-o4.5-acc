@@ -6,6 +6,21 @@
 
 ---
 
+## Event Count
+
+```
+Total neutral events: 16
+
+R0                                  1
+P0, P1                              2
+D0, D1, D2, D3                      4
+G0, G1, G2, G3, G4, G5             6
+Q0                                  1
+W0, W1                              2
+                              ----------
+                               TOTAL 16
+```
+
 ## Design Principles
 
 1. **Neutral naming**: Events describe WHAT happened (hardware-observable), not WHY or WHERE
@@ -13,6 +28,7 @@
 3. **Per-request correctness**: All events must fire correctly for EVERY request, not just the first
 4. **Thread-tagged**: Every event belongs to exactly one thread
 5. **Composable**: Downstream metrics are derived from event pairs, not embedded in events
+6. **Generation-safe**: Stale worker writes from request N are rejected in request N+1
 
 ---
 
