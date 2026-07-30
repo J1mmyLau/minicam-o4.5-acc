@@ -231,6 +231,11 @@ enum E2EStage : int {
     STAGE_wav_ready,
     STAGE_client_first_audio,
     STAGE_request_done,
+    // F6: decode→first-speak instrumentation (S9)
+    STAGE_decode_loop_begin,           // 16 — D0: decode loop begins after prefill complete
+    STAGE_llm_first_decode_step,       // 17 — D1: first autoregressive llama_decode call
+    STAGE_tts_wake,                    // 18 — G0: TTS thread wakes from cv.wait
+    STAGE_tts_first_decode,            // 19 — G2: first TTS llama_decode call
     STAGE_COUNT
 };
 
@@ -251,6 +256,19 @@ struct E2EStageTiming {
         timestamps_ns[stage].store(
             std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
             std::memory_order_relaxed);
+    }
+
+    // Reset all timestamps for a new request.
+    // Must be called at the request boundary (start of stream_decode)
+    // so that load==0 once-guards fire correctly for every request.
+    void reset() {
+        for (int i = 0; i < STAGE_COUNT; i++) {
+            timestamps_ns[i].store(0, std::memory_order_relaxed);
+        }
+        talker_token_count = 0;
+        no_speech = false;
+        cannerror = 0;
+        crash = 0;
     }
 
     // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
@@ -283,6 +301,10 @@ struct E2EStageTiming {
             case STAGE_wav_ready:                 return "wav_ready";
             case STAGE_client_first_audio:        return "client_first_audio";
             case STAGE_request_done:              return "request_done";
+            case STAGE_decode_loop_begin:         return "decode_loop_begin";
+            case STAGE_llm_first_decode_step:     return "llm_first_decode_step";
+            case STAGE_tts_wake:                  return "tts_wake";
+            case STAGE_tts_first_decode:          return "tts_first_decode";
             default: return "unknown";
         }
     }
