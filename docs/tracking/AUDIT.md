@@ -197,6 +197,38 @@
 - 4 cache files in /tmp/omni-kvcache/
 - Report: /tmp/c12_thread_regression/c12_results.json
 
+## 2026-07-30 13:45 | GATE | K4_ATOMIC_SAVE_CRASH_SAFETY_PASS
+- Atomic save sequence verified: tmp→flush→fsync→close→rename→fsync(parent_dir)
+- Parent directory fsync added after rename() for crash durability
+- Crash test 4/4 PASS: Save Integrity, Atomic Rename, Crash Recovery, Directory fsync
+- SIGKILL mid-save: no corrupt .bin survives, warm cache preserved
+- Commit: c7b48da
+
+## 2026-07-30 13:55 | GATE | K5_THREAD_DATA_RACE_CLOSEOUT_PASS
+- prefill_done: bool → std::atomic<bool> (LLM ↔ decode thread race fixed)
+- need_speek: volatile bool → std::atomic<bool> (decode → LLM thread race fixed)
+- speek_done: volatile bool → std::atomic<bool> (TTS cross-thread race fixed)
+- Dead global last_speek_done_flag removed
+- TTS/T2W dual-owner: joinable() guard sufficient, server serialized via octx_mutex
+- Smoke test: simplex + TTS modes, 0 crashes, 0 errors
+- Commit: 8d10aa2
+
+## 2026-07-30 13:50 | GATE | K6_CACHE_DIRECTORY_CONTRACT_PASS
+- MAX_ENTRIES (OMNI_KV_CACHE_MAX_ENTRIES, default 16) — LRU eviction by mtime
+- MAX_SIZE_MB (OMNI_KV_CACHE_MAX_SIZE_MB, default 1024) — oldest-first eviction
+- File permissions 0600, directory 0700 (model-derived data protection)
+- Extended metrics: evictions, max_entries, max_size_mb in kv_cache_print_stats
+- Disable switch (OMNI_KV_CACHE_REUSE=0) verified
+- Commit: 0a6147d
+
+## 2026-07-30 14:00 | GATE | K7_FAIL_OPEN_BOUNDARY_AUDIT_PASS
+- All cache error paths fail-open (return 0 → MISS → compute from scratch)
+- Corruption detection: magic, version, key_hash, fingerprint CRC, payload CRC, truncation
+- Never false HIT: requires ALL validations to pass (4-layer defense)
+- Corruption tested: bad magic, payload CRC mismatch, truncated file — all → MISS
+- Cache disabled switch: OMNI_KV_CACHE_REUSE=0 verified working
+- Server survives all corruption scenarios
+
 ## 2026-07-30 12:20 | AUDIT | C6_THREAD_OWNERSHIP_AUDIT_COMPLETE
 - LLM thread: SINGLE OWNER ✅ (stream_prefill line 11916)
 - TTS thread: DUAL OWNER ❌ (stream_prefill + stream_decode) — stream_decode site is dead code in server mode
