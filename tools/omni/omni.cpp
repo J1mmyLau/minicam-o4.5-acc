@@ -82,6 +82,76 @@ std::atomic<int64_t> g_e2e_flow_end_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
 
+// Pipeline Trace global buffer (gated by OMNI_PIPELINE_TRACE=1)
+PipelineTraceBuffer g_pipeline_trace;
+
+const char* pipeline_event_name(PipelineEvent e) {
+    switch (e) {
+        case PE_DECODE_BEGIN:       return "DECODE_BEGIN";
+        case PE_TOKEN_GENERATED:    return "TOKEN_GENERATED";
+        case PE_FIRST_SPEAK_TOKEN:  return "FIRST_SPEAK_TOKEN";
+        case PE_TTS_QUEUE_PUSH:     return "TTS_QUEUE_PUSH";
+        case PE_TTS_QUEUE_POP:      return "TTS_QUEUE_POP";
+        case PE_T2W_SUBMIT:         return "T2W_SUBMIT";
+        case PE_T2W_COMPLETE:       return "T2W_COMPLETE";
+        case PE_VOCODER_BEGIN:      return "VOCODER_BEGIN";
+        case PE_VOCODER_COMPLETE:   return "VOCODER_COMPLETE";
+        case PE_FIRST_AUDIO_READY:  return "FIRST_AUDIO_READY";
+        case PE_FIRST_AUDIO_EMIT:   return "FIRST_AUDIO_EMIT";
+        case PE_THREAD_WAIT_BEGIN:  return "THREAD_WAIT_BEGIN";
+        case PE_THREAD_WAIT_END:    return "THREAD_WAIT_END";
+        default:                    return "UNKNOWN";
+    }
+}
+
+void PipelineTraceBuffer::dump_csv(const std::string &dir, int request_index) const {
+    if (!enabled) return;
+    uint32_t n = count();
+    if (n == 0) return;
+
+    cross_platform_mkdir_p(dir);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/pipeline_trace_%04d.csv", dir.c_str(), request_index);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+
+    fprintf(f, "sequence_id,timestamp_ns,event_type,event_name,request_id,thread_id,"
+               "stage,queue_id,queue_depth,reason_code,data\n");
+    for (uint32_t i = 0; i < n; i++) {
+        const auto &e = entries[i];
+        fprintf(f, "%u,%lld,%u,%s,%u,%u,%u,%u,%u,%u,%u\n",
+            e.sequence_id, (long long)e.timestamp_ns, e.event_type,
+            pipeline_event_name((PipelineEvent)e.event_type),
+            e.request_id, e.thread_id, e.stage, e.queue_id,
+            e.data, e.reason_code, e.data);
+    }
+    fclose(f);
+
+    // Summary JSON
+    snprintf(path, sizeof(path), "%s/pipeline_trace_%04d_summary.json", dir.c_str(), request_index);
+    f = fopen(path, "w");
+    if (!f) return;
+    uint32_t event_counts[PE_COUNT] = {0};
+    int64_t first_ns = 0, last_ns = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint8_t et = entries[i].event_type;
+        if (et < PE_COUNT) event_counts[et]++;
+        if (i == 0) first_ns = entries[i].timestamp_ns;
+        last_ns = entries[i].timestamp_ns;
+    }
+    fprintf(f, "{\"request_index\":%d,\"total_events\":%u,\"duration_ms\":%.1f,\"event_counts\":{",
+        request_index, n, (last_ns - first_ns) / 1e6);
+    bool first = true;
+    for (int i = 0; i < PE_COUNT; i++) {
+        if (event_counts[i] == 0) continue;
+        if (!first) fprintf(f, ",");
+        first = false;
+        fprintf(f, "\"%s\":%u", pipeline_event_name((PipelineEvent)i), event_counts[i]);
+    }
+    fprintf(f, "}}\n");
+    fclose(f);
+}
+
 // F005 retry statistics (file-level, accumulated across all chunks in a run)
 static int g_f005_stat_requests = 0;
 static int g_f005_stat_degen_detected = 0;
@@ -4900,12 +4970,25 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             const char * t2w_dev_env = getenv("OMNI_T2W_DEVICE");
             std::string device_token2mel = "cpu";
             if (t2w_dev_env && std::string(t2w_dev_env) == "cann-flow-only") {
-                // Worker-thread CANN backend: defer session init to t2w_thread_func_cpp.
-                // The worker will create its own CANN backend, avoiding the cross-thread
-                // ctx=NULL / device=-1 failure (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP).
-                device_token2mel = "gpu";  // Will be used inside worker
-                ctx_omni->token2wav_defer_worker_init = true;
-                print_with_timestamp("Token2Wav: CANN flow-only mode — deferring init to worker thread\n");
+                // P1 FAIL-FAST: Verify CANN registry is available before accepting
+                // the cann-flow-only configuration. If aclInit failed during startup,
+                // we must NOT silently fall back to CPU — the canonical candidate
+                // requires CANN for its RTF target.
+                ctx_omni->cann_registry_available = ggml_backend_cann_is_available();
+                if (!ctx_omni->cann_registry_available) {
+                    ctx_omni->cann_requested_but_unavailable = true;
+                    print_with_timestamp("Token2Wav: CANN flow-only requested (OMNI_T2W_DEVICE=%s) "
+                                         "but CANN registry is UNAVAILABLE (aclInit failed)\n", t2w_dev_env);
+                    print_with_timestamp("Token2Wav: FAIL-FAST — refusing to silently fall back to CPU. "
+                                         "The canonical CANN candidate requires a working CANN runtime.\n");
+                } else {
+                    // Worker-thread CANN backend: defer session init to t2w_thread_func_cpp.
+                    // The worker will create its own CANN backend, avoiding the cross-thread
+                    // ctx=NULL / device=-1 failure (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP).
+                    device_token2mel = "gpu";  // Will be used inside worker
+                    ctx_omni->token2wav_defer_worker_init = true;
+                    print_with_timestamp("Token2Wav: CANN flow-only mode — deferring init to worker thread\n");
+                }
             } else {
                 print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，flow_matching暂用CPU\n");
             }
@@ -4935,6 +5018,32 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 print_with_timestamp("Token2Wav: no GPU backend, vocoder using CPU for better performance\n");
 #endif
             }
+
+            // P1 FAIL-FAST: Auditing Vocoder CANN requirements.
+            // When OMNI_VOC_DEVICE=gpu is set (canonical candidate configuration),
+            // CANN registry must be available. Silently falling back to CPU
+            // would violate the RTF target of the canonical configuration.
+            #ifdef GGML_USE_CANN
+            {
+                const char * voc_dev = getenv("OMNI_VOC_DEVICE");
+                if (voc_dev && device_vocoder.find("gpu") == 0) {
+                    // Vocoder explicitly requested GPU via CANN
+                    if (ctx_omni->cann_registry_available) {
+                        print_with_timestamp("Token2Wav: vocoder CANN GPU OK (registry available)\n");
+                    } else if (!ctx_omni->cann_registry_available && !ctx_omni->cann_requested_but_unavailable) {
+                        // CANN registry check wasn't done for flow (flow is cpu),
+                        // so check it here for vocoder alone
+                        ctx_omni->cann_registry_available = ggml_backend_cann_is_available();
+                    }
+                    if (!ctx_omni->cann_registry_available) {
+                        ctx_omni->cann_requested_but_unavailable = true;
+                        print_with_timestamp("Token2Wav: FAIL-FAST — OMNI_VOC_DEVICE=%s requested "
+                                             "but CANN registry is UNAVAILABLE. "
+                                             "Refusing to silently fall back to CPU.\n", voc_dev);
+                    }
+                }
+            }
+            #endif
             
             // 🔧 优先使用 prompt_bundle (setup_cache 路径)，否则 fallback 到 prompt_cache.gguf
             std::string prompt_bundle_dir = "tools/omni/assets/default_ref_audio";
@@ -5002,12 +5111,27 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             }
             // Fallback to CPU
             if (!init_ok) {
-                print_with_timestamp("Token2Wav: GPU init failed, trying CPU mode...\n");
-                ctx_omni->token2wav_session.reset();
-                ctx_omni->token2wav_session = std::make_unique<omni::flow::Token2WavSession>();
-                init_ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
-                        encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
-                        vocoder_gguf, "cpu", "cpu", 5, 1.0f);
+                // P1 FAIL-FAST: When CANN was explicitly requested, do NOT silently
+                // fall back to CPU. The canonical candidate's RTF target depends on
+                // CANN acceleration.
+                if (ctx_omni->cann_requested_but_unavailable) {
+                    print_with_timestamp("Token2Wav: FATAL — CANN was requested but is UNAVAILABLE. "
+                                         "GPU init failed and silent CPU fallback is FORBIDDEN "
+                                         "for the canonical CANN candidate. "
+                                         "cpu_fallback_count=%d\n", ctx_omni->cpu_fallback_count);
+                    // init_ok stays false → omni_init will fail and caller (server) will
+                    // return an error. This is the correct behavior: the canonical
+                    // configuration must not silently degrade.
+                } else {
+                    ctx_omni->cpu_fallback_count++;
+                    print_with_timestamp("Token2Wav: GPU init failed, trying CPU mode... "
+                                         "(cpu_fallback_count=%d)\n", ctx_omni->cpu_fallback_count);
+                    ctx_omni->token2wav_session.reset();
+                    ctx_omni->token2wav_session = std::make_unique<omni::flow::Token2WavSession>();
+                    init_ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
+                            encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
+                            vocoder_gguf, "cpu", "cpu", 5, 1.0f);
+                }
             }
             }  // end if (!defer_worker_init)
 
@@ -5193,6 +5317,21 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         if (ctx_omni->e2e_stage.enabled) {
             g_e2e_profile_enabled = true;
             print_with_timestamp("E2E Stage Profiler: ENABLED\n");
+        }
+    }
+
+    // Pipeline Trace initialization (gated, zero overhead when OFF)
+    {
+        const char *env = getenv("OMNI_PIPELINE_TRACE");
+        g_pipeline_trace.enabled = (env && (strcmp(env, "1") == 0 || strcmp(env, "true") == 0));
+        if (g_pipeline_trace.enabled) {
+            print_with_timestamp("Pipeline Trace: ENABLED (ring buffer %zu entries)\n",
+                                PipelineTraceBuffer::kMaxEntries);
+            std::atexit([]() {
+                const char *dir = getenv("OMNI_E2E_PROFILE_DIR");
+                std::string trace_dir = dir ? std::string(dir) + "/pipeline_trace" : "/tmp/pipeline_diag";
+                g_pipeline_trace.dump_csv(trace_dir, 0);
+            });
         }
     }
 
@@ -6385,10 +6524,18 @@ static bool generate_audio_tokens_local_simplex(
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                 ctx_omni->t2w_thread_info->queue.push(t2w_out);
             }
+            g_pipeline_trace.record(PE_TTS_QUEUE_PUSH,
+                (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                pipeline_thread_hash(),
+                (uint32_t)ctx_omni->t2w_thread_info->queue.size(),
+                1);
             ctx_omni->t2w_thread_info->cv.notify_one();
             // E2E profiling: record first T2W submit
             if (ctx_omni->e2e_stage.timestamps_ns[STAGE_t2w_submit].load(std::memory_order_relaxed) == 0) {
                 ctx_omni->e2e_stage.record(STAGE_t2w_submit);
+                g_pipeline_trace.record(PE_T2W_SUBMIT,
+                    (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                    pipeline_thread_hash());
             }
 
             print_with_timestamp("TTS Simplex Phase1: yield %d tokens 到 T2W (step %d, buffer=%zu)\n",
@@ -9932,12 +10079,34 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
             vocoder_gguf, flow_device, voc_device, 5, 1.0f);
         if (!ok) {
-            print_with_timestamp("[token2wav] worker-thread init FAILED — falling back to CPU\n");
-            ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
+            ctx_omni->cann_backend_init_failure = true;
+            // P1 FAIL-FAST: When CANN was explicitly requested (OMNI_T2W_DEVICE=cann-flow-only),
+            // backend init failure is fatal. The canonical candidate requires CANN;
+            // silently falling back to CPU would violate the RTF target.
+            if (ctx_omni->cann_requested_but_unavailable) {
+                print_with_timestamp("[token2wav] FATAL: CANN was requested but is UNAVAILABLE. "
+                                     "backend init failed and silent CPU fallback is FORBIDDEN "
+                                     "for the canonical CANN candidate.\n");
+                // Worker thread cannot exit the entire process, so we mark the
+                // failure and let the caller detect it. The server will return
+                // an error on the next TTS request instead of silently producing
+                // slow CPU audio.
+                ctx_omni->token2wav_initialized = false;
+                print_with_timestamp("[token2wav] worker-thread init ABORTED — CANN unavailable\n");
+                return;  // Exit worker thread without falling back to CPU
+            }
+            // Legacy path: CANN was not explicitly requested, CPU fallback is acceptable
+            ctx_omni->cpu_fallback_count++;
+            print_with_timestamp("[token2wav] worker-thread init FAILED — falling back to CPU "
+                                 "(cpu_fallback_count=%d)\n", ctx_omni->cpu_fallback_count);
+            ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
                 encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
                 vocoder_gguf, "cpu", "cpu", 5, 1.0f);
         }
-        ctx_omni->token2wav_initialized = true;
+        if (ok) {
+            ctx_omni->cann_backend_init_success = true;
+        }
+        ctx_omni->token2wav_initialized = ok;
         print_with_timestamp("[token2wav] worker-thread init complete\n");
     }
 
@@ -10011,14 +10180,24 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         }
         
         std::unique_lock<std::mutex> lock(mtx);
-        
+
         // Wait for queue to have data, EOS signal, or thread to stop
+        g_pipeline_trace.record(PE_THREAD_WAIT_BEGIN,
+            (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+            pipeline_thread_hash(),
+            (uint32_t)queue.size(), 1,
+            0, WAIT_QUEUE_EMPTY);
         cv.wait(lock, [&] {
             return !queue.empty()
                 || !t2w_thread_running
                 || ctx_omni->t2w_thread_info->eos_received.load(std::memory_order_relaxed)
                 || ctx_omni->break_event.load();
         });
+        g_pipeline_trace.record(PE_THREAD_WAIT_END,
+            (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+            pipeline_thread_hash(),
+            (uint32_t)queue.size(), 1,
+            0, WAIT_QUEUE_EMPTY);
         auto dequeue_time = std::chrono::steady_clock::now();
         // One-shot: record first dequeue
         if (ctx_omni->e2e_stage.timestamps_ns[STAGE_t2w_dequeue].load(std::memory_order_relaxed) == 0) {
@@ -10055,6 +10234,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         while (!queue.empty()) {
             T2WOut *t2w_out = queue.front();
             queue.pop();
+            g_pipeline_trace.record(PE_TTS_QUEUE_POP,
+                (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                pipeline_thread_hash(),
+                (uint32_t)queue.size(), 1);
             if (!have_enqueue_time || t2w_out->enqueue_time < oldest_enqueue_time) {
                 oldest_enqueue_time = t2w_out->enqueue_time;
                 have_enqueue_time = true;
@@ -10192,9 +10375,24 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             
             // Time the inference
             auto t2w_start = std::chrono::high_resolution_clock::now();
-            
+
             std::vector<float> chunk_wav;
+            // P12: per-chunk vocoder timing (flow+vocoder combined)
+            g_pipeline_trace.record(PE_VOCODER_BEGIN,
+                (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                pipeline_thread_hash(),
+                (uint32_t)window.size(),  // data = token count
+                1,  // queue_id = T2W
+                0,  // stage
+                (uint8_t)(wav_idx & 0xFF));  // reason_code = wav_idx
             if (ctx_omni->token2wav_session->feed_window(window, is_last_window, chunk_wav)) {
+                g_pipeline_trace.record(PE_VOCODER_COMPLETE,
+                    (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                    pipeline_thread_hash(),
+                    (uint32_t)chunk_wav.size(),  // data = audio samples
+                    1,  // queue_id = T2W
+                    0,  // stage
+                    (uint8_t)(wav_idx & 0xFF));  // reason_code = wav_idx
                 auto t2w_end = std::chrono::high_resolution_clock::now();
                 double t2w_ms = std::chrono::duration<double, std::milli>(t2w_end - t2w_start).count();
                 
@@ -10254,10 +10452,16 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         // One-shot: record first WAV ready
                         if (ctx_omni->e2e_stage.timestamps_ns[STAGE_wav_ready].load(std::memory_order_relaxed) == 0) {
                             ctx_omni->e2e_stage.record(STAGE_wav_ready);
+                            g_pipeline_trace.record(PE_FIRST_AUDIO_READY,
+                                (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                                pipeline_thread_hash());
                         }
 
                         if (wav_idx == 0) {
                             ctx_omni->e2e_stage.record(STAGE_client_first_audio);
+                            g_pipeline_trace.record(PE_FIRST_AUDIO_EMIT,
+                                (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                                pipeline_thread_hash());
                             // P7.3 P10: report both decode_to_first_audio and request_to_first_audio
                             auto req_elapsed = ctx_omni->request_start_time.time_since_epoch().count() > 0
                                 ? std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -11972,6 +12176,10 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         std::unique_lock<std::mutex> lock(ctx_omni->llm_thread_info->mtx);
         g_decode_cv.wait(lock, []{ return prefill_done; });
         prefill_done = false;
+        // Pipeline trace: decode loop starts (T2)
+        g_pipeline_trace.record(PE_DECODE_BEGIN,
+            (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+            pipeline_thread_hash());
     }
 
     // 🔧 [unit 记账] 现在 prefill 已经写完 KV、unit_history 里也已经
@@ -12203,6 +12411,9 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 OmniTokenType token_type = get_token_type(ctx_omni, sampled_token);
                 if (token_type == OmniTokenType::SPEAK) {
                     ctx_omni->e2e_stage.record(STAGE_speak_token);
+                    g_pipeline_trace.record(PE_FIRST_SPEAK_TOKEN,
+                        (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
+                        pipeline_thread_hash());
                 }
                 if (token_type != OmniTokenType::NORMAL) {
                 }
@@ -12612,6 +12823,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
         ctx_omni->e2e_stage.request_index++;
     }
+    // Pipeline trace: dump at process exit via atexit (async TTS/T2W events not captured yet)
     // F005 retry statistics: print at end of each request
     f005_print_retry_stats();
     kv_cache_print_stats();

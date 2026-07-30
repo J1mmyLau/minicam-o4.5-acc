@@ -137,6 +137,7 @@ int main(int argc, char ** argv) {
 
     // POST /v1/stream/omni_init
     svr.Post("/v1/stream/omni_init", [&](const httplib::Request & req, httplib::Response & res) {
+        try {
         json data = json::parse(req.body);
 
         if (!data.contains("msg_type") && !data.contains("media_type")) {
@@ -204,6 +205,13 @@ int main(int argc, char ** argv) {
         }
 
         res_ok(res, {{"success", true}});
+        } catch (const std::exception & e) {
+            LOG_ERR("omni_init exception: %s\n", e.what());
+            res_error(res, format_error_response(std::string("omni_init failed: ") + e.what()));
+        } catch (...) {
+            LOG_ERR("omni_init unknown exception\n");
+            res_error(res, format_error_response("omni_init failed: unknown exception"));
+        }
     });
 
     // POST /v1/stream/prefill

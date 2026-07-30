@@ -288,6 +288,106 @@ struct E2EStageTiming {
     }
 };
 
+// ============================================================================
+// Pipeline Trace — lightweight ring-buffer event recording
+// Controlled by OMNI_PIPELINE_TRACE=1 (default off, zero overhead)
+// Ring buffer: 8,192 entries × 32 bytes = 256KB, atomic push, no lock
+// Dump: per-request CSV at request completion (alongside E2E JSON)
+// ============================================================================
+
+enum PipelineEvent : uint8_t {
+    PE_DECODE_BEGIN       = 0,  // T2: LLM decode loop entered
+    PE_TOKEN_GENERATED    = 1,  // each LLM token produced (counter only)
+    PE_FIRST_SPEAK_TOKEN  = 2,  // first speak token detected
+    PE_TTS_QUEUE_PUSH     = 3,  // token batch pushed to TTS→T2W queue
+    PE_TTS_QUEUE_POP      = 4,  // token batch popped by T2W thread
+    PE_T2W_SUBMIT         = 5,  // T2W window submitted for processing
+    PE_T2W_COMPLETE       = 6,  // T2W window processing complete
+    PE_VOCODER_BEGIN      = 7,  // vocoder started
+    PE_VOCODER_COMPLETE   = 8,  // vocoder completed
+    PE_FIRST_AUDIO_READY  = 9,  // first WAV file ready
+    PE_FIRST_AUDIO_EMIT   = 10, // first audio emitted to client
+    PE_THREAD_WAIT_BEGIN  = 11, // thread about to wait on cv/queue
+    PE_THREAD_WAIT_END    = 12, // thread woke up from cv/queue
+    PE_COUNT
+};
+
+struct PipelineTraceEntry {
+    int64_t  timestamp_ns;   //  8 bytes — steady_clock monotonic timestamp
+    uint32_t sequence_id;    //  4 bytes — global sequence number
+    uint32_t data;           //  4 bytes — queue_depth, token_count, or duration_ms
+    uint16_t thread_id;      //  2 bytes — hashed thread id
+    uint16_t queue_id;       //  2 bytes — queue identifier (0=main, 1=tts, 2=t2w)
+    uint8_t  event_type;     //  1 byte  — PipelineEvent enum
+    uint8_t  request_id;     //  1 byte  — request index (low byte)
+    uint8_t  stage;          //  1 byte  — associated E2EStage context
+    uint8_t  reason_code;    //  1 byte  — event-specific reason
+    uint8_t  _pad[6];        //  6 bytes — padding (total = 32 bytes)
+};
+
+static_assert(sizeof(PipelineTraceEntry) == 32, "PipelineTraceEntry must be 32 bytes");
+
+// Thread wait reason codes (used as reason_code for PE_THREAD_WAIT_BEGIN/END)
+enum ThreadWaitReason : uint8_t {
+    WAIT_INPUT        = 0,  // waiting for upstream data
+    WAIT_QUEUE_EMPTY  = 1,  // waiting for queue to be non-empty
+    WAIT_QUEUE_FULL   = 2,  // waiting for queue to have space
+    WAIT_CONDVAR      = 3,  // generic condition variable wait
+    WAIT_JOIN         = 4,  // waiting for thread to join
+    WAIT_NPU          = 5,  // waiting for NPU completion
+    WAIT_UNKNOWN      = 99,
+};
+
+struct PipelineTraceBuffer {
+    static constexpr size_t kMaxEntries = 8192;
+    PipelineTraceEntry entries[kMaxEntries] = {};
+    std::atomic<uint32_t> write_index{0};
+    bool enabled = false;
+
+    void record(PipelineEvent event, uint8_t request_id, uint16_t thread_id,
+                uint32_t data = 0, uint16_t queue_id = 0,
+                uint8_t stage = 0, uint8_t reason = 0) {
+        if (!enabled) return;
+        uint32_t idx = write_index.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= kMaxEntries) return;  // silent drop — ring buffer full
+        auto now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+        entries[idx] = {
+            now_ns, idx, data, thread_id, queue_id,
+            (uint8_t)event, request_id, stage, reason,
+            {0, 0, 0, 0, 0, 0}
+        };
+    }
+
+    // Get current count (for dump range check)
+    uint32_t count() const {
+        uint32_t idx = write_index.load(std::memory_order_relaxed);
+        return idx <= kMaxEntries ? idx : kMaxEntries;
+    }
+
+    // Reset for next request (called after dump)
+    void reset() {
+        write_index.store(0, std::memory_order_relaxed);
+    }
+
+    // Dump to CSV file
+    void dump_csv(const std::string &dir, int request_index) const;
+};
+
+extern PipelineTraceBuffer g_pipeline_trace;
+
+// Helper: hash thread id to uint16_t for compact recording
+inline uint16_t pipeline_thread_hash() {
+    static thread_local uint16_t cached = 0;
+    if (cached == 0) {
+        std::hash<std::thread::id> hasher;
+        cached = (uint16_t)(hasher(std::this_thread::get_id()) & 0xFFFF);
+        if (cached == 0) cached = 1;  // reserve 0 for "unknown"
+    }
+    return cached;
+}
+
+const char* pipeline_event_name(PipelineEvent e);
+
 // Environment variable to enable profiling: OMNI_E2E_PROFILE=1
 // Output directory for per-request JSON: OMNI_E2E_PROFILE_DIR (default: base_output_dir/e2e_profile)
 extern bool g_e2e_profile_enabled;
@@ -574,6 +674,16 @@ struct omni_context {
     bool token2wav_initialized = false;
     std::string token2wav_model_dir;  // Directory containing token2wav GGUF models
     bool token2wav_defer_worker_init = false;  // CANN: defer init to worker thread
+
+    // ── P1 FAIL-FAST: CANN availability tracking ──────────────────
+    // Populated at omni_init() time. Used by the worker thread to
+    // decide whether to fail-fast (exit non-zero) vs silently fall
+    // back to CPU when the canonical CANN candidate is unavailable.
+    bool cann_registry_available       = false;  // aclInit succeeded, devices registered
+    bool cann_backend_init_success     = false;  // ggml_backend_cann_init(device) returned non-null
+    bool cann_backend_init_failure     = false;  // ggml_backend_cann_init(device) returned null
+    bool cann_requested_but_unavailable = false;  // OMNI_T2W_DEVICE=cann-flow-only but CANN missing
+    int  cpu_fallback_count            = 0;      // incremented each time a CANN→CPU fallback occurs
     
     // 🔧 [Python Token2Wav] 使用 Python stepaudio2 库实现的 Token2Wav
     // 设置为 true 时使用 Python 实现（精度更高），false 时使用 C++ 实现
