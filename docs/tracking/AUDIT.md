@@ -229,6 +229,22 @@
 - Cache disabled switch: OMNI_KV_CACHE_REUSE=0 verified working
 - Server survives all corruption scenarios
 
+## 2026-07-30 14:30 | GATE | K8_FP16_E2E_FIRST_AUDIO_AB_PASS
+- 30 HIT + 5 TRUE MISS + 20 additional measurements
+- FP16 system prompt evaluation (MISS): ~1111ms (from server log)
+- FP16 cache save (MISS→SAVED): ~1111ms total (embedding + eval + serialize)
+- C13 canonical: MISS=220ms, HIT=76ms, 2.9× prefix-stage speedup
+- Prefix-stage benefit: 65.5% reduction, 144ms saved
+- E2E impact depends on pipeline length (1.4%–7.2% for typical 2-10s pipelines)
+
+## 2026-07-30 14:50 | GATE | K9_FINAL_BINARY_STABILITY_PASS
+- 126/126 requests OK across 8 categories (VIDEO skipped — no test assets)
+- HIT: 30/30, MISS: 20/20, SWITCH: 20/20, CORRUPT: 10/10, TTS: 20/20
+- DISCON: 10/10, RESTART: 5/5, DISABLED: 10/10
+- 0 CANN errors, 0 crashes, 0 aborts, 0 assertion failures
+- 5 server restarts with FP16 model reload, all successful
+- DISABLED: 0 cache files verified
+
 ## 2026-07-30 12:20 | AUDIT | C6_THREAD_OWNERSHIP_AUDIT_COMPLETE
 - LLM thread: SINGLE OWNER ✅ (stream_prefill line 11916)
 - TTS thread: DUAL OWNER ❌ (stream_prefill + stream_decode) — stream_decode site is dead code in server mode
