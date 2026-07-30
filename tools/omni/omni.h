@@ -279,6 +279,14 @@ struct E2EStageTiming {
             if (generation_id < current_gen) {
                 cross_request_write_count.fetch_add(1, std::memory_order_relaxed);
             }
+            // Write sentinel to prevent once-guard (load==0 check) from retrying.
+            // Without this, the once-guard would pass on every loop iteration after
+            // reset() clears timestamps, causing stale_count to explode (e.g. 400+
+            // per request from a single worker retrying 8 stages × 50 iterations).
+            // -1 is a sentinel that the once-guard (load==0) treats as "already done".
+            // reset() clears all timestamps to 0, overwriting this sentinel for the
+            // next valid request.
+            timestamps_ns[stage].store(-1, std::memory_order_relaxed);
             return false;
         }
 
@@ -325,7 +333,9 @@ struct E2EStageTiming {
     // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
     int64_t elapsed_ms(E2EStage stage, int64_t t0_ns) const {
         int64_t ts = timestamps_ns[stage].load(std::memory_order_acquire);
-        if (ts == 0) return -1;
+        // 0 = not yet recorded (initial state, or cleared by reset()).
+        // <0 = sentinel (rejected stale write, or other negative marker).
+        if (ts <= 0) return -1;
         return (ts - t0_ns) / 1'000'000;
     }
 
