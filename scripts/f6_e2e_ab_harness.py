@@ -1130,6 +1130,7 @@ def cmd_w10_ab(args):
     )
 
     all_pairs = []
+    os.makedirs(args.output_dir, exist_ok=True)
     progress_csv = os.path.join(args.output_dir, "progress.csv")
     # Write progress CSV header
     with open(progress_csv, "w") as pf:
