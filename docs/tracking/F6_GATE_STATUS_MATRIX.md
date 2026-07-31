@@ -119,14 +119,33 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | W5 | Fix profile lifecycle (request-scoped) | ✅ PASS |
 | W6 | Define profile finalization state machine | ✅ PASS |
 | W7 | Low-risk implementation constraints | ✅ PASS |
-| W8 | W0 correctness smoke (30 requests) | ✅ PASS (5/5, 100% W0) |
-| W9 | Instrumentation overhead gate | ✅ PASS (<5ms decode, <50ms return) |
-| W10 | True B6b E2E matched A/B (120 pairs) | ⚠️ PARTIAL (infra validated, 5/120 pilot) |
-| W11 | Pass-through identity on same pairs | ✅ PASS (Δ=0ms, same clock) |
+| W8_SMOKE | W0 correctness smoke (5 requests) | ✅ PASS (5/5, 100% W0) |
+| W8_CORRECTNESS_30_PLUS | W0 correctness: 30+ requests, multi-category | **PENDING** |
+| W9_MICRO_OVERHEAD | Micro-level instrumentation overhead | ✅ PASS (~55ns/token, ~500μs/dump) |
+| W9_MATCHED_E2E_OVERHEAD | F6_TIMING=0 vs summary matched E2E overhead | **PENDING** |
+| W10 | True B6b E2E matched A/B (120 pairs) | **NOT_RUN** (5-pair pilot done, infra validated) |
+| W11_PROFILE_CONSISTENCY | Pass-through profile timestamp consistency | ✅ PASS (Δ=0ms, same clock, same atomic) |
+| W11_B6B_GAIN_TO_FIRST_WAV | B6b measured gain to first valid WAV | **NOT_MEASURED** |
 | W12 | Persist blind listening assets | ✅ PASS |
 | W13 | Update final gates | ✅ PASS |
-| W14 | Create observability fix tag | ⏳ IN_PROGRESS |
-| W15 | Update G3→G4 next-bottleneck handoff | PENDING |
+| W14 | Create observability fix tag | ✅ PASS (`fp16-f6-w0-observability-20260731` @ `31cba8d`) |
+| W15 | G3→G4 next-bottleneck handoff | ✅ PASS |
+
+### TRUE_E2E Gates (BLOCKED by W8_CORRECTNESS_30_PLUS + W11_B6B_GAIN)
+
+| Gate | Description | Status |
+|------|-------------|--------|
+| TRUE_D0_TO_W0_AB | D0→W0 matched A/B on 120 pairs | **NOT_RUN** |
+| TRUE_CLIENT_FIRST_AUDIO_AB | Client request→first audio frame matched A/B | **NOT_RUN** |
+| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved | **NOT_REACHED** |
+
+### Known Incorrect Claims Retracted
+
+| Claim | Previous | Corrected |
+|-------|----------|-----------|
+| "All W0-W15 gates resolved" | 31cba8d commit message | W8/30+, W9/matched, W11/gain, TRUE E2E still PENDING |
+| "120-pair requires multi-decode architecture" | W10-W11 doc, W15 doc | Sequential server restart (same binary, different env, ABBA order) is sufficient |
+| "E2E overhead gate PASS" (without matched pairs) | W9 doc | Micro overhead PASS; matched E2E overhead (F6_TIMING=0 vs summary) PENDING |
 
 ## NEXT_BOTTLENECK
 

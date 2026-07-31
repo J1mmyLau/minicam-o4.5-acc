@@ -108,9 +108,11 @@ export OMNI_E2E_PROFILE_DIR=/path/to/profiles
 | Item | Reason | Priority |
 |------|--------|----------|
 | **Fix 3**: Flow/vocoder per-stage timestamps | Global atomics cleared by reset() — back-to-back requests lose flow/vocoder data | Medium (non-blocking for single-request profiling) |
-| **Server multi-decode**: Consecutive request handling | Server creates TTS/T2W threads once; `joinable()` prevents re-creation | Medium (needed for production A/B) |
 | **D0=0 in non-async path**: `STAGE_decode_loop_begin` not recorded | Only recorded in `if (ctx_omni->async)` block — non-streaming mode misses D0 | Low (use `llm_first_decode_step` as alternative) |
-| **Full 120-pair A/B**: True B6b E2E matched measurement | Requires multi-decode server + fixed-prompt harness + 4h runtime | Medium (infrastructure validated with 5-pair pilot) |
+
+### Correction: Sequential Server A/B Does NOT Require Multi-Decode
+
+The prior claim that "server multi-decode is needed for production A/B" was **incorrect**. The same binary supports both B6b ON/OFF via `OMNI_TTS_FIRST_CHUNK_STEP` env var (runtime, no rebuild). Strict matched pairs can use sequential server restart with ABBA ordering. No server architecture changes are required.
 
 ---
 
@@ -145,4 +147,10 @@ Commit: c3b3440
 3. A/B comparison with matched pairs (when multi-decode server is available)
 4. Pass-through reconciliation (Δ=0ms guarantee from same atomic)
 
-**Recommended first action**: Fix 3 (flow/vocoder per-stage timestamps) to enable back-to-back profiling. Then address server multi-decode to enable efficient A/B testing. Then optimize G3→G4 audio token accumulation.
+**Recommended first actions** (in priority order):
+1. Complete 30-request W0 correctness across multi-category workload (W8_CORRECTNESS_30_PLUS)
+2. Add client-side monotonic clock instrumentation (request_send → first_audio_frame → first_valid_PCM)
+3. Run 20-pair F6_TIMING=0 vs summary matched E2E overhead gate (W9_MATCHED_E2E_OVERHEAD)
+4. Run 120 strict matched pairs with sequential server + ABBA ordering (TRUE_D0_TO_W0_AB + TRUE_CLIENT_FIRST_AUDIO_AB)
+5. Only if D0→W0 AND client first audio both show significant B6b improvement: B6B_TRUE_E2E_GATE=PASS
+6. G3→G4: compute/wait audit only — DO NOT modify CHUNK_SIZE=25

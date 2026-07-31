@@ -75,27 +75,46 @@ Per W4 spec: client and server use independent monotonic clocks. Direction consi
 
 **For proper client metrics**: The measurement client must record `time.monotonic()` at HTTP send and first audio frame receive, excluding server startup time. The fresh-server-per-request design adds ~5s of model loading to client measurements, making them unsuitable for direct A/B. A persistent server that accepts multiple decode requests is needed for accurate client metrics.
 
-## Full 120-Pair A/B Requirements (Not Yet Met)
+## Full 120-Pair A/B Requirements (Corrected)
 
 | Requirement | Status | Blocker |
 |------------|--------|---------|
-| 120 matched pairs | ❌ (5 pilot only) | Server single-decode design |
+| 120 matched pairs | ❌ (5 pilot only) | Test harness not built |
 | Same prompt per pair | ❌ | No prompt control in test |
 | Fixed seed | ❌ | No seed control |
 | Pure B6b delta isolation | ❌ | Variable response length |
-| Client metrics (excluding server startup) | ❌ | Fresh server per request |
+| Client metrics (excluding server startup) | ❌ | Client-side clock not instrumented |
 
-**To complete 120-pair A/B**: The server needs architectural changes to support consecutive decode requests (proper TTS/T2W thread lifecycle management). With that, 120 pairs = 240 requests × ~60s = ~4 hours. This is beyond the scope of W0 observability closeout.
+### Sequential Server ABBA Approach (No Multi-Decode Required)
+
+**Corrected 2026-07-31**: 120-pair A/B does NOT require server multi-decode architecture.
+
+The same binary supports both B6b ON/OFF via `OMNI_TTS_FIRST_CHUNK_STEP` env var (runtime, no rebuild). Strict matched pairs can use:
+
+```
+Server A: OMNI_TTS_FIRST_CHUNK_STEP=10 → start → omni_init → decode → stop
+Server B: OMNI_TTS_FIRST_CHUNK_STEP=5  → start → omni_init → decode → stop
+```
+
+ABBA block ordering:
+```
+A1 → B1 → B2 → A2
+```
+
+Only one NPU server runs at a time. No server architecture changes needed.
 
 ## Gate Decision
 
-**W10-W11: PARTIAL — Infrastructure validated, full A/B deferred**
+**W10-W11: Infrastructure validated, full A/B NOT RUN**
 
 - ✅ Pass-through reconciliation: Δ=0ms (same clock, same atomic)
 - ✅ W0 observable in 100% of measurements
 - ✅ A/B measurement protocol defined and executable
+- ✅ Sequential server ABBA approach validated (no multi-decode needed)
 - ⚠️ SERVER_D0_TO_W0 limited by pre-existing D0=0 in non-async path
-- ⚠️ Full 120-pair A/B requires server architecture changes beyond W5 scope
-- ⚠️ Client metrics noisy due to fresh-server-per-request design
+- ⚠️ Full 120-pair A/B requires comprehensive test harness (not yet built)
+- ⚠️ Client metrics noisy without client-side monotonic clock instrumentation
 
-The measurement infrastructure (W5 Fix 1+2) correctly supports A/B comparison. The limiting factor is the server's single-decode architecture, which is a pre-existing design constraint, not a W0 observability issue.
+### Correction: Prior Claim Retracted
+
+The earlier claim that "120-pair A/B requires server multi-decode architecture" was **incorrect**. The `OMNI_TTS_FIRST_CHUNK_STEP` env var provides runtime B6b control on the same binary. Sequential server restart + ABBA ordering is sufficient for strict matched pairs. No server architecture changes are required.
