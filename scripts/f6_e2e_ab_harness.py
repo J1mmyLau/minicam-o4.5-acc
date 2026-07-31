@@ -1130,6 +1130,13 @@ def cmd_w10_ab(args):
     )
 
     all_pairs = []
+    progress_csv = os.path.join(args.output_dir, "progress.csv")
+    # Write progress CSV header
+    with open(progress_csv, "w") as pf:
+        pf.write("block_idx,total_blocks,pairs_completed,timestamp,last_D2G0_delta,last_D0W0_delta,last_client_wav_delta\n")
+        pf.flush()
+        os.fsync(pf.fileno())
+
     for block_idx in range(num_blocks):
         print(f"\n{'#'*60}")
         print(f"# ABBA Block {block_idx}/{num_blocks}")
@@ -1142,12 +1149,29 @@ def cmd_w10_ab(args):
             all_pairs.append(pair)
 
         # Print block summary
+        last_d2g0 = "N/A"
+        last_d0w0 = "N/A"
+        last_client = "N/A"
         for pair in block_result["pairs"]:
             stats = pair["stats"]
+            d2g0 = stats.get('D2_to_G0_delta_ms', 'N/A')
+            d0w0 = stats.get('D0_to_W0_delta_ms', 'N/A')
+            client = stats.get('CLIENT_request_to_first_wav_delta_ms', 'N/A')
             print(f"  Pair {stats.get('pair_idx')}: "
-                  f"D2→G0 Δ={stats.get('D2_to_G0_delta_ms', 'N/A')}ms, "
-                  f"D0→W0 Δ={stats.get('D0_to_W0_delta_ms', 'N/A')}ms, "
-                  f"Client WAV Δ={stats.get('CLIENT_request_to_first_wav_delta_ms', 'N/A')}ms")
+                  f"D2→G0 Δ={d2g0}ms, "
+                  f"D0→W0 Δ={d0w0}ms, "
+                  f"Client WAV Δ={client}ms")
+            last_d2g0 = d2g0
+            last_d0w0 = d0w0
+            last_client = client
+
+        # Atomic progress CSV write
+        prog_line = f"{block_idx+1},{num_blocks},{len(all_pairs)},{datetime.now().isoformat()},{last_d2g0},{last_d0w0},{last_client}\n"
+        with open(progress_csv, "a") as pf:
+            pf.write(prog_line)
+            pf.flush()
+            os.fsync(pf.fileno())
+        print(f"  [PROGRESS] {len(all_pairs)}/{num_pairs} pairs, block {block_idx+1}/{num_blocks} complete")
 
     # Aggregate
     agg = aggregate_pair_statistics(all_pairs)
