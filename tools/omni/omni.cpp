@@ -11679,6 +11679,12 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
     const int max_tgt_len = params->n_predict < 0 ? params->n_ctx : params->n_predict;
     const int step_size   = 10;   // chunk 推送给 TTS 的 LLM token 数量
     bool is_first_duplex_chunk = true;  // B6b: first chunk uses step=5 for faster TTS wake
+    // C6: env var for strict A/B testing
+    int duplex_first_chunk_step = 5;
+    {
+        const char *v = getenv("OMNI_TTS_FIRST_CHUNK_STEP");
+        if (v) duplex_first_chunk_step = std::atoi(v);
+    }
     bool llm_finish                  = false;
     bool local_is_end_of_turn        = false;
     int  current_chunk_tokens        = 0;
@@ -11703,7 +11709,7 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
         // B6b: first TTS chunk uses step=5 for faster TTS wake (D2→G0 ~105ms),
         //       subsequent chunks use step=10 for audio quality.
         //       Only applies when TTS is enabled.
-        int effective_duplex_step = (is_first_duplex_chunk && ctx_omni->use_tts) ? 5 : step_size;
+        int effective_duplex_step = (is_first_duplex_chunk && ctx_omni->use_tts) ? duplex_first_chunk_step : step_size;
         while (jl < effective_duplex_step && !llm_finish
                && !ctx_omni->break_event.load()
                && !chunk_limit_reached)
@@ -12780,6 +12786,12 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     // step_size=10: 首响稍慢(791ms)但音质更稳定
     int step_size = 10;  // 恢复原始值
     bool is_first_chunk = true;  // B6b: first chunk uses smaller step_size for faster D2→G0
+    // C6: env var for strict A/B testing — OMNI_TTS_FIRST_CHUNK_STEP controls B6b
+    int first_chunk_step = 5;  // B6b default: 5 tokens for first chunk
+    {
+        const char *v = getenv("OMNI_TTS_FIRST_CHUNK_STEP");
+        if (v) first_chunk_step = std::atoi(v);
+    }
     std::string response = "";
     
     // tts streaming memory
@@ -12846,7 +12858,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             // B6b: first TTS chunk uses step=5 for faster TTS wake (D2→G0 ~105ms),
             //       subsequent chunks use step=10 for audio quality.
             //       Only applies when TTS is enabled (text-only uses normal step=10).
-            int effective_step = (is_first_chunk && !ctx_omni->duplex_mode && ctx_omni->use_tts) ? 5 : step_size;
+            int effective_step = (is_first_chunk && !ctx_omni->duplex_mode && ctx_omni->use_tts) ? first_chunk_step : step_size;
             while (jl < effective_step && !llm_finish && !ctx_omni->break_event.load() && !chunk_limit_reached) {
                 // streaming llm
                 const char * tmp = nullptr;
