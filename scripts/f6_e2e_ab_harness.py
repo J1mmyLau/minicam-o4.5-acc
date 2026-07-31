@@ -447,6 +447,8 @@ class ABBAPairRunner:
             "OMNI_TTS_FIRST_CHUNK_STEP": "5" if b6b_on else "10",
             "OMNI_E2E_PROFILE": "1",
             "OMNI_E2E_PROFILE_DIR": profile_dir,
+            "OMNI_T2W_DEVICE": os.environ.get("OMNI_T2W_DEVICE", "cann-flow-only"),
+            "OMNI_VOC_DEVICE": os.environ.get("OMNI_VOC_DEVICE", "gpu"),
         }
 
         server = ServerManager(
