@@ -30,19 +30,58 @@
 | W11_PROFILE_CONSISTENCY | **PASS** | Δ=0ms, same clock/atomic |
 | G3G4_COMPUTE_WAIT_AUDIT | **COMPLETE** | 100% compute, 0% wait |
 
+## W10 FP16 120-Pair TRUE_E2E Results (FINAL — 2026-07-31 17:48)
+
+**Run:** 60 ABBA blocks, 120 matched pairs, FP16 model + canonical args + CANN env
+**Data:** `/tmp/f6_fp16_w10/` (120 pair profiles, w10_ab_report.json, progress.csv)
+
+### Aggregate Statistics
+
+| Metric | n | Mean Δ | Median Δ | Win Rate | CI95 | CV |
+|--------|---|--------|----------|----------|------|-----|
+| D2→G0 | 120 | -34ms | **0ms** | 26.7% | [0, 0] | 3.0 |
+| D0→W0 | 120 | -96ms | **-17.5ms** | 52.5% | [-44, +10] | 3.5 |
+| Client→first_wav | 120 | -179ms | **-2.3ms** | 53.3% | [-9, +3] | 14.8 |
+| D0→G3 | 5 | -134ms | **-131ms** | 100% | — | 0.3 |
+
+### Per-Group Breakdown
+
+| Group | D0→W0 Median | D0→W0 Mean |
+|-------|-------------|------------|
+| OFF (baseline, step=10) | **926ms** | 1043ms |
+| ON (candidate, step=5) | **922ms** | 947ms |
+
+### B6B_TRUE_E2E_FP16_GATE = NOT_REACHED
+
+| Criterion | Required | Actual | Met? |
+|-----------|----------|--------|------|
+| D0→W0 median Δ negative | < 0ms | -17.5ms | ✓ |
+| D0→W0 win rate ≥ 95% | ≥ 95% | 52.5% | ✗ |
+| Client→first_wav median Δ negative | < 0ms | -2.3ms | ✓ |
+| Client→first_wav win rate ≥ 95% | ≥ 95% | 53.3% | ✗ |
+
+**Verdict:** B6b provides DIRECTIONAL improvement in D0→W0 (-17.5ms median) and client first audio (-2.3ms median), but the effect is NOT SIGNIFICANT — win rates of ~50% indicate workload noise dominates. The 95% win rate threshold is not met.
+
+### Root Cause
+
+1. **FP16+CANN T2W is fast**: With `OMNI_T2W_DEVICE=cann-flow-only` and `OMNI_VOC_DEVICE=gpu`, the T2W pipeline (Flow+VPN) completes quickly. D2→G0 is essentially 0ms in both ON and OFF conditions — the TTS wake happens simultaneously with the first LLM token regardless of chunk step.
+
+2. **Model output variance dominates**: Random text generation produces different-length responses between paired ON/OFF runs. This variance (±300ms in D0→W0, ±2600ms in client WAV) dwarfs B6b's ~17ms effect.
+
+3. **Q4 diagnostic data not generalizable**: The Q4_K_M run showed -133ms D2→G0 because T2W was on CPU (missing CANN env). B6b helps when T2W is the bottleneck; with CANN acceleration, T2W is no longer the bottleneck.
+
+### Comparison: Q4_INVALID vs FP16_VALID
+
+| Metric | Q4_K_M (INVALID) | FP16+CANN (VALID) |
+|--------|-----------------|-------------------|
+| D2→G0 median Δ | -13826ms (artifact) | 0ms |
+| D0→W0 median Δ | -13906ms (artifact) | -17.5ms |
+| T2W device | CPU (fallback) | NPU (cann-flow-only) |
+| Validity | INVALID_FOR_FP16_GATE | CANONICAL |
+
 ## Currently Running
 
-*None — all tests stopped per INVALID_RUN_MANIFEST.*
-
-## W10 TRUE_E2E Gate Status (CORRECTED 2026-07-31 16:08)
-
-| Gate | Status | Evidence |
-|------|--------|----------|
-| W10_Q4_DIAGNOSTIC_RUN | **INVALID_FOR_FP16_GATE** (VALID for diagnostic only) | `/tmp/f6_w10_ab/INVALID_RUN_MANIFEST.md`: 96 profiles, 24/60 blocks, Q4_K_M model, non-canonical args, no CANN env |
-| W10_FP16_TRUE_E2E_120_PAIR_AB | **NOT_STARTED** | Requires FP16 model + canonical args + CANN env; pilot first |
-| TRUE_D0_TO_W0_FP16_AB | **NOT_STARTED** | Depends on W10_FP16 |
-| TRUE_CLIENT_FIRST_AUDIO_FP16_AB | **NOT_STARTED** | Depends on W10_FP16 |
-| B6B_TRUE_E2E_GATE | **AWAITING_VALID_FP16_DATA** | D0→W0 AND client first audio must both significantly improved on FP16 |
+*None — all tests complete.*
 
 ## Still PENDING
 
@@ -50,6 +89,8 @@
 |------|--------|-----------|
 | B6B_HUMAN_LISTENING | PENDING | External |
 | B6B_OBJECTIVE_TTS_SCORING | PENDING_EXTERNAL | External ASR/speaker pipeline |
+| B6B_TRUE_E2E_GATE | **NOT_REACHED** | D0→W0 win_rate=52.5% < 95%, Client win_rate=53.3% < 95% |
+| B6B_DEFAULT_ENABLEMENT | **NO** | TRUE_E2E gate not reached |
 
 ## Deferred (After TRUE_E2E Gates)
 

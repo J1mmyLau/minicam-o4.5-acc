@@ -63,8 +63,8 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | B6B_D2_TO_G0 | D2→G0 improvement | **PASS** | R1: 16 pairs, Δ=-141.5ms; R3: 27 pairs, Δ=-103ms; stable positive |
 | B6B_D0_TO_D2 | Main LLM unchanged | **PASS** | R1: Δ=-2.0ms; R3: Δ=+3ms; within noise |
 | B6B_D0_TO_G3 | D0→G3 pass-through | **DIRECTIONALLY_SUPPORTED** | R1: 16 pairs, Δ=-151ms; R3: 4 pairs, Δ=-132ms; CANONICAL_SAMPLE_INSUFFICIENT |
-| B6B_D0_TO_W0 | D0→W0 matched A/B | **BLOCKED_BY_W0_OBSERVABILITY** | R3: 0 matched pairs; only 1/64 profiles has wav_ready |
-| B6B_R0_TO_W0 | R0→W0 matched A/B | **BLOCKED_BY_W0_OBSERVABILITY** | Same as D0→W0 |
+| B6B_D0_TO_W0 | D0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | FP16: 120 pairs, median Δ=-17.5ms, win_rate=52.5% (<95% threshold) |
+| B6B_R0_TO_W0 | R0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | Client: 120 pairs, median Δ=-2.3ms, win_rate=53.3% (<95% threshold) |
 | B6B_TEXT_CONSISTENCY | Text consistency | **PASS_ON_TESTED_CASES** | R4: CODE_AUDIT + RUNTIME_MEASUREMENT |
 | B6B_BASIC_AUDIO_QC | Format + basic validity | **PASS** | R6: FORMAT=PASS, BASIC_QC=PASS |
 | B6B_HUMAN_LISTENING | Perceptual quality | **PENDING** | Z9 manifest at `/tmp/f6_z9_listening/` (MUST MIGRATE TO `runs/`) |
@@ -91,10 +91,10 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE (D2→G0) | **PASS** (-100 to -142ms) | R1: 16 pairs, Δ=-141.5ms; R3: 27 pairs, Δ=-103ms; 100% win rate |
 | DECODE_TO_FIRST_TALKER_AUDIO_TOKEN (D0→G3) | **DIRECTIONALLY_SUPPORTED** | R1: 16 pairs; R3: 4 pairs (same direction, insufficient canonical sample for G3) |
 | SCHEDULING_GAIN_PASSES_THROUGH_TO_D0→G3 | **CONFIRMED** (on available pairs) | R2: residual=0.0ms on 16 common pairs |
-| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **BLOCKED_BY_W0_OBSERVABILITY** | W0/wav_ready only in 1/64 profiles; async lifecycle broken |
-| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **BLOCKED_BY_W0_OBSERVABILITY** | Same root cause |
-| W0_EVENT_OBSERVABILITY | **BROKEN_OR_LIFECYCLE_MISMATCH** | Profile summary before W0, generation reset before W0, or stale guard rejection |
-| TRUE_END_TO_END_FIRST_AUDIO | **NOT_PROVEN** | Cannot answer: how much of D2→G0 saving reaches user's first audible audio |
+| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **DIRECTIONAL/NOT_SIGNIFICANT** | FP16: 120 pairs, D0→W0 median Δ=-17.5ms, win_rate=52.5% |
+| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **DIRECTIONAL/NOT_SIGNIFICANT** | Client: 120 pairs, median Δ=-2.3ms, win_rate=53.3% |
+| W0_EVENT_OBSERVABILITY | **FIXED** | W0 wav_ready present in 120/120 FP16 profiles (100%) |
+| TRUE_END_TO_END_FIRST_AUDIO | **DIRECTIONAL/NOT_SIGNIFICANT** | B6b provides -17.5ms median D0→W0; noise dominates (CV=3.5) |
 | DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | decode compute=13.7% of D0→G4 |
 | NEXT_BOTTLENECK | **G3→G4: TALKER_AUDIO_TOKEN_ACCUMULATION** (~302ms, 57.3%) | R8: 24 Talker steps × ~12.6ms; CHUNK_SIZE=25 = ENGINEERING_POLICY |
 | CHUNK_SIZE_25 | **ENGINEERING_POLICY_CONFIRMED** | R8; HOLD until W0 observability restored |
@@ -124,23 +124,23 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | W9_MICRO_OVERHEAD | Micro-level instrumentation overhead | ✅ PASS (~55ns/token, ~500μs/dump) |
 | W9_MATCHED_E2E_OVERHEAD | F6_TIMING=0 vs summary matched E2E overhead | ✅ **PASS** (micro: 55ns/token; macro: overhead within workload noise ~100s std) |
 | W10_Q4_DIAGNOSTIC_RUN | Q4_K_M 120-pair diagnostic only | **INVALID_FOR_FP16_GATE** (96 profiles, 24/60 blocks; model + args mismatch) |
-| W10_FP16_TRUE_E2E_120_PAIR | True B6b E2E matched A/B on FP16 (120 pairs) | **NOT_STARTED** (pilot first) |
+| W10_FP16_TRUE_E2E_120_PAIR | True B6b E2E matched A/B on FP16 (120 pairs) | ✅ **COMPLETE** (60 blocks, 120 pairs, D0→W0 median Δ=-17.5ms, win_rate=52.5%) |
 | W11_PROFILE_CONSISTENCY | Pass-through profile timestamp consistency | ✅ PASS (Δ=0ms, same clock, same atomic) |
-| W11_B6B_GAIN_TO_FIRST_WAV | B6b measured gain to first valid WAV | **NOT_MEASURED** |
+| W11_B6B_GAIN_TO_FIRST_WAV | B6b measured gain to first valid WAV | **DIRECTIONAL/NOT_SIGNIFICANT** (D0→W0 median Δ=-17.5ms, 52.5% win; Client median Δ=-2.3ms, 53.3% win) |
 | W12 | Persist blind listening assets | ✅ PASS |
 | W13 | Update final gates | ✅ PASS |
 | W14 | Create observability fix tag | ✅ PASS (`fp16-f6-w0-observability-20260731` @ `31cba8d`) |
 | W15 | G3→G4 next-bottleneck handoff | ✅ PASS |
 
-### TRUE_E2E Gates (CORRECTED — Q4 run invalidated; FP16 NOT_STARTED)
+### TRUE_E2E Gates (FINAL — FP16 120-pair complete 2026-07-31)
 
 | Gate | Description | Status |
 |------|-------------|--------|
 | TRUE_D0_TO_W0_Q4_AB | D0→W0 matched A/B on Q4_K_M (96 profiles) | **INVALID_FOR_FP16_GATE** (diagnostic only; see `/tmp/f6_w10_ab/INVALID_RUN_MANIFEST.md`) |
 | TRUE_CLIENT_FIRST_AUDIO_Q4_AB | Client request→first audio frame on Q4_K_M | **INVALID_FOR_FP16_GATE** (same run; wrong model/args/env) |
-| TRUE_D0_TO_W0_FP16_AB | D0→W0 matched A/B on FP16 (120 pairs) | **NOT_STARTED** |
-| TRUE_CLIENT_FIRST_AUDIO_FP16_AB | Client request→first audio frame on FP16 | **NOT_STARTED** |
-| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved on FP16 | **AWAITING_VALID_FP16_DATA** |
+| TRUE_D0_TO_W0_FP16_AB | D0→W0 matched A/B on FP16 (120 pairs) | **COMPLETE** (median Δ=-17.5ms, win_rate=52.5% — not significant) |
+| TRUE_CLIENT_FIRST_AUDIO_FP16_AB | Client request→first audio frame on FP16 | **COMPLETE** (median Δ=-2.3ms, win_rate=53.3% — not significant) |
+| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved on FP16 | **NOT_REACHED** (both metrics fail ≥95% win rate threshold) |
 
 ### Known Incorrect Claims Retracted
 
@@ -153,10 +153,23 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 ## NEXT_BOTTLENECK
 
 ```
-NEXT_BOTTLENECK = TALKER_AUDIO_TOKEN_ACCUMULATION
-G3→G4 ≈ 302ms (24 token generation steps × ~12.6ms each)
-CHUNK_SIZE_25 = ENGINEERING_POLICY_CONFIRMED
-AUDIO_ACCUMULATION_OPTIMIZATION = HOLD (until W0 observability restored)
+NEXT_BOTTLENECK = TALKER_AUDIO_TOKEN_ACCUMULATION (G3→G4)
+G3→G4 ≈ 302ms (24 Talker steps × ~12.6ms each)
+
+B6b (EARLY_FIRST_TTS_CHUNK_DISPATCH) RESULT:
+  D0→W0 median Δ = -17.5ms (not significant; win_rate=52.5% < 95%)
+  Client→first_wav median Δ = -2.3ms (not significant; win_rate=53.3% < 95%)
+  B6B_TRUE_E2E_FP16_GATE = NOT_REACHED
+
+  → B6b provides negligible E2E benefit in FP16+CANN configuration
+  → T2W on NPU eliminates the bottleneck B6b was designed to address
+  → G3→G4 (audio token accumulation) remains the primary optimization target
+  → CHUNK_SIZE=25 ENGINEERING_POLICY_CONFIRMED (held until HUMAN_LISTENING)
+
+B6B STATUS: OPT_IN_READY / DEFAULT_OFF (unchanged)
+  → B6b remains safe to use (no regression, no crashes, text consistency preserved)
+  → DEFAULT_OFF because TRUE_E2E gate not met
+  → May provide benefit in non-CANN (CPU T2W) configurations (see Q4 diagnostic data)
 ```
 
 ## Active Rules
