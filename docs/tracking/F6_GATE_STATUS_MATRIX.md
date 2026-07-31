@@ -1,8 +1,9 @@
 # F6 Gate Status Matrix
 
-**Updated:** 2026-07-31
+**Updated:** 2026-07-31 (Z13 freeze complete)
 **Branch:** `perf/f6-decode-to-speak`
-**HEAD:** `fbb7eca`
+**HEAD:** `7d3951e`
+**Tag:** `fp16-f6-early-tts-dispatch-internal-20260731`
 
 ```
 fbb7eca  F6 B-phase complete: B6b ACCEPTED + D-phase semantics audit
