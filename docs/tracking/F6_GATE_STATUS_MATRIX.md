@@ -1,8 +1,8 @@
 # F6 Gate Status Matrix
 
-**Updated:** 2026-07-31 (Z13 freeze complete)
+**Updated:** 2026-07-31 (R0-R9 corrections applied)
 **Branch:** `perf/f6-decode-to-speak`
-**HEAD:** `7d3951e`
+**HEAD:** `00a2755`
 **Tag:** `fp16-f6-early-tts-dispatch-internal-20260731`
 
 ```
@@ -48,33 +48,35 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | B8 | Full regression | NOT_STARTED | — |
 | B9 | Final freeze | NOT_STARTED | — |
 
-## B6b Sub-Gates (EARLY_FIRST_TTS_CHUNK_DISPATCH)
+## B6b Sub-Gates (R0-R9 Corrected)
 
 | Sub-Gate | Description | Status | Evidence |
 |----------|-------------|--------|----------|
-| B6B_NAME | Optimization name | **EARLY_FIRST_TTS_CHUNK_DISPATCH** | C3 event scope audit confirms: only D2→G0 affected, NOT D0→D3 |
-| B6B_PERFORMANCE_GATE | Matched-pair D2→G0 latency improvement | **PASS** | C6: 116 pairs, Δ=-139ms, -55.2%, 106/116 wins; Z4: 47 pairs, Δ=-133ms, 36/47 wins |
-| B6B_TEXT_SEMANTIC_GATE | Text output consistency between baseline/candidate | **PASS** | Z7: code-guaranteed identical (step_size isolated to TTS dispatch, not LLM decode); C7 empirical confirmation |
-| B6B_STABILITY_GATE | 150-request continuous run | **PASS_200_OF_200** | C9: 150/150; Z10: 200/200, 0 errors, 0 crashes, drift=0.41ms/req (improved from C9's 0.98ms/req) |
-| B6B_AUDIO_QUALITY_GATE | Voice quality, chunk seams, first phoneme | **ADVISORY_PENDING** | Z8: WAV format PASS (24000 Hz mono, 0 errors); Z9: 20-sample blind A/B manifest prepared; perceptual quality deferred to human evaluation |
-| B6B_E2E_FIRST_AUDIO_GATE | True request→first-audio improvement | **PASS** | Z4 v2: D2→G0 Δ=-133ms (47 pairs); D0→G3 Δ=-151ms (16 pairs, 100% win); full pass-through confirmed |
-| B6B_DEFAULT_ENABLEMENT | Ready for DEFAULT_ON | **NOT_YET** | Keep env var gating; change default to 5 after optional Z9 human listening |
-| B6B_INTERNAL_CANDIDATE | Internal acceptance status | **ACCEPTED** | All evidence gates PASS (Z0-Z12); Z13 freeze tag pending |
+| B6B_NAME | Optimization name | **EARLY_FIRST_TTS_CHUNK_DISPATCH** | C3: only D2→G0 affected, NOT main LLM decode |
+| B6B_INTERNAL_PERFORMANCE_GATE | D2→G0 reduction | **PASS** | C6: 116 pairs, Δ=-139ms; Z4: 47 pairs, Δ=-133ms; R1 canonical: 16 pairs, Δ=-141.5ms (95% CI [-148, -137]) |
+| B6B_TEXT_CONSISTENCY_GATE | Text consistency | **PASS_ON_TESTED_CASES** | R4: MAIN_LLM_GENERATION_LOGIC_UNCHANGED (code audit) + TESTED_MAIN_TOKEN_SEQUENCES_IDENTICAL (runtime); see `F6_R4_TEXT_CONSISTENCY_WORDING.md` |
+| B6B_STABILITY_GATE | Continuous run | **PASS_350_OF_350** | C9: 150/150 + Z10: 200/200 = 350/350, 0 errors, 0 crashes |
+| B6B_BASIC_AUDIO_QC_GATE | Format + basic validity | **PASS** | R6 split: AUDIO_FORMAT_GATE=PASS (24000 Hz mono), AUDIO_BASIC_QC_GATE=PASS (duration range, no silence/truncation) |
+| B6B_HUMAN_LISTENING | Perceptual quality | **PENDING** | Z9: 20-sample blind A/B manifest at `/tmp/f6_z9_listening/LISTENING_MANIFEST.csv`; not executed |
+| B6B_OBJECTIVE_TTS_SCORING | WER/SIM metrics | **PENDING_EXTERNAL** | Requires ASR + speaker embedding pipeline; not in F6 scope |
+| B6B_DEFAULT_ENABLEMENT | Production default | **NO** | Awaiting HUMAN_LISTENING or OBJECTIVE_TTS_SCORING before DEFAULT_ON |
+| B6B_STATUS | Current status | **OPT_IN_READY / DEFAULT_OFF** | Env var `OMNI_TTS_FIRST_CHUNK_STEP=5` for opt-in |
+| B6B_INTERNAL_CANDIDATE | Freeze status | **FROZEN** | Tag: `fp16-f6-early-tts-dispatch-internal-20260731` |
 
-## Core Claim Status
+## Core Claim Status (R0-R9 Corrected)
 
 | Claim | Status | Reason |
 |-------|--------|--------|
-| B_PHASE_COMPLETE | **YES** | Z0-Z12 all complete; Z13 freeze tag remaining |
-| B6B_FULLY_ACCEPTED | **YES** | ACCEPTED — all evidence gates closed; 4 original gaps resolved |
-| B6B_INTERNAL_CANDIDATE | **ACCEPTED** | Performance+text+stability+E2E+audio all PASS; Z13 freeze pending |
-| B6A_MAX_QUEUE_SIZE_2 | **REJECTED_WITH_MEASURED_REGRESSION** | +29ms D2→G0 A/B confirmed |
-| LLM_DECODE_TO_SPEAK_IMPROVED_BY_55_PCT | **NO** | D0→D3 identical (~82ms both); B6b accelerates D2→G0 only |
-| MAIN_LLM_FIRST_TOKEN_DIFFERENCE | **~1ms (D0→D2 interval)** | Paired Δ≈1ms, CI likely contains 0; = NO_MEASURABLE_GAIN |
-| G3_TO_G4_IS_CONFIRMED_FINAL_BOTTLENECK | **YES (talker audio-token accumulation)** | G3→G4≈302ms nominal; Talker generates 25 audio tokens before T2W submit; NOT Flow/Vocoder compute |
-| F6_CORE_DECODE_TO_SPEAK_IMPROVEMENT | **NOT_YET_PROVEN** | step_size change reduces accumulation-wait, not LLM decode compute |
-| DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | Bottleneck is scheduler/accumulation, not per-step decode throughput |
-| READY_TO_REDUCE_25_AUDIO_TOKEN_WINDOW | **NO** | CHUNK_SIZE_25=ENGINEERING_POLICY_CONFIRMED; user deferred D2-D5 |
+| B6B_INTERNAL_CANDIDATE | **FROZEN** | All measurable gates PASS; tag applied at HEAD `00a2755` |
+| MAIN_LLM_FIRST_TOKEN_LATENCY (D0→D2) | **UNCHANGED** | R1 canonical 16 pairs: Δ=-2.0ms (95% CI [-3, -1]), within measurement noise |
+| FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE (D2→G0) | **-141.5ms** (-56.6%) | R1 canonical 16 strict pairs, 100% win rate |
+| DECODE_TO_FIRST_TALKER_AUDIO_TOKEN (D0→G3) | **-151.0ms** (-41.1%) | R1 canonical 16 strict pairs, 100% win rate |
+| SCHEDULING_GAIN_PASSES_THROUGH_TO_FIRST_TALKER_AUDIO_TOKEN | **CONFIRMED** | R2: delta(D0→G3) = delta(D0→D2) + delta(D2→G0) + delta(G0→G3), residual=0.0ms on same 16 pairs |
+| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | R1: 0 strict pairs with G4+W0; async T2W/Flow/Vocoder pipeline prevents per-request W0 tracking |
+| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | Same reason as D0→W0; R3 single-request measurement in progress |
+| DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | R9: decode compute=13.7% of D0→G4; bottleneck is scheduler+Talker accumulation, not decode throughput |
+| NEXT_BOTTLENECK | **G3→G4: TALKER_AUDIO_TOKEN_ACCUMULATION** (~302ms, 57.3%) | R8: 24 Talker steps × ~12.6ms; CHUNK_SIZE=25 is ENGINEERING_POLICY, not model constraint |
+| CHUNK_SIZE_25 | **ENGINEERING_POLICY_CONFIRMED** | R8: `F6_AUDIO_TOKEN_WINDOW_CONTRACT.md`; AUDIT_ONLY, no modification
 
 ## D-Phase Findings
 
@@ -105,3 +107,37 @@ AUDIO_ACCUMULATION_OPTIMIZATION = DEFERRED_BY_USER_SCOPE
 8. 不得将D2→G0的55.2%直接写成E2E首音55.2%
 9. 不得在音频质量未关闭前默认开启step_size=5
 10. 不得声明FINAL_CANDIDATE_FROZEN或B_PHASE_ALL_GATES_COMPLETE
+11. 不得将D0→G3称为first audio或first WAV — 正确名称: DECODE_TO_FIRST_TALKER_AUDIO_TOKEN
+12. 不得用不同样本集的D2→G0和D0→G3做pass-through — 必须在同一canonical intersection上验证
+13. 不得仅用code-guaranteed代表text consistency — 必须拆为CODE_AUDIT + RUNTIME_MEASUREMENT
+14. 不得仅用24000Hz mono代表音质 — 必须拆为FORMAT/BASIC_QC/HUMAN_LISTENING/OBJECTIVE四个Gate
+15. 不得写DEFAULT_ON、OFFICIAL_AUDIO_QUALITY_PASS、OFFICIAL_FIRST_AUDIO_RESULT、LLM_DECODE_ACCELERATED
+
+## Canonical Event Names (R0)
+
+See `F6_R0_CANONICAL_EVENT_NAMES.md` for full registry.
+
+| Interval | Canonical Name | ❌ DO NOT CALL IT |
+|----------|---------------|-------------------|
+| D0→D2 | MAIN_FIRST_TOKEN_LATENCY | "LLM speedup" |
+| D2→G0 | FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE | "TTS dispatch" |
+| G0→G3 | TALKER_TO_FIRST_AUDIO_TOKEN | — |
+| D0→G3 | DECODE_TO_FIRST_TALKER_AUDIO_TOKEN | "first audio", "first speak", "E2E first audio" |
+| G3→G4 | TALKER_AUDIO_TOKEN_ACCUMULATION | "T2W wait" (it's Talker compute, not wait) |
+| D0→W0 | DECODE_TO_FIRST_VALID_WAV | "decode-to-audio" unless W0 measured |
+| R0→W0 | REQUEST_TO_FIRST_VALID_WAV | "user-perceived latency" unless W0 measured |
+
+## R0-R9 Document Index
+
+| Reference | Document | Content |
+|-----------|----------|---------|
+| R0 | `F6_R0_CANONICAL_EVENT_NAMES.md` | Event name registry, forbidden equivalences |
+| R1 | `/tmp/f6_r1_canonical/F6_B6B_CANONICAL_MATCHED_INTERSECTION.csv` | 16 strict pairs (D0+D2+G0+G3) |
+| R2 | (embedded in R1 output) | Pass-through verification on same 16 pairs |
+| R3 | `/tmp/f6_r3_w0/r3_w0_results.json` | Single-request W0 measurement (RUNNING) |
+| R4 | `F6_R4_TEXT_CONSISTENCY_WORDING.md` | CODE_AUDIT + RUNTIME_MEASUREMENT split |
+| R5 | `F6_R5_STALE_WRITE_FINAL.md` | stale_write_accepted=0, cross_request_contamination=0 |
+| R6 | `F6_R6_AUDIO_QUALITY_GATE_SPLIT.md` | FORMAT/BASIC_QC/HUMAN_LISTENING/OBJECTIVE split |
+| R7 | `F6_B6B_INTERNAL_CANDIDATE_MANIFEST.md` | SHA256s, launcher, rollback, known limitations |
+| R8 | `F6_G3_G4_SEMANTIC_AUDIT.md`, `F6_AUDIO_TOKEN_WINDOW_CONTRACT.md`, `F6_G3_G4_LATENCY_BUDGET.md` | G3→G4: 302ms = 24×12.6ms Talker compute |
+| R9 | `F6_R9_DSPARK_FINAL_RECORD.md` | DSpark REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE |
