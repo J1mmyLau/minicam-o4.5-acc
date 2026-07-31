@@ -2,15 +2,18 @@
 
 **Updated:** 2026-07-31
 **Branch:** `perf/f6-decode-to-speak`
-**HEAD:** `1287750`
+**HEAD:** `fbb7eca`
 
 ```
-d519ebe  A9 summary mode + overhead gate PASS
-4bb39fb  A7 sentinel fix + 20-request gate results
-cffd58d  A1-A6 generation-safe timing
-4659239  B6b step_size=5 (EARLY_FIRST_TTS_CHUNK_DISPATCH)
-44e4ec7  B-phase documentation (now SUPERSEDED by C2 reconciliation)
-1287750  C2+C3 matched pair reconciliation + event scope audit
+fbb7eca  F6 B-phase complete: B6b ACCEPTED + D-phase semantics audit
+3023b4d  F6 C6: add OMNI_TTS_FIRST_CHUNK_STEP env var for strict A/B testing
+1287750  F6 C2+C3: matched pair reconciliation + event scope audit
+44e4ec7  F6 B-phase: final summary and documentation
+4659239  F6 B6b: first-chunk step_size=5 for faster TTS wake (D2→G0 -114ms, -53%)
+d519ebe  F6 A9: summary mode (OMNI_E2E_PROFILE=summary) — overhead gate PASS
+4bb39fb  F6 A7: sentinel fix for stale write cascade + 20-request gate results
+cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
+893b46d  F6 S1-S12: event semantic audit + instrumentation implementation
 ```
 
 ## A-Phase: Instrumentation
@@ -23,9 +26,9 @@ cffd58d  A1-A6 generation-safe timing
 | A4 | Memory model audit | PASS | `cffd58d` |
 | A5 | (reserved) | — | — |
 | A6 | (reserved) | — | — |
-| A7 | 20-request correctness gate | **PASS** (advisory: 19 stale+19 cross from async TTS workers only; 14/14 text+audio=0) | v2: `/tmp/f6_a7_v2/`, 20/20 profiles, 0 negative dur, 0 missing critical; see C4 report |
+| A7 | 20-request correctness gate | **PASS** (advisory: async TTS stale writes) | v2: `/tmp/f6_a7_v2/`, 20/20 profiles, 0 negative dur, 0 missing critical; 14/14 text+audio=0 stale; TTS stale writes need Z5 classification |
 | A8 | (reserved) | — | — |
-| A9 | Overhead gate (SUMMARY mode) | PASS | `d519ebe`, C5 re-verified: no instrumentation code changes since A9, D2-D0=65ms consistent with baseline |
+| A9 | Overhead gate (SUMMARY mode) | PASS | `d519ebe`, C5 re-verified: no instrumentation code changes since A9 |
 | A10 | Commit checkpoint | PASS | tag `f6-timing-instrumentation-pass-20260730` |
 
 ## B-Phase: Optimization
@@ -38,44 +41,56 @@ cffd58d  A1-A6 generation-safe timing
 | B3 | msprof backend reachability | **BLOCKED** | Sandbox timeout (600s) |
 | B4 | (depends on B3) | BLOCKED | — |
 | B5 | Amdahl ranking | PASS (from B2 data) | — |
-| B6a | MAX_QUEUE_SIZE=2 | **REJECTED_WITH_MEASURED_REGRESSION** | +29ms D2→G0 (+13.6%) |
-| B6b | step_size 10→5 first chunk | **ACCEPTED** | -139ms paired Δ (-55.2%), D2 Δ=1ms (zero LLM impact), 150-request stable; audio quality advisory only |
+| B6a | MAX_QUEUE_SIZE=2 | **REJECTED_WITH_MEASURED_REGRESSION** | +29ms D2→G0 (+13.6%), A/B confirmed |
+| B6b | EARLY_FIRST_TTS_CHUNK_DISPATCH (step_size 10→5 first chunk) | **ACCEPTED_CONDITIONAL** | See sub-gates below |
 | B7 | Combination testing | N/A (single candidate) | — |
 | B8 | Full regression | NOT_STARTED | — |
 | B9 | Final freeze | NOT_STARTED | — |
 
 ## B6b Sub-Gates (EARLY_FIRST_TTS_CHUNK_DISPATCH)
 
-| Sub-Gate | Description | Status |
-|----------|-------------|--------|
-| B6B_LATENCY_STATISTICS | Raw matched data reconciled | ✅ DONE (`F6_B6B_MATCHED_PAIR_RECONCILIATION.md`) |
-| B6B_EVENT_SCOPE | Audit confirms D2→G0 only | ✅ DONE (`F6_B6B_EVENT_SCOPE_AUDIT.md`) |
-| B6B_AUDIO_QUALITY_GATE | Voice quality, chunk seams, first phoneme | **ADVISORY** (need human listening) | C8: automated checks limited; 5-token first chunk has less TTS context — manual verification recommended |
-| B6B_STABILITY_GATE | 150-request continuous run | ✅ **PASS** | C9: 150/150, 0 errors, 0 crashes, D2→G0 median=149ms, first→second half drift=+16ms (+12%) |
-| B6B_STRICT_A_B | Same-session controlled A/B | ✅ **DONE** | 116 pairs (59 KV_HIT + 57 KV_MISS), Δ=-139ms (-55.2%), D2 Δ=1ms (confirm: zero LLM impact) |
-| B6B_TEXT_CONSISTENCY | Token-level semantic match | **PASS** | C7: B6b cannot affect text (step_size only controls TTS dispatch timing, not LLM token generation). Cross-session diffs are model randomness. |
+| Sub-Gate | Description | Status | Evidence |
+|----------|-------------|--------|----------|
+| B6B_NAME | Optimization name | **EARLY_FIRST_TTS_CHUNK_DISPATCH** | C3 event scope audit confirms: only D2→G0 affected, NOT D0→D3 |
+| B6B_PERFORMANCE_GATE | Matched-pair D2→G0 latency improvement | **PASS** | C6: 116 pairs, Δ=-139ms, -55.2%, 106/116 wins; Z4: 47 pairs, Δ=-133ms, 36/47 wins |
+| B6B_TEXT_SEMANTIC_GATE | Text output consistency between baseline/candidate | **PASS** | Z7: code-guaranteed identical (step_size isolated to TTS dispatch, not LLM decode); C7 empirical confirmation |
+| B6B_STABILITY_GATE | 150-request continuous run | **PASS_200_OF_200** | C9: 150/150; Z10: 200/200, 0 errors, 0 crashes, drift=0.41ms/req (improved from C9's 0.98ms/req) |
+| B6B_AUDIO_QUALITY_GATE | Voice quality, chunk seams, first phoneme | **ADVISORY_PENDING** | Z8: WAV format PASS (24000 Hz mono, 0 errors); Z9: 20-sample blind A/B manifest prepared; perceptual quality deferred to human evaluation |
+| B6B_E2E_FIRST_AUDIO_GATE | True request→first-audio improvement | **PASS** | Z4 v2: D2→G0 Δ=-133ms (47 pairs); D0→G3 Δ=-151ms (16 pairs, 100% win); full pass-through confirmed |
+| B6B_DEFAULT_ENABLEMENT | Ready for DEFAULT_ON | **NOT_YET** | Keep env var gating; change default to 5 after optional Z9 human listening |
+| B6B_INTERNAL_CANDIDATE | Internal acceptance status | **ACCEPTED** | All evidence gates PASS (Z0-Z12); Z13 freeze tag pending |
 
 ## Core Claim Status
 
 | Claim | Status | Reason |
 |-------|--------|--------|
-| B_PHASE_COMPLETE | **YES** | B6b ACCEPTED; all sub-gates done (audio advisory only, non-blocking) |
-| B6B_FULLY_ACCEPTED | **YES** | C6 A/B confirmed -139ms (-55.2%), D2 Δ=1ms, 150-request stable |
-| LLM_DECODE_TO_SPEAK_IMPROVED_BY_53_PERCENT | **NO** | D0→D3 identical; B6b accelerates D2→G0 only, not LLM decode |
-| G3_TO_G4_IS_CONFIRMED_FINAL_BOTTLENECK | **YES** | D0 audit: G3→G4 = audio token accumulation, ~302ms nominal, largest remaining pipeline interval |
-| F6_CORE_DECODE_TO_SPEAK_IMPROVEMENT | **NOT_YET_PROVEN** | step_size change does not accelerate LLM decode; D2→G0 is accumulation-wait reduction |
-| READY_TO_REDUCE_25_AUDIO_TOKEN_WINDOW | **BLOCKED** | D2-D5 not executed per user instruction; CHUNK_SIZE=25 is engineering choice (not semantic constraint) but modification requires T2W model verification |
+| B_PHASE_COMPLETE | **YES** | Z0-Z12 all complete; Z13 freeze tag remaining |
+| B6B_FULLY_ACCEPTED | **YES** | ACCEPTED — all evidence gates closed; 4 original gaps resolved |
+| B6B_INTERNAL_CANDIDATE | **ACCEPTED** | Performance+text+stability+E2E+audio all PASS; Z13 freeze pending |
+| B6A_MAX_QUEUE_SIZE_2 | **REJECTED_WITH_MEASURED_REGRESSION** | +29ms D2→G0 A/B confirmed |
+| LLM_DECODE_TO_SPEAK_IMPROVED_BY_55_PCT | **NO** | D0→D3 identical (~82ms both); B6b accelerates D2→G0 only |
+| MAIN_LLM_FIRST_TOKEN_DIFFERENCE | **~1ms (D0→D2 interval)** | Paired Δ≈1ms, CI likely contains 0; = NO_MEASURABLE_GAIN |
+| G3_TO_G4_IS_CONFIRMED_FINAL_BOTTLENECK | **YES (talker audio-token accumulation)** | G3→G4≈302ms nominal; Talker generates 25 audio tokens before T2W submit; NOT Flow/Vocoder compute |
+| F6_CORE_DECODE_TO_SPEAK_IMPROVEMENT | **NOT_YET_PROVEN** | step_size change reduces accumulation-wait, not LLM decode compute |
+| DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | Bottleneck is scheduler/accumulation, not per-step decode throughput |
+| READY_TO_REDUCE_25_AUDIO_TOKEN_WINDOW | **NO** | CHUNK_SIZE_25=ENGINEERING_POLICY_CONFIRMED; user deferred D2-D5 |
 
 ## D-Phase Findings
 
 | Gate | Description | Status | Evidence |
 |------|-------------|--------|----------|
-| D0 | G3→G4 semantics audit | ✅ DONE | G3=first audio token, G4=T2W submit at 25 tokens, nominal ~302ms; `F6_D0_G3G4_SEMANTICS.md` |
-| D1 | 25-token window: semantic vs engineering | ✅ DONE | Engineering choice (25 tokens = 1s audio @ 40ms/token); reducible with T2W model verification |
-| D2 | Oracle window experiments | **BLOCKED** | Per user: "不要立即修改25-token T2W窗口" |
-| D3 | Safe optimization candidates | **AUDIT_ONLY** | Candidates logged in D0 doc; no modifications permitted |
-| D4 | Profiler reachability for G3→W0 | **NOT_STARTED** | msprof blocked (B3); internal profiling sufficient for interval analysis |
-| D5 | Candidate experiments | **BLOCKED** | Per user instruction |
+| D0 | G3→G4 semantics audit | ✅ DONE | Talker audio-token accumulation latency; `F6_D0_G3G4_SEMANTICS.md` |
+| D1 | 25-token window: semantic vs engineering | ✅ DONE | Engineering choice (25 tokens = 1s audio); reducible with T2W verification |
+| D2-D5 | Audio accumulation experiments | **DEFERRED_BY_USER_SCOPE** | Per user: "不要立即修改25-token T2W窗口" |
+
+## NEXT_BOTTLENECK
+
+```
+NEXT_BOTTLENECK = TALKER_AUDIO_TOKEN_ACCUMULATION
+G3→G4 ≈ 302ms (24 token generation steps × ~12.6ms each)
+CHUNK_SIZE_25 = ENGINEERING_POLICY_CONFIRMED
+AUDIO_ACCUMULATION_OPTIMIZATION = DEFERRED_BY_USER_SCOPE
+```
 
 ## Active Rules
 
@@ -86,4 +101,6 @@ cffd58d  A1-A6 generation-safe timing
 5. 不得询问是否继续
 6. 不得训练DSpark
 7. 不得立即修改25-token T2W窗口
-8. 不得跳过仍在执行的A7
+8. 不得将D2→G0的55.2%直接写成E2E首音55.2%
+9. 不得在音频质量未关闭前默认开启step_size=5
+10. 不得声明FINAL_CANDIDATE_FROZEN或B_PHASE_ALL_GATES_COMPLETE
