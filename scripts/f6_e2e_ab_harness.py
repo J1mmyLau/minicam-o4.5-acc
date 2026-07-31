@@ -149,13 +149,18 @@ class ServerManager:
     """Launch and manage a llama-omni-server process."""
 
     def __init__(self, binary: str, model: str, host: str = "127.0.0.1",
-                 port: int = 8080, ngl: int = 99, extra_args: list = None):
+                 port: int = 8080, ngl: int = 999, extra_args: list = None):
         self.binary = binary
         self.model = model
         self.host = host
         self.port = port
         self.ngl = ngl
-        self.extra_args = extra_args or []
+        # Split extra_args in case they were passed as a single space-separated string
+        raw_args = extra_args or []
+        if len(raw_args) == 1 and " " in raw_args[0]:
+            self.extra_args = raw_args[0].split()
+        else:
+            self.extra_args = raw_args
         self.process = None
         self.base_url = f"http://{host}:{port}"
 
@@ -167,8 +172,12 @@ class ServerManager:
             "--host", self.host,
             "--port", str(self.port),
             "-ngl", str(self.ngl),
-            "-c", "2048",    # Explicit ctx-size (default 0 = model default, breaks max_tgt_len)
-            "-n", "128",     # Max tokens to generate (keep short for consistent testing)
+            "-c", "4096",
+            "-b", "512",
+            "-ub", "512",
+            "--split-mode", "layer",
+            "-fa", "off",
+            "-n", "128",
         ] + self.extra_args
 
         merged_env = os.environ.copy()
@@ -751,47 +760,67 @@ def compute_pair_statistics(pair: dict) -> dict:
 
 
 def aggregate_pair_statistics(all_pairs: list) -> dict:
-    """Aggregate statistics across all matched pairs with exclusion tracking."""
+    """Aggregate statistics across all matched pairs with per-metric exclusion tracking.
+
+    Each metric is computed independently — a pair excluded from D0→G3
+    (missing talker_first_audio_token) still contributes to D2→G0 and D0→W0.
+    Only pairs whose specific metric has missing fields or anomalies are excluded
+    from that metric's aggregate.
+    """
     metrics = [
         "D2_to_G0_delta_ms", "D0_to_G3_delta_ms", "D0_to_W0_delta_ms",
         "CLIENT_request_to_first_wav_delta_ms", "CLIENT_request_to_first_pcm_delta_ms",
     ]
+
+    # Build per-metric exclusion reasons
+    per_metric_exclusions = {m: {} for m in metrics}
+
     agg = {
         "num_pairs_total": len(all_pairs),
-        "num_pairs_excluded": 0,
         "exclusion_summary": {},
     }
 
-    # Collect exclusion reasons
-    for p in all_pairs:
-        reasons = p.get("stats", {}).get("exclusion_reasons", [])
-        if reasons:
-            agg["num_pairs_excluded"] += 1
-            for r in reasons:
-                agg["exclusion_summary"][r] = agg["exclusion_summary"].get(r, 0) + 1
-
-    # Only use non-excluded pairs for statistics
-    valid_pairs = [p for p in all_pairs
-                   if not p.get("stats", {}).get("exclusion_reasons")]
-    agg["num_pairs_valid"] = len(valid_pairs)
-
     for m in metrics:
-        values = [p["stats"].get(m) for p in valid_pairs if p["stats"].get(m) is not None]
-        if values:
-            agg[f"{m}_n"] = len(values)
-            agg[f"{m}_mean"] = round(statistics.mean(values), 1)
-            agg[f"{m}_median"] = round(statistics.median(values), 1)
-            if len(values) >= 2:
-                agg[f"{m}_stdev"] = round(statistics.stdev(values), 1)
-            agg[f"{m}_min"] = round(min(values), 1)
-            agg[f"{m}_max"] = round(max(values), 1)
-            win_count = sum(1 for v in values if v < 0)
-            agg[f"{m}_win_rate_pct"] = round(100.0 * win_count / len(values), 1)
+        valid_values = []
+        excluded_count = 0
+        for p in all_pairs:
+            stats = p.get("stats", {})
+            value = stats.get(m)
+            reasons = stats.get("exclusion_reasons", [])
+
+            # Check if this specific metric is excluded
+            metric_excluded = any(m.replace("_delta_ms", "") in r for r in reasons)
+
+            if not metric_excluded and value is not None:
+                valid_values.append(value)
+            elif metric_excluded:
+                excluded_count += 1
+                # Classify the exclusion reason
+                for r in reasons:
+                    if m.replace("_delta_ms", "") in r:
+                        agg["exclusion_summary"][r] = agg["exclusion_summary"].get(r, 0) + 1
+
+        if valid_values:
+            agg[f"{m}_n"] = len(valid_values)
+            agg[f"{m}_excluded"] = excluded_count
+            agg[f"{m}_mean"] = round(statistics.mean(valid_values), 1)
+            agg[f"{m}_median"] = round(statistics.median(valid_values), 1)
+            if len(valid_values) >= 2:
+                agg[f"{m}_stdev"] = round(statistics.stdev(valid_values), 1)
+            agg[f"{m}_min"] = round(min(valid_values), 1)
+            agg[f"{m}_max"] = round(max(valid_values), 1)
+            win_count = sum(1 for v in valid_values if v < 0)
+            agg[f"{m}_win_rate_pct"] = round(100.0 * win_count / len(valid_values), 1)
             # Bootstrap 95% CI if enough samples
-            if len(values) >= 10:
-                agg[f"{m}_ci95"] = _bootstrap_ci95(values)
+            if len(valid_values) >= 10:
+                agg[f"{m}_ci95"] = _bootstrap_ci95(valid_values)
         else:
             agg[f"{m}_n"] = 0
+            agg[f"{m}_excluded"] = excluded_count
+
+    # Total excluded pairs: pairs that have ANY exclusion reason
+    agg["num_pairs_with_any_exclusion"] = sum(
+        1 for p in all_pairs if p.get("stats", {}).get("exclusion_reasons"))
 
     return agg
 
@@ -1123,19 +1152,19 @@ def cmd_w10_ab(args):
     # Aggregate
     agg = aggregate_pair_statistics(all_pairs)
     print(f"\n{'='*70}")
-    print(f"Aggregate Statistics")
-    print(f"  Total pairs: {agg['num_pairs_total']}")
-    print(f"  Excluded:    {agg['num_pairs_excluded']}")
-    print(f"  Valid:       {agg['num_pairs_valid']}")
+    print(f"Aggregate Statistics (per-metric exclusion)")
+    print(f"  Total pairs:         {agg['num_pairs_total']}")
+    print(f"  Pairs with any excl: {agg['num_pairs_with_any_exclusion']}")
     if agg["exclusion_summary"]:
         print(f"  Exclusion reasons:")
         for reason, count in sorted(agg["exclusion_summary"].items()):
             print(f"    [{count}] {reason}")
     print(f"{'='*70}")
-    for k, v in sorted(agg.items()):
-        if k in ("exclusion_summary",):
-            continue
-        print(f"  {k}: {v}")
+    metric_keys = [k for k in sorted(agg.keys())
+                   if k.startswith(("D2_", "D0_", "R0_", "CLIENT_"))]
+    for k in metric_keys:
+        print(f"  {k}: {agg[k]}")
+    print(f"{'='*70}")
 
     # B6B_TRUE_E2E_GATE decision
     d0w0_delta = agg.get("D0_to_W0_delta_ms_median", None)
@@ -1248,16 +1277,16 @@ def cmd_w10_diagnose(args):
 
     # Aggregate
     agg = aggregate_pair_statistics(all_pairs)
-    print(f"\nTotal pairs: {agg['num_pairs_total']}, Excluded: {agg['num_pairs_excluded']}, Valid: {agg['num_pairs_valid']}")
+    print(f"\nTotal pairs: {agg['num_pairs_total']}, Pairs with any exclusion: {agg['num_pairs_with_any_exclusion']}")
     if agg["exclusion_summary"]:
         print("Exclusion reasons:")
         for reason, count in sorted(agg["exclusion_summary"].items()):
             print(f"  [{count}] {reason}")
 
-    for k, v in sorted(agg.items()):
-        if k in ("exclusion_summary",):
-            continue
-        print(f"  {k}: {v}")
+    metric_keys = [k for k in sorted(agg.keys())
+                   if k.startswith(("D2_", "D0_", "R0_", "CLIENT_"))]
+    for k in metric_keys:
+        print(f"  {k}: {agg[k]}")
 
     # Write CSV
     csv_path = os.path.join(output_dir, "F6_Q4_INVALID_RUN_DIAGNOSTIC.csv")
