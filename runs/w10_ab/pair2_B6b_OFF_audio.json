@@ -1,0 +1,13 @@
+{
+  "request_index": 0,
+  "generation_id": 1,
+  "profile_status": "audio_complete",
+  "async_stages_ms": {
+    "t2w_dequeue": 11123,
+    "wav_ready": 15598,
+    "flow_start": 11123,
+    "flow_end": 15313,
+    "vocoder_start": 15313,
+    "vocoder_end": 15597
+  }
+}

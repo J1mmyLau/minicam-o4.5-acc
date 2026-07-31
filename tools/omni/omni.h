@@ -102,6 +102,8 @@ struct T2WOut {
     bool is_final = false;  // Whether this is the final chunk (turn end)
     bool is_chunk_end = false;  // Whether this is the end of a TTS chunk (flush buffer, but not final)
     int round_idx = -1;  // 🔧 [修复目录同步] 轮次索引，由 TTS 线程设置，T2W 线程使用此值确定输出目录
+    uint32_t generation_id = 0;  // F6 W5: generation at TTS submit time for correct W0 attribution
+    int request_index = 0;  // F6 W5: request_index at submit time for audio profile file naming
     std::chrono::steady_clock::time_point enqueue_time = std::chrono::steady_clock::now();
 };
 
@@ -261,6 +263,7 @@ struct E2EStageTiming {
     // Non-atomic — accessed only by the owning thread.
     uint32_t tts_thread_generation = 0;
     uint32_t t2w_thread_generation = 0;
+    int      t2w_request_index = 0;  // F6 W5: request_index from T2W queue for audio profile naming
     // Monotonically increasing per-request epoch.
     // Bumped by reset(). Workers snapshot this after their per-request wake-up.
     // record() rejects writes whose generation does not match active_generation_id.
