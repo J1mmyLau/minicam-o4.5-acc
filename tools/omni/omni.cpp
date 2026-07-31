@@ -1010,6 +1010,79 @@ void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
     fclose(f);
 }
 
+// F6 W5: Write audio-completion profile for async stages (T2W/Flow/Vocoder/W0).
+// Called from T2W worker thread when first WAV is ready.
+// This supplements the sync profile (e2e_XXXX.json) which was written at decode return.
+// F6 W5: wav_ready_ns is the direct W0 timestamp from the T2W worker, used as ground
+// truth even when per-stage timestamps were cleared by a concurrent reset().
+void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir,
+                                  int64_t wav_ready_ns = 0) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/e2e_%04d_audio.json", dir.c_str(), t.t2w_request_index);
+
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+
+    fprintf(f, "{\n");
+    fprintf(f, "  \"request_index\": %d,\n", t.t2w_request_index);
+    fprintf(f, "  \"generation_id\": %u,\n", t.t2w_thread_generation);
+    fprintf(f, "  \"profile_status\": \"audio_complete\",\n");
+    fprintf(f, "  \"async_stages_ms\": {\n");
+
+    int64_t t0 = t.timestamps_ns[STAGE_request_received].load(std::memory_order_acquire);
+    if (t0 <= 0) t0 = t.timestamps_ns[STAGE_decode_loop_begin].load(std::memory_order_acquire);
+    if (t0 <= 0) t0 = 1;  // Avoid div-by-zero
+
+    // Async stages: Q0, flow, vocoder, W0, client first audio
+    static const E2EStage async_stages[] = {
+        STAGE_t2w_dequeue, STAGE_flow_start, STAGE_flow_end,
+        STAGE_vocoder_start, STAGE_vocoder_end,
+        STAGE_wav_ready, STAGE_client_first_audio,
+    };
+    static const char* async_names[] = {
+        "t2w_dequeue", "flow_start", "flow_end",
+        "vocoder_start", "vocoder_end",
+        "wav_ready", "client_first_audio",
+    };
+
+    bool first = true;
+    for (int i = 0; i < 7; i++) {
+        int64_t val = t.timestamps_ns[async_stages[i]].load(std::memory_order_relaxed);
+        // F6 W5: use direct wav_ready_ns as ground truth for W0, bypassing
+        // per-stage timestamps that may have been cleared by a concurrent reset().
+        if (async_stages[i] == STAGE_wav_ready && wav_ready_ns > 0 && val <= 0) {
+            val = wav_ready_ns;
+        }
+        if (val <= 0) continue;
+        int64_t elapsed = (val - t0) / 1'000'000;
+        if (elapsed < 0) continue;
+        if (!first) fprintf(f, ",\n");
+        first = false;
+        fprintf(f, "    \"%s\": %lld", async_names[i], (long long)elapsed);
+    }
+
+    // F6 W5: fallback to global atomics only when per-stage not set (avoids duplicate keys)
+    // Fix 3 (deferred) will migrate flow/vocoder to per-stage timestamps.
+    auto add_global_fallback = [&](const char* name, const std::atomic<int64_t>& ns, E2EStage stage) {
+        // Skip if per-stage timestamp already written above
+        if (t.timestamps_ns[stage].load(std::memory_order_relaxed) > 0) return;
+        int64_t val = ns.load(std::memory_order_relaxed);
+        if (val <= 0) return;
+        int64_t elapsed = (val - t0) / 1'000'000;
+        if (elapsed < 0) return;
+        if (!first) fprintf(f, ",\n");
+        first = false;
+        fprintf(f, "    \"%s\": %lld", name, (long long)elapsed);
+    };
+    add_global_fallback("flow_start",    g_e2e_flow_start_ns,    STAGE_flow_start);
+    add_global_fallback("flow_end",      g_e2e_flow_end_ns,      STAGE_flow_end);
+    add_global_fallback("vocoder_start", g_e2e_vocoder_start_ns, STAGE_vocoder_start);
+    add_global_fallback("vocoder_end",   g_e2e_vocoder_end_ns,   STAGE_vocoder_end);
+
+    fprintf(f, "\n  }\n}\n");
+    fclose(f);
+}
+
 // Summary mode: print aggregate statistics at process exit.
 // No per-request file I/O — zero measurable overhead beyond the record() calls.
 void e2e_profile_dump_summary(const E2EStageTiming &t) {
@@ -6959,11 +7032,13 @@ static bool generate_audio_tokens_local_simplex(
         // 🔧 [与 Python 对齐] 当 buffer >= chunk_size 时，yield 出 chunk_size 个
         while ((int)ctx_omni->tts_token_buffer.size() >= CHUNK_SIZE && ctx_omni->t2w_thread_info) {
             T2WOut *t2w_out = new T2WOut();
-            t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(), 
+            t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(),
                                          ctx_omni->tts_token_buffer.begin() + CHUNK_SIZE);
             t2w_out->is_final = false;
             t2w_out->round_idx = ctx_omni->simplex_round_idx;
-            
+            t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5: correct attribution
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
+
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                 ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -7071,6 +7146,9 @@ static bool generate_audio_tokens_local_simplex(
                                                  ctx_omni->tts_token_buffer.begin() + CHUNK_SIZE);
                     t2w_out->is_final = false;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                         ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -7104,6 +7182,9 @@ static bool generate_audio_tokens_local_simplex(
                                      ctx_omni->tts_token_buffer.end());
         t2w_out->is_final = false;  // 注意：这里不设 is_final=true，is_final 由 tts_thread_func 在 llm_finish 时发送
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -7124,6 +7205,9 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->is_final = false;  // Not final (turn not ended)
         t2w_out->is_chunk_end = true;  // 🔧 标记 chunk 结束，T2W 需要 flush buffer
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -7435,6 +7519,9 @@ static bool generate_audio_tokens_local(
             t2w_out->is_final = false;
             t2w_out->is_chunk_end = false;  // 🔧 中间推送，不是 chunk 结束
             t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
             
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -7464,6 +7551,9 @@ static bool generate_audio_tokens_local(
         t2w_out->is_final = is_end_of_turn;
         t2w_out->is_chunk_end = !is_end_of_turn;  // 非 turn 结束时才用 is_chunk_end
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -7935,6 +8025,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = false;
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                             ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8002,6 +8095,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                     t2w_out->is_final = false;
                     t2w_out->is_chunk_end = true;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                         ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8022,6 +8118,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                     t2w_out->is_final = true;
                     t2w_out->is_chunk_end = false;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                         ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8259,6 +8358,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = false;
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                             ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8274,6 +8376,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->audio_tokens.clear();
                         t2w_out->is_final = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                             ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8322,6 +8427,9 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = true;
                         t2w_out->is_chunk_end = false;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                             ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8689,6 +8797,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                                              ctx_omni->tts_token_buffer.end());
                 t2w_out->is_final = false;  // 先发送剩余 tokens
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                     ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -8714,6 +8825,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_final->audio_tokens.clear();
                 t2w_final->is_final = true;
                 t2w_final->round_idx = current_round_idx;  // 🔧 使用递增前的值
+                t2w_final->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_final->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                     ctx_omni->t2w_thread_info->queue.push(t2w_final);
@@ -9130,6 +9244,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         );
                         t2w_out->is_final = false;  // 还不是最后一个，后面还有 turn_end 的 is_final
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -9171,6 +9288,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->audio_tokens.clear();  // 空tokens，只是通知final
                     t2w_out->is_final = true;
                     t2w_out->round_idx = current_round_idx;  // 🔧 使用递增前的值
+                    t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                         ctx_omni->t2w_thread_info->queue.push(t2w_out);
@@ -9573,6 +9693,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->audio_tokens = audio_token_buffer;  // Copy the 25 tokens
                     t2w_out->is_final = false;  // Not final, more chunks may come
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     
                     {
                         std::unique_lock<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -9661,6 +9784,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->audio_tokens = audio_token_buffer;  // Copy remaining tokens
                 t2w_out->is_final = (audio_gen_finish || llm_finish);  // Mark as final if generation finished
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 
                 {
                     std::unique_lock<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -9768,6 +9894,9 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->audio_tokens.clear();  // 空tokens，只是通知final
                 t2w_out->is_final = true;
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+       
+        t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -10659,8 +10788,14 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             pipeline_thread_hash(),
             (uint32_t)queue.size(), 1,
             0, WAIT_QUEUE_EMPTY);
-        // F6 A3: capture generation for this request cycle (generation-safe timing)
-        ctx_omni->e2e_stage.t2w_thread_generation = ctx_omni->e2e_stage.capture_generation();
+        // F6 W5: capture generation from the oldest queued item (correct attribution)
+        // instead of from current active_generation_id (which may have advanced)
+        if (!queue.empty() && queue.front()->generation_id > 0) {
+            ctx_omni->e2e_stage.t2w_thread_generation = queue.front()->generation_id;
+            ctx_omni->e2e_stage.t2w_request_index = queue.front()->request_index;  // F6 W5: for audio profile naming
+        } else {
+            ctx_omni->e2e_stage.t2w_thread_generation = ctx_omni->e2e_stage.capture_generation();
+        }
 
         auto dequeue_time = std::chrono::steady_clock::now();
         // One-shot: record first dequeue
@@ -10914,11 +11049,27 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                             wav_complete_time - ctx_omni->stream_decode_start_time).count();
 
                         // One-shot: record first WAV ready (generation-safe)
+                        // F6 W5: record() may fail (stale generation) if the next request's
+                        // reset() advanced active_generation_id before the T2W worker finished.
+                        // We still write the audio profile because t2w_request_index and
+                        // t2w_thread_generation were set from the queue item at dequeue time
+                        // and survive reset().  Per-stage timestamps may be 0 if reset() cleared
+                        // them before we arrived here — the audio profile will contain whatever
+                        // async-stage data is still available (per-stage or global fallback).
                         if (ctx_omni->e2e_stage.timestamps_ns[STAGE_wav_ready].load(std::memory_order_relaxed) == 0) {
                             ctx_omni->e2e_stage.record(STAGE_wav_ready, ctx_omni->e2e_stage.t2w_thread_generation);
                             g_pipeline_trace.record(PE_FIRST_AUDIO_READY,
                                 (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
                                 pipeline_thread_hash());
+                            if (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_FULL) {
+                                const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
+                                std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
+                                // Pass current time as ground-truth W0 timestamp in case
+                                // per-stage was cleared by concurrent reset().
+                                int64_t wav_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                                e2e_profile_dump_audio_json(ctx_omni->e2e_stage, dir, wav_ns);
+                            }
                         }
 
                         if (wav_idx == 0) {

@@ -1,0 +1,26 @@
+{
+  "request_index": 0,
+  "generation_id": 1,
+  "prompt_id": "",
+  "seed": 0,
+  "talker_token_count": 0,
+  "no_speech": false,
+  "cann_error": 0,
+  "crash": 0,
+  "stale_write_count": 0,
+  "cross_request_write_count": 0,
+  "stages_ms": {
+    "request_received": 0,
+    "llm_first_token": 3309,
+    "talker_start": 10638,
+    "talker_first_audio_token": 10719,
+    "talker_token_28": 11123,
+    "t2w_submit": 11123,
+    "t2w_dequeue": 11123,
+    "decode_loop_begin": 0,
+    "llm_first_decode_step": 1900,
+    "tts_wake": 10419,
+    "tts_first_decode": 10638,
+    "flow_start": 11123
+  }
+}
