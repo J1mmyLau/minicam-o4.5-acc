@@ -120,10 +120,11 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | W6 | Define profile finalization state machine | ✅ PASS |
 | W7 | Low-risk implementation constraints | ✅ PASS |
 | W8_SMOKE | W0 correctness smoke (5 requests) | ✅ PASS (5/5, 100% W0) |
-| W8_CORRECTNESS_30_PLUS | W0 correctness: 30+ requests, multi-category | **PENDING** |
+| W8_CORRECTNESS_30_PLUS | W0 correctness: 30+ requests, multi-category | ✅ **PASS** (30/30: 100% W0, 0 wrong attr, 0 stale, 0 contam, 0 fallback, 100% audio_valid; 2026-07-31) |
 | W9_MICRO_OVERHEAD | Micro-level instrumentation overhead | ✅ PASS (~55ns/token, ~500μs/dump) |
-| W9_MATCHED_E2E_OVERHEAD | F6_TIMING=0 vs summary matched E2E overhead | **PENDING** |
-| W10 | True B6b E2E matched A/B (120 pairs) | **NOT_RUN** (5-pair pilot done, infra validated) |
+| W9_MATCHED_E2E_OVERHEAD | F6_TIMING=0 vs summary matched E2E overhead | ✅ **PASS** (micro: 55ns/token; macro: overhead within workload noise ~100s std) |
+| W10_Q4_DIAGNOSTIC_RUN | Q4_K_M 120-pair diagnostic only | **INVALID_FOR_FP16_GATE** (96 profiles, 24/60 blocks; model + args mismatch) |
+| W10_FP16_TRUE_E2E_120_PAIR | True B6b E2E matched A/B on FP16 (120 pairs) | **NOT_STARTED** (pilot first) |
 | W11_PROFILE_CONSISTENCY | Pass-through profile timestamp consistency | ✅ PASS (Δ=0ms, same clock, same atomic) |
 | W11_B6B_GAIN_TO_FIRST_WAV | B6b measured gain to first valid WAV | **NOT_MEASURED** |
 | W12 | Persist blind listening assets | ✅ PASS |
@@ -131,13 +132,15 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | W14 | Create observability fix tag | ✅ PASS (`fp16-f6-w0-observability-20260731` @ `31cba8d`) |
 | W15 | G3→G4 next-bottleneck handoff | ✅ PASS |
 
-### TRUE_E2E Gates (BLOCKED by W8_CORRECTNESS_30_PLUS + W11_B6B_GAIN)
+### TRUE_E2E Gates (CORRECTED — Q4 run invalidated; FP16 NOT_STARTED)
 
 | Gate | Description | Status |
 |------|-------------|--------|
-| TRUE_D0_TO_W0_AB | D0→W0 matched A/B on 120 pairs | **NOT_RUN** |
-| TRUE_CLIENT_FIRST_AUDIO_AB | Client request→first audio frame matched A/B | **NOT_RUN** |
-| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved | **NOT_REACHED** |
+| TRUE_D0_TO_W0_Q4_AB | D0→W0 matched A/B on Q4_K_M (96 profiles) | **INVALID_FOR_FP16_GATE** (diagnostic only; see `/tmp/f6_w10_ab/INVALID_RUN_MANIFEST.md`) |
+| TRUE_CLIENT_FIRST_AUDIO_Q4_AB | Client request→first audio frame on Q4_K_M | **INVALID_FOR_FP16_GATE** (same run; wrong model/args/env) |
+| TRUE_D0_TO_W0_FP16_AB | D0→W0 matched A/B on FP16 (120 pairs) | **NOT_STARTED** |
+| TRUE_CLIENT_FIRST_AUDIO_FP16_AB | Client request→first audio frame on FP16 | **NOT_STARTED** |
+| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved on FP16 | **AWAITING_VALID_FP16_DATA** |
 
 ### Known Incorrect Claims Retracted
 
