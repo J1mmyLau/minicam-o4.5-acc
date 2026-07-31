@@ -60,8 +60,9 @@ from datetime import datetime
 # Constants
 # ──────────────────────────────────────────────────────────
 SERVER_START_TIMEOUT = 600  # seconds to wait for server /health
-REQUEST_TIMEOUT = 600       # seconds for HTTP request
+REQUEST_TIMEOUT = 300       # seconds for HTTP request (5 min max per request)
 SERVER_DRAIN_EXTRA = 10     # extra seconds after decode returns for T2W drain
+MAX_TOKENS = "128"          # limit generation to avoid degenerate long responses
 
 # ──────────────────────────────────────────────────────────
 # HTTP helpers
@@ -167,7 +168,7 @@ class ServerManager:
             "--port", str(self.port),
             "-ngl", str(self.ngl),
             "-c", "2048",    # Explicit ctx-size (default 0 = model default, breaks max_tgt_len)
-            "-n", "512",     # Max tokens to generate
+            "-n", "128",     # Max tokens to generate (keep short for consistent testing)
         ] + self.extra_args
 
         merged_env = os.environ.copy()
