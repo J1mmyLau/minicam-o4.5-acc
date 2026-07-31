@@ -1,8 +1,8 @@
 # F6 Gate Status Matrix
 
-**Updated:** 2026-07-31 (R0-R9 corrections applied)
+**Updated:** 2026-07-31 (R0-R9 all completed)
 **Branch:** `perf/f6-decode-to-speak`
-**HEAD:** `00a2755`
+**HEAD:** `2776217`
 **Tag:** `fp16-f6-early-tts-dispatch-internal-20260731`
 
 ```
@@ -72,8 +72,8 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE (D2→G0) | **-141.5ms** (-56.6%) | R1 canonical 16 strict pairs, 100% win rate |
 | DECODE_TO_FIRST_TALKER_AUDIO_TOKEN (D0→G3) | **-151.0ms** (-41.1%) | R1 canonical 16 strict pairs, 100% win rate |
 | SCHEDULING_GAIN_PASSES_THROUGH_TO_FIRST_TALKER_AUDIO_TOKEN | **CONFIRMED** | R2: delta(D0→G3) = delta(D0→D2) + delta(D2→G0) + delta(G0→G3), residual=0.0ms on same 16 pairs |
-| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | R1: 0 strict pairs with G4+W0; async T2W/Flow/Vocoder pipeline prevents per-request W0 tracking |
-| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | Same reason as D0→W0; R3 single-request measurement in progress |
+| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | R3 confirmed: 0/36 baseline, 1/28 candidate; async Flow+Vocoder (~4.2s) + shared atomics prevent per-request W0 tracking |
+| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **NOT_MEASURED_ON_MATCHED_PAIRS** | Same as D0→W0; R3: 0 matched pairs; requires client-side audio onset or architectural change |
 | DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | R9: decode compute=13.7% of D0→G4; bottleneck is scheduler+Talker accumulation, not decode throughput |
 | NEXT_BOTTLENECK | **G3→G4: TALKER_AUDIO_TOKEN_ACCUMULATION** (~302ms, 57.3%) | R8: 24 Talker steps × ~12.6ms; CHUNK_SIZE=25 is ENGINEERING_POLICY, not model constraint |
 | CHUNK_SIZE_25 | **ENGINEERING_POLICY_CONFIRMED** | R8: `F6_AUDIO_TOKEN_WINDOW_CONTRACT.md`; AUDIT_ONLY, no modification
@@ -134,7 +134,7 @@ See `F6_R0_CANONICAL_EVENT_NAMES.md` for full registry.
 | R0 | `F6_R0_CANONICAL_EVENT_NAMES.md` | Event name registry, forbidden equivalences |
 | R1 | `/tmp/f6_r1_canonical/F6_B6B_CANONICAL_MATCHED_INTERSECTION.csv` | 16 strict pairs (D0+D2+G0+G3) |
 | R2 | (embedded in R1 output) | Pass-through verification on same 16 pairs |
-| R3 | `/tmp/f6_r3_w0/r3_w0_results.json` | Single-request W0 measurement (RUNNING) |
+| R3 | `F6_R3_W0_GAP_FINAL.md` | Single-request W0 measurement: 0 matched D0→W0 pairs — NOT_MEASURABLE (async pipeline limitation) |
 | R4 | `F6_R4_TEXT_CONSISTENCY_WORDING.md` | CODE_AUDIT + RUNTIME_MEASUREMENT split |
 | R5 | `F6_R5_STALE_WRITE_FINAL.md` | stale_write_accepted=0, cross_request_contamination=0 |
 | R6 | `F6_R6_AUDIO_QUALITY_GATE_SPLIT.md` | FORMAT/BASIC_QC/HUMAN_LISTENING/OBJECTIVE split |
