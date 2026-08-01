@@ -58,11 +58,11 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 |----------|-------------|--------|----------|
 | B6B_NAME | Optimization name | **EARLY_FIRST_TTS_CHUNK_DISPATCH** | C3: only D2→G0 affected, NOT main LLM decode |
 | B6B_INTERNAL_CANDIDATE | Freeze status | **FROZEN** | Tag: `fp16-f6-early-tts-dispatch-internal-20260731` at `00a2755` |
-| B6B_STATUS | Current status | **OPT_IN_READY / DEFAULT_OFF** | Env var `OMNI_TTS_FIRST_CHUNK_STEP=5` for opt-in |
-| B6B_DEFAULT_ENABLEMENT | Production default | **OFF** | Awaiting HUMAN_LISTENING + W0 observability fix |
-| B6B_D2_TO_G0 | D2→G0 improvement | **PASS** | R1: 16 pairs, Δ=-141.5ms; R3: 27 pairs, Δ=-103ms; stable positive |
-| B6B_D0_TO_D2 | Main LLM unchanged | **PASS** | R1: Δ=-2.0ms; R3: Δ=+3ms; within noise |
-| B6B_D0_TO_G3 | D0→G3 pass-through | **DIRECTIONALLY_SUPPORTED** | R1: 16 pairs, Δ=-151ms; R3: 4 pairs, Δ=-132ms; CANONICAL_SAMPLE_INSUFFICIENT |
+| B6B_STATUS | Current status | **EXPERIMENTAL_KNOB / DEFAULT_OFF** | Env var `OMNI_TTS_FIRST_CHUNK_STEP=5`; DO_NOT_ENABLE_FOR_PRODUCTION |
+| B6B_DEFAULT_ENABLEMENT | Production default | **OFF** | TRUE_E2E gate REJECTED: no significant FP16+CANN E2E gain |
+| B6B_D2_TO_G0 | D2→G0 improvement | **NO_EFFECT_IN_FP16_CANN** | FP16: 120 pairs, median Δ=0ms, CI95=[0,0]; Q4 artifact (-133ms) invalid for FP16 |
+| B6B_D0_TO_D2 | Main LLM unchanged | **PASS** | FP16: 120 pairs, median Δ=0ms, CI95=[0,0]; confirmed MAIN_LLM_ACCELERATION=NONE |
+| B6B_D0_TO_G3 | D0→G3 pass-through | **NOT_MEASURABLE** | FP16 profiles lack talker_first_audio_token (G3); 115/120 pairs excluded |
 | B6B_D0_TO_W0 | D0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | FP16: 120 pairs, median Δ=-17.5ms, win_rate=52.5% (<95% threshold) |
 | B6B_R0_TO_W0 | R0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | Client: 120 pairs, median Δ=-2.3ms, win_rate=53.3% (<95% threshold) |
 | B6B_TEXT_CONSISTENCY | Text consistency | **PASS_ON_TESTED_CASES** | R4: CODE_AUDIT + RUNTIME_MEASUREMENT |
@@ -132,6 +132,25 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | W14 | Create observability fix tag | ✅ PASS (`fp16-f6-w0-observability-20260731` @ `31cba8d`) |
 | W15 | G3→G4 next-bottleneck handoff | ✅ PASS |
 
+### X-Stage Status (X0-X11 Execution Audit — 2026-08-01)
+
+| Step | Description | Status | Artifact |
+|------|-------------|--------|----------|
+| X0 | Safe termination of invalid Q4 run | COMPLETE | `/tmp/f6_w10_ab/INVALID_RUN_MANIFEST.md` |
+| X1 | Gate state correction | COMPLETE | Updated tracking docs |
+| X2 | Harness analyzer fix + unit tests | COMPLETE | 8/8 tests pass; commit `c1979df` |
+| X3 | Restore frozen FP16 config | COMPLETE | Model SHA256 verified; CANN env configured |
+| X4 | 78 WAV / CPU anomaly diagnosis | COMPLETE | Root cause: missing CANN env → CPU T2W fallback |
+| X5 | 2-block FP16 pilot | COMPLETE | 8/8 W0 present, 0 errors |
+| X6 | Pilot sanity check | COMPLETE | All durations valid |
+| X7 | 60-block FP16 formal run | COMPLETE | 120 pairs, 0 errors, ~84 min |
+| X8 | Monitoring methodology | EMBEDDED_IN_RUNNER | progress.csv with fsync per block; no sleep 600 polling |
+| X9 | Mid-run quality gates | EMBEDDED_IN_RUNNER | 4/10/30-block checks: W0=100%, crash=0, CANN_error=0; no auto-stop triggered |
+| X10 | Canonical statistics | COMPLETE | `F6_B6B_FP16_CANONICAL_120_PAIRS.csv` |
+| X11 | Gate decision | COMPLETE | `REJECT_NO_MEANINGFUL_GAIN` |
+
+**X8-X9 Note:** No independent artifacts beyond `progress.csv` and run log. Quality checks were embedded in the harness (per-block progress writes, W0 presence tracking, error counters). All quality gates passed at 4/10/30-block milestones — W0 presence was 100%, no crashes, no CANN errors, no auto-stop triggered.
+
 ### TRUE_E2E Gates (FINAL — FP16 120-pair complete 2026-07-31)
 
 | Gate | Description | Status |
@@ -140,7 +159,7 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | TRUE_CLIENT_FIRST_AUDIO_Q4_AB | Client request→first audio frame on Q4_K_M | **INVALID_FOR_FP16_GATE** (same run; wrong model/args/env) |
 | TRUE_D0_TO_W0_FP16_AB | D0→W0 matched A/B on FP16 (120 pairs) | **COMPLETE** (median Δ=-17.5ms, win_rate=52.5% — not significant) |
 | TRUE_CLIENT_FIRST_AUDIO_FP16_AB | Client request→first audio frame on FP16 | **COMPLETE** (median Δ=-2.3ms, win_rate=53.3% — not significant) |
-| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved on FP16 | **NOT_REACHED** (both metrics fail ≥95% win rate threshold) |
+| B6B_TRUE_E2E_GATE | D0→W0 AND client first audio both significantly improved on FP16 | **REJECT_NO_MEANINGFUL_GAIN** (D0→W0 CI95 [-44,+10.5] crosses zero; Client median -2.3ms < 5ms threshold; win rates 52.5%/53.3%) |
 
 ### Known Incorrect Claims Retracted
 
@@ -153,23 +172,36 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 ## NEXT_BOTTLENECK
 
 ```
-NEXT_BOTTLENECK = TALKER_AUDIO_TOKEN_ACCUMULATION (G3→G4)
-G3→G4 ≈ 302ms (24 Talker steps × ~12.6ms each)
+B6B_TRUE_E2E_FP16_GATE = REJECT_NO_MEANINGFUL_GAIN
+B6B_FEATURE_STATUS     = EXPERIMENTAL_KNOB / DEFAULT_OFF
+B6B_PRODUCTION_RECOMMENDATION = DO_NOT_ENABLE
 
-B6b (EARLY_FIRST_TTS_CHUNK_DISPATCH) RESULT:
-  D0→W0 median Δ = -17.5ms (not significant; win_rate=52.5% < 95%)
-  Client→first_wav median Δ = -2.3ms (not significant; win_rate=53.3% < 95%)
-  B6B_TRUE_E2E_FP16_GATE = NOT_REACHED
+FP16+CANN latency budget (from 120-pair valid data):
+  D0→D2 (main LLM):      28ms median (3.0% of D0→W0)
+  D2→G0 (TTS scheduling):  0ms median (0%)
+  G0→W0 (TTS wake→WAV):  890ms median (96.5%)
+    ├─ G0→t2w_dequeue:   ~621ms (NOT DECOMPOSED — missing G3/G4)
+    └─ T2W→WAV:          269ms median (Flow 137ms + Vocoder 122ms)
 
-  → B6b provides negligible E2E benefit in FP16+CANN configuration
-  → T2W on NPU eliminates the bottleneck B6b was designed to address
-  → G3→G4 (audio token accumulation) remains the primary optimization target
-  → CHUNK_SIZE=25 ENGINEERING_POLICY_CONFIRMED (held until HUMAN_LISTENING)
+NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker + queue)
+  → G3 (talker_first_audio_token) NOT INSTRUMENTED in current FP16 profiles
+  → G4 (t2w_submit) NOT INSTRUMENTED in current FP16 profiles
+  → Cannot decompose into G0→G3, G3→G4, G4→t2w_dequeue
+  → Old 302ms G3→G4 estimate from Q4/CPU-T2W data — MUST RE-VERIFY
+  → P9 required: add Talker per-step instrumentation
 
-B6B STATUS: OPT_IN_READY / DEFAULT_OFF (unchanged)
-  → B6b remains safe to use (no regression, no crashes, text consistency preserved)
-  → DEFAULT_OFF because TRUE_E2E gate not met
-  → May provide benefit in non-CANN (CPU T2W) configurations (see Q4 diagnostic data)
+CHUNK_SIZE=25 = ENGINEERING_POLICY (FROZEN)
+
+NEXT PHASE (P7-P15):
+  P7:  Rebuild latency budget from valid FP16 data → CONFIRMED: G0→W0 dominates
+  P8:  Re-audit G3/G4 event semantics
+  P9:  Add Talker per-step low-overhead instrumentation
+  P10: 120-request G3→G4 baseline
+  P11: Compute/wait decomposition
+  P12: Backend reachability + msprof
+  P13: Amdahl candidate ranking
+  P14: Execute first candidate
+  P15: Regression + final state
 ```
 
 ## Active Rules

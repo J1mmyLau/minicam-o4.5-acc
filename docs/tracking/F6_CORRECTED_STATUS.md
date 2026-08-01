@@ -74,10 +74,31 @@
 
 | Metric | Q4_K_M (INVALID) | FP16+CANN (VALID) |
 |--------|-----------------|-------------------|
-| D2→G0 median Δ | -13826ms (artifact) | 0ms |
-| D0→W0 median Δ | -13906ms (artifact) | -17.5ms |
-| T2W device | CPU (fallback) | NPU (cann-flow-only) |
+| D2→G0 median Δ | ~ -133ms (from 48 pairs with data) | 0ms |
+| D0→W0 median Δ | ~ -13906ms (artifact — cross-dict clock) | -17.5ms |
+| T2W device | CPU (fallback — CANN env not set) | NPU (cann-flow-only) |
+| Model | Q4_K_M | FP16 |
+| Launcher args | non-canonical (-ngl 99 -c 2048) | canonical (-ngl 999 -c 4096 -b 512 -ub 512 --split-mode layer -fa off) |
+| Harness | pre-fix (wrong key names) | fixed (canonical keys, schema validation) |
 | Validity | INVALID_FOR_FP16_GATE | CANONICAL |
+
+**Historical causal attribution: `UNPROVEN_MULTI_FACTOR_CONFOUNDING`**
+
+The early ~133ms D2→G0 result from Q4 data cannot be attributed to any single factor.
+Multiple variables changed simultaneously between the Q4 diagnostic run and the FP16 canonical run:
+- Model quantization (Q4_K_M → FP16)
+- T2W backend (CPU fallback → CANN NPU)
+- Launcher arguments (non-canonical → canonical)
+- Harness analysis code (pre-fix → fixed schema)
+
+While T2W running on CPU is a plausible contributor (observed 3571% CPU, 38-min requests),
+D2→G0 occurs logically before T2W computation. T2W can only affect D2→G0 indirectly through
+queue backpressure, thread contention, pipeline overlap, or prior-request drain.
+
+**Accurate wording:** Early ~133ms scheduling-stage gain from invalid Q4/CPU-T2W non-canonical
+experiment does not generalize to final FP16+CANN configuration. Specific causal decomposition
+(quantization vs T2W backend vs queue backpressure vs workload) was not performed and is not
+recommended — the FP16+CANN negative result is definitive regardless.
 
 ## Currently Running
 
@@ -89,8 +110,11 @@
 |------|--------|-----------|
 | B6B_HUMAN_LISTENING | PENDING | External |
 | B6B_OBJECTIVE_TTS_SCORING | PENDING_EXTERNAL | External ASR/speaker pipeline |
-| B6B_TRUE_E2E_GATE | **NOT_REACHED** | D0→W0 win_rate=52.5% < 95%, Client win_rate=53.3% < 95% |
-| B6B_DEFAULT_ENABLEMENT | **NO** | TRUE_E2E gate not reached |
+| B6B_TRUE_E2E_GATE | **REJECT_NO_MEANINGFUL_GAIN** | D0→W0 CI95 [-44,+10.5] crosses zero; Client median -2.3ms < 5ms threshold |
+| B6B_FEATURE_STATUS | **EXPERIMENTAL_KNOB / DEFAULT_OFF** | DO_NOT_ENABLE_FOR_PRODUCTION |
+| B6B_MAIN_LLM_ACCELERATION | **NONE** | D0→D2 Δ=0ms, CI95 [0,0] |
+| B6B_EARLY_Q4_RESULT | **INVALID_FOR_FINAL_FP16_CONCLUSION** | See causal note below |
+| B6B_Q4_ROOT_CAUSE | **UNPROVEN_MULTI_FACTOR_CONFOUNDING** | Q4≠FP16, CPU≠CANN, old≠new args, old≠new harness |
 
 ## Deferred (After TRUE_E2E Gates)
 
