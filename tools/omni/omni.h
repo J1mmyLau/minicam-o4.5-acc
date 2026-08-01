@@ -241,6 +241,77 @@ enum E2EStage : int {
     STAGE_COUNT
 };
 
+// ============================================================================
+// F6 Phase 3 (P9): Talker Per-Step Instrumentation
+// ============================================================================
+// Low-overhead ring buffer for recording per-step Talker decode statistics.
+// All fields are non-atomic — accessed only by the TTS thread.
+// Enabled via F6_PHASE3_TALKER_STATS=1 (default off, zero overhead).
+
+#define TALKER_MAX_STEPS 500  // matches max_audio_tokens
+
+struct TalkerStepRecord {
+    int16_t  step_index;              // 0-based step within current chunk
+    int64_t  step_start_ns;           // absolute clock (steady_clock epoch)
+    int64_t  step_compute_end_ns;     // after llama_decode returns
+    int64_t  step_sample_end_ns;      // after sampling
+    int32_t  sampled_token_id;        // absolute audio token ID
+    int16_t  token_type;              // 0=audio, 1=EOS, 2=text_eos
+    int16_t  is_audio_token;          // 1 if this step produced an audio token
+    int16_t  audio_token_count_before; // accumulated before this step
+    int16_t  audio_token_count_after;  // accumulated after this step
+    int32_t  backend_cpu_op_count;     // CPU backend ops (placeholder)
+    int32_t  backend_cann_op_count;    // CANN backend ops (placeholder)
+    int16_t  allocation_count;         // allocations this step (placeholder)
+    int32_t  allocation_bytes;         // bytes allocated (placeholder)
+    int64_t  stream_sync_ns;           // time in stream synchronize
+    int64_t  queue_wait_ns;            // time waiting for queue/condition
+};
+
+struct TalkerStepSummary {
+    int     steps_before_first_audio_token;   // G3 step index (0-based)
+    int     steps_G3_to_threshold;            // G3 → A1 (25-token accumulation)
+    int64_t first_step_ns;                    // step 0 compute duration
+    int64_t steady_step_median_ns;            // p50 of steps 1..N compute
+    int64_t steady_step_p95_ns;               // p95 of steps 1..N compute
+    int64_t total_talker_compute_ns;          // sum of all step compute
+    int64_t total_sampling_ns;                // sum of all sampling durations
+    int64_t total_sync_ns;                    // sum of stream sync
+    int64_t total_allocation_ns;              // sum of allocation overhead
+    int64_t total_wait_ns;                    // sum of queue/CV wait
+    int     total_steps;
+    int     total_audio_tokens;
+    int     total_cpu_ops;
+    int     total_cann_ops;
+    int     total_allocations;
+    int64_t total_allocation_bytes;
+    bool    truncated;                        // true if > TALKER_MAX_STEPS
+    bool    valid;                            // false if no steps recorded
+};
+
+struct TalkerStepBuffer {
+    TalkerStepRecord steps[TALKER_MAX_STEPS];
+    int count = 0;
+    bool truncated = false;
+
+    void record_step(const TalkerStepRecord &rec) {
+        if (count < TALKER_MAX_STEPS) {
+            steps[count++] = rec;
+        } else {
+            truncated = true;
+        }
+    }
+
+    void reset() {
+        count = 0;
+        truncated = false;
+    }
+
+    // Compute summary from recorded steps.
+    // Call at request completion (from HTTP handler or T2W worker).
+    TalkerStepSummary summarize() const;
+};
+
 // Dump mode: controls per-request JSON output vs aggregate-only
 enum E2EDumpMode : int {
     E2E_DUMP_DISABLED = 0,  // No timing, zero overhead
@@ -259,6 +330,11 @@ struct E2EStageTiming {
     bool no_speech = false;
     int cannerror = 0;
     int crash = 0;
+
+    // F6 Phase 3 (P9): Talker per-step ring buffer
+    // Non-atomic — accessed only by TTS thread during decode, read at dump time
+    TalkerStepBuffer talker_step_buffer;
+    bool talker_stats_enabled = false;  // F6_PHASE3_TALKER_STATS=1
 
     // Non-atomic — accessed only by the owning thread.
     uint32_t tts_thread_generation = 0;
@@ -368,6 +444,7 @@ struct E2EStageTiming {
         no_speech = false;
         cannerror = 0;
         crash = 0;
+        talker_step_buffer.reset();
     }
 
     // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
