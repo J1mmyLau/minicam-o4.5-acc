@@ -1,9 +1,9 @@
 # F6 Gate Status Matrix
 
-**Updated:** 2026-07-31 (W0 Observability Closeout initiated)
+**Updated:** 2026-08-01 (Phase 3: G0→T2W Dequeue decomposition)
 **Branch:** `perf/f6-decode-to-speak`
-**HEAD:** `2fe0ae4` (post-freeze R3 commit; tag at `00a2755`)
-**Tag:** `fp16-f6-early-tts-dispatch-internal-20260731` at `00a2755`
+**HEAD:** `f4133d0` (P0-P6 documentation + B6b rejection)
+**Tag:** `fp16-f6-early-tts-dispatch-internal-20260731` at `00a2755` (PRESERVED)
 
 ```
 2fe0ae4  F6 R3: W0 gap filling final — D0→W0 NOT_MEASURABLE on matched pairs (POST-FREEZE)
@@ -60,8 +60,8 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | B6B_INTERNAL_CANDIDATE | Freeze status | **FROZEN** | Tag: `fp16-f6-early-tts-dispatch-internal-20260731` at `00a2755` |
 | B6B_STATUS | Current status | **EXPERIMENTAL_KNOB / DEFAULT_OFF** | Env var `OMNI_TTS_FIRST_CHUNK_STEP=5`; DO_NOT_ENABLE_FOR_PRODUCTION |
 | B6B_DEFAULT_ENABLEMENT | Production default | **OFF** | TRUE_E2E gate REJECTED: no significant FP16+CANN E2E gain |
-| B6B_D2_TO_G0 | D2→G0 improvement | **NO_EFFECT_IN_FP16_CANN** | FP16: 120 pairs, median Δ=0ms, CI95=[0,0]; Q4 artifact (-133ms) invalid for FP16 |
-| B6B_D0_TO_D2 | Main LLM unchanged | **PASS** | FP16: 120 pairs, median Δ=0ms, CI95=[0,0]; confirmed MAIN_LLM_ACCELERATION=NONE |
+| B6B_D2_TO_G0 | D2→G0 scheduling gap | **BIMODAL/NOT_SIGNIFICANT_MEDIAN** | FP16: 120 pairs, median Δ=0ms (CI95 [0,0]); BUT bimodal: 72% pairs=0ms, 23% OFF ~221ms, 18% ON ~98ms. B6b reduces gap 2.3x WHEN gap exists. C3 audit: `F6_C3_D2G0_ZERO_GAP_AUDIT.md` |
+| B6B_D0_TO_D2 | Main LLM unchanged | **NO_OBSERVED_DIFFERENCE_AT_CURRENT_RESOLUTION** | FP16: 120 pairs, p50 Δ=0ms, 59% delta=0, 41% delta=±1-2ms. Integer-ms resolution. C2 audit: `F6_C2_D0D2_CI_ZERO_AUDIT.md` |
 | B6B_D0_TO_G3 | D0→G3 pass-through | **NOT_MEASURABLE** | FP16 profiles lack talker_first_audio_token (G3); 115/120 pairs excluded |
 | B6B_D0_TO_W0 | D0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | FP16: 120 pairs, median Δ=-17.5ms, win_rate=52.5% (<95% threshold) |
 | B6B_R0_TO_W0 | R0→W0 matched A/B | **DIRECTIONAL/NOT_SIGNIFICANT** | Client: 120 pairs, median Δ=-2.3ms, win_rate=53.3% (<95% threshold) |
@@ -86,18 +86,18 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 
 | Claim | Status | Reason |
 |-------|--------|--------|
-| B6B_INTERNAL_CANDIDATE | **FROZEN** | All measurable gates PASS; tag applied at `00a2755` |
-| MAIN_LLM_FIRST_TOKEN_LATENCY (D0→D2) | **UNCHANGED** | R1: Δ=-2.0ms; R3: Δ=+3ms; within noise |
-| FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE (D2→G0) | **PASS** (-100 to -142ms) | R1: 16 pairs, Δ=-141.5ms; R3: 27 pairs, Δ=-103ms; 100% win rate |
-| DECODE_TO_FIRST_TALKER_AUDIO_TOKEN (D0→G3) | **DIRECTIONALLY_SUPPORTED** | R1: 16 pairs; R3: 4 pairs (same direction, insufficient canonical sample for G3) |
-| SCHEDULING_GAIN_PASSES_THROUGH_TO_D0→G3 | **CONFIRMED** (on available pairs) | R2: residual=0.0ms on 16 common pairs |
-| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **DIRECTIONAL/NOT_SIGNIFICANT** | FP16: 120 pairs, D0→W0 median Δ=-17.5ms, win_rate=52.5% |
-| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **DIRECTIONAL/NOT_SIGNIFICANT** | Client: 120 pairs, median Δ=-2.3ms, win_rate=53.3% |
+| B6B_INTERNAL_CANDIDATE | **FROZEN** | Tag at `00a2755`; B6b REJECTED |
+| MAIN_LLM_FIRST_TOKEN_LATENCY (D0→D2) | **NO_OBSERVED_DIFFERENCE_AT_CURRENT_RESOLUTION** | C2: 120 pairs, p50 Δ=0ms, 59% delta=0, 41% delta=±1-2ms (ms quantization) |
+| FIRST_TEXT_CHUNK_ACCUMULATION_AND_TTS_WAKE (D2→G0) | **BIMODAL** | C3: 72% pairs=0ms, 23% OFF~221ms, 18% ON~98ms; B6b 2.3× reduction when gap exists |
+| DECODE_TO_FIRST_TALKER_AUDIO_TOKEN (D0→G3) | **NOT_MEASURABLE** | FP16 profiles lack G3 (5/120 present); requires P9 instrumentation |
+| SCHEDULING_GAIN_PASSES_THROUGH_TO_D0→G3 | **NOT_MEASURABLE** | G3 absent from 115/120 FP16 profiles |
+| DECODE_TO_FIRST_VALID_WAV (D0→W0) | **INCONCLUSIVE_WIDE_CI** | FP16: 120 pairs, median Δ=-17.5ms, CI95=[-44,+10.5]ms crosses zero |
+| REQUEST_TO_FIRST_VALID_WAV (R0→W0) | **REJECT_BELOW_THRESHOLD** | Client: 120 pairs, median Δ=-2.3ms < 5ms engineering threshold |
 | W0_EVENT_OBSERVABILITY | **FIXED** | W0 wav_ready present in 120/120 FP16 profiles (100%) |
-| TRUE_END_TO_END_FIRST_AUDIO | **DIRECTIONAL/NOT_SIGNIFICANT** | B6b provides -17.5ms median D0→W0; noise dominates (CV=3.5) |
-| DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | decode compute=13.7% of D0→G4 |
-| NEXT_BOTTLENECK | **G3→G4: TALKER_AUDIO_TOKEN_ACCUMULATION** (~302ms, 57.3%) | R8: 24 Talker steps × ~12.6ms; CHUNK_SIZE=25 = ENGINEERING_POLICY |
-| CHUNK_SIZE_25 | **ENGINEERING_POLICY_CONFIRMED** | R8; HOLD until W0 observability restored |
+| TRUE_END_TO_END_FIRST_AUDIO | **REJECT_NO_MEANINGFUL_GAIN** | Combined: INCONCLUSIVE + BELOW_THRESHOLD → REJECT |
+| DSPARK | **REJECTED_BY_CURRENT_BOTTLENECK_EVIDENCE** | decode compute < 15% of D0→W0 |
+| NEXT_BOTTLENECK | **G0→T2W_DEQUEUE_UNDECOMPOSED_REGION** (~621ms, 67.4% of D0→W0) | C4: Cannot decompose without G3/G4; Flow+Vocoder=267ms (residual=0ms at ms res) |
+| CHUNK_SIZE_25 | **ENGINEERING_POLICY_FROZEN** | Phase 3: observe only, do not modify |
 
 ## D-Phase Findings
 
@@ -169,28 +169,57 @@ cffd58d  F6 A1-A6: generation-safe timing, unified 16-event schema, memory model
 | "120-pair requires multi-decode architecture" | W10-W11 doc, W15 doc | Sequential server restart (same binary, different env, ABBA order) is sufficient |
 | "E2E overhead gate PASS" (without matched pairs) | W9 doc | Micro overhead PASS; matched E2E overhead (F6_TIMING=0 vs summary) PENDING |
 
-## NEXT_BOTTLENECK
+## NEXT_BOTTLENECK (Corrected — 2026-08-01)
 
 ```
 B6B_TRUE_E2E_FP16_GATE = REJECT_NO_MEANINGFUL_GAIN
 B6B_FEATURE_STATUS     = EXPERIMENTAL_KNOB / DEFAULT_OFF
 B6B_PRODUCTION_RECOMMENDATION = DO_NOT_ENABLE
 
-FP16+CANN latency budget (from 120-pair valid data):
-  D0→D2 (main LLM):      28ms median (3.0% of D0→W0)
-  D2→G0 (TTS scheduling):  0ms median (0%)
-  G0→W0 (TTS wake→WAV):  890ms median (96.5%)
-    ├─ G0→t2w_dequeue:   ~621ms (NOT DECOMPOSED — missing G3/G4)
-    └─ T2W→WAV:          269ms median (Flow 137ms + Vocoder 122ms)
+FP16+CANN latency budget (C1-C3 corrected):
+  D0→D2 (main LLM):        28ms median (3.0%)
+    → NO_OBSERVED_DIFFERENCE_AT_CURRENT_RESOLUTION (ms quantization)
+  D2→G0 (TTS scheduling):   BIMODAL
+    → Mode 1 (72%): 0ms — TTS worker already waiting
+    → Mode 2 (23% OFF): ~221ms — TTS idle wake latency
+    → Mode 2 (18% ON):  ~98ms — B6b reduces idle wake by ~55%
+  G0→t2w_dequeue:          ~621ms (67.4%) — UNDECOMPOSED REGION
+    → G3 (talker_first_audio_token) NOT INSTRUMENTED
+    → G4 (t2w_submit) NOT INSTRUMENTED
+  T2W dequeue→WAV:         267ms (29.0%)
+    → Flow: 135ms (p50) — GLOBAL atomic (g_e2e_flow_start_ns)
+    → Vocoder: 122ms (p50) — GLOBAL atomic (g_e2e_vocoder_start_ns)
+    → Residual: 0ms at ms resolution (Flow+Vocoder == T2W→WAV)
 
-NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker + queue)
-  → G3 (talker_first_audio_token) NOT INSTRUMENTED in current FP16 profiles
-  → G4 (t2w_submit) NOT INSTRUMENTED in current FP16 profiles
-  → Cannot decompose into G0→G3, G3→G4, G4→t2w_dequeue
-  → Old 302ms G3→G4 estimate from Q4/CPU-T2W data — MUST RE-VERIFY
-  → P9 required: add Talker per-step instrumentation
+NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker compute + token accumulation + queue)
+  → P9 prerequisite: Add Talker per-step instrumentation (T5-T7, A0-A1)
+  → C5 prerequisite: Fix Flow/Vocoder global atomics → request-scoped
+  → CHUNK_SIZE=25 = ENGINEERING_POLICY (FROZEN)
+```
 
-CHUNK_SIZE=25 = ENGINEERING_POLICY (FROZEN)
+## Phase 3 Gates (2026-08-01)
+
+| Gate | Description | Status | Depends On |
+|------|-------------|--------|------------|
+| C0 | Checkpoint + state save | **COMPLETE** | — |
+| C1 | Canonical raw data audit | **COMPLETE** | `F6_PHASE3_INPUT_DATA_AUDIT.md` |
+| C2 | D0→D2 CI=[0,0] audit | **COMPLETE** | `F6_C2_D0D2_CI_ZERO_AUDIT.md` (ROUNDING_ARTIFACT) |
+| C3 | D2→G0 zero-gap audit | **COMPLETE** | `F6_C3_D2G0_ZERO_GAP_AUDIT.md` (BIMODAL) |
+| C4 | Event contract V4 | **COMPLETE** | `F6_EVENT_CONTRACT_V4.md` |
+| C5 | Global fallback removal plan | **PENDING** | C4 complete |
+| C6 | Request profile lifecycle state machine | **PENDING** | C5 |
+| C7 | Talker per-step instrumentation (P9) | **PENDING** | C5-C6 |
+| C8 | Flow/Vocoder fine-grained events | **PENDING** | C5 |
+| C9 | Instrumentation correctness gate | **PENDING** | C7-C8 |
+| C10 | Instrumentation overhead gate | **PENDING** | C9 |
+| C11 | Phase 3 workload freeze | **PENDING** | C10 |
+| C12 | 120-request canonical baseline | **PENDING** | C11 |
+| C13 | Additive residual check | **PENDING** | C12 |
+| C14 | Compute/wait/policy decomposition | **PENDING** | C12 |
+| C15 | Backend reachability | **PENDING** | C14 |
+| C16 | msprof | **PENDING** | C15 |
+| C17 | Amdahl candidate ranking | **PENDING** | C14-C16 |
+| C18 | First candidate experiment | **PENDING** | C17 |
 
 NEXT PHASE (P7-P15):
   P7:  Rebuild latency budget from valid FP16 data → CONFIRMED: G0→W0 dominates

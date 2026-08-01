@@ -304,3 +304,8 @@
 - Server PID: 1913472, log: /tmp/omni-server-kv-fix2.log
 - Cache dir: /tmp/omni-kvcache/ (3 .bin files)
 - Failure classification: /tmp/C7_V2_FAILURE_CLASSIFICATION.md
+## 2026-08-01 13:56 | C0-C5 | COMPLETE
+## 2026-08-01 13:56 | C1_DATA_AUDIT | FP16 profiles: ms resolution, split JSON, Flow+Vocoder=0ms residual
+## 2026-08-01 13:56 | C2_D0D2_CI_ZERO | ROUNDING_ARTIFACT: 59% delta=0, ms quantization
+## 2026-08-01 13:56 | C3_D2G0_ZERO_GAP | BIMODAL: 72% 0ms, 28% ~221ms OFF / ~98ms ON
+## 2026-08-01 13:56 | C4_V4_CONTRACT | 20 events defined; Flow/Vocoder globals identified
