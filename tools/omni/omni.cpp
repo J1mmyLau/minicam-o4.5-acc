@@ -84,15 +84,11 @@ std::atomic<int64_t> g_e2e_flow_end_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
 
-// F6 C8: Mirror pointers for request-scoped Flow/Vocoder recording.
-// Set by T2W worker before feed_window(), read+written by e2e_record_ns() in
-// token2wav-impl.cpp.  These point into the active request's E2EStageTiming::
-// timestamps_ns[] entries for flow/vocoder stages.  Cleared after feed_window()
-// returns so that stale pointers never persist across requests.
-std::atomic<int64_t>* g_c8_flow_start_ptr    = nullptr;
-std::atomic<int64_t>* g_c8_flow_end_ptr      = nullptr;
-std::atomic<int64_t>* g_c8_vocoder_start_ptr = nullptr;
-std::atomic<int64_t>* g_c8_vocoder_end_ptr   = nullptr;
+// F6 C8 N5: Flow/Vocoder per-request mirroring uses thread-local C8ProfileScope
+// RAII guard (defined in token2wav/token2wav-impl.h).  The T2W worker sets the
+// scope before feed_window() and it auto-restores on destruction.  token2wav-impl.cpp
+// reads g_c8_thread_targets (thread_local) to mirror each stage write into the
+// correct request's timestamps_ns[] slot.
 static omni_context *g_e2e_summary_ctx = nullptr;  // for atexit summary dump
 
 // Pipeline Trace global buffer (gated by OMNI_PIPELINE_TRACE=1)
@@ -11160,13 +11156,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // Process windows using sliding window
         int process_count = 0;
 
-        // F6 C8: wire up request-scoped Flow/Vocoder recording before feed_window.
-        // The mirror pointers are read by e2e_record_ns() in token2wav-impl.cpp.
+        // F6 C8 N5: thread-local RAII scope for Flow/Vocoder per-request mirroring.
+        // All Flow/Vocoder writes happen on the T2W worker thread, so thread_local
+        // is correct.  The scope auto-restores the previous context on destruction.
+        C8ProfileScope c8_scope(
+            captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_flow_start]    : nullptr,
+            captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_flow_end]      : nullptr,
+            captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_vocoder_start] : nullptr,
+            captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_vocoder_end]   : nullptr,
+            captured_profile_gen);
+
         if (captured_profile_handle) {
-            g_c8_flow_start_ptr    = &captured_profile_handle->timestamps_ns[STAGE_flow_start];
-            g_c8_flow_end_ptr      = &captured_profile_handle->timestamps_ns[STAGE_flow_end];
-            g_c8_vocoder_start_ptr = &captured_profile_handle->timestamps_ns[STAGE_vocoder_start];
-            g_c8_vocoder_end_ptr   = &captured_profile_handle->timestamps_ns[STAGE_vocoder_end];
             // Record Q2 (t2w_preprocess_end) — after dequeue+buffer_merge, before Flow
             captured_profile_handle->record(STAGE_t2w_preprocess_end, captured_profile_gen);
         }
@@ -11395,12 +11395,8 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             }
         }
 
-        // F6 C8: clear mirror pointers — feed_window is done, prevent stale
-        // pointers from persisting across requests
-        g_c8_flow_start_ptr    = nullptr;
-        g_c8_flow_end_ptr      = nullptr;
-        g_c8_vocoder_start_ptr = nullptr;
-        g_c8_vocoder_end_ptr   = nullptr;
+        // F6 C8 N5: C8ProfileScope destructor auto-restores previous thread_local
+        // context when c8_scope goes out of scope here — no manual clear needed.
 
         // ====================================================================
         // P7.3 Drain State Machine — notify main thread when is_final done

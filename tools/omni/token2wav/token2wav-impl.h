@@ -2334,3 +2334,39 @@ struct Token2WavSession {
 
 }  // namespace flow
 }  // namespace omni
+
+// ============================================================================
+// F6 C8: Thread-local Flow/Vocoder target context
+// ============================================================================
+
+struct C8FlowVocoderTargets {
+    std::atomic<int64_t>* flow_start    = nullptr;
+    std::atomic<int64_t>* flow_end      = nullptr;
+    std::atomic<int64_t>* vocoder_start = nullptr;
+    std::atomic<int64_t>* vocoder_end   = nullptr;
+    uint32_t               generation   = 0;
+    int                    depth         = 0;
+};
+
+extern thread_local C8FlowVocoderTargets g_c8_thread_targets;
+
+class C8ProfileScope {
+public:
+    C8ProfileScope(std::atomic<int64_t>* fs, std::atomic<int64_t>* fe,
+                   std::atomic<int64_t>* vs, std::atomic<int64_t>* ve,
+                   uint32_t gen)
+        : saved_(g_c8_thread_targets)
+    {
+        g_c8_thread_targets.flow_start    = fs;
+        g_c8_thread_targets.flow_end      = fe;
+        g_c8_thread_targets.vocoder_start = vs;
+        g_c8_thread_targets.vocoder_end   = ve;
+        g_c8_thread_targets.generation    = gen;
+        g_c8_thread_targets.depth         = saved_.depth + 1;
+    }
+    ~C8ProfileScope() { g_c8_thread_targets = saved_; }
+    C8ProfileScope(const C8ProfileScope&) = delete;
+    C8ProfileScope& operator=(const C8ProfileScope&) = delete;
+private:
+    C8FlowVocoderTargets saved_;
+};
