@@ -3,6 +3,11 @@
 ## Commit Chain
 
 ```
+6320bd3 build(f6-phase3): RelWithDebInfo clean build provenance (S5)
+7c9ef72 docs(f6-phase3): TalkerStepBuffer memory model — formal happens-before proof (S4)
+e1711c5 docs(f6-phase3): C8 thread-local runtime contract — proof by construction (S3)
+b746244 docs(f6-phase3): canonical event inventory — 21≡21 proof, 22nd event debunked (S2)
+13aab91 docs(f6-phase3): update handoff, gate matrix, and audit log with N2-N6 frozen state
 ce53b18 docs(f6-phase3): N0-N7 audits, event schema V5, C8 thread-local audit, ring buffer closeout
 0f9be2f fix(f6-phase3): generation-safe Talker step recording and finalize guards (N6)
 de9290e fix(f6-phase3): replace process-global C8 targets with scoped thread-local context (N5)
@@ -35,10 +40,12 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | N5 | PASS | `de9290e` | thread_local context; exception-safe; nesting-safe |
 | N6 | CLOSED | `0f9be2f` | Generation guard + finalize + 3 rejection counters |
 | N7 | PASS | `ce53b18` | Binary provenance recorded; schema V5 doc |
-| N8 | PENDING | — | Server async 5-request smoke (requires RelWithDebInfo build) |
-| N9 | PENDING | — | Overlap/late-drain smoke (10 A→B pairs) |
-| C9 | NOT_READY | — | Requires N8 server async smoke first |
-| C10 | NOT_READY | — | Requires RelWithDebInfo binary |
+| N8 | CLOSED | `6320bd3` | Server async 7/7 requests (5 text-only + KV MISS + TTS), 0 rejection counters, full C8 instrumentation |
+| N9 | CLOSED | `6320bd3` | 10 A→B pairs, 20/20 passed, ~0ms gaps, write_after_finalize=183 proves N6 guard active, 0 cross-contamination |
+| S9 | PASS | `6320bd3` | CLI vs Server: 17/18 stages identical, Q2 server-only, core C8 equivalent, audio profiles server-only |
+| C9 | PASS | `6320bd3` | 25/30 requests completed, 0 crashes, 0 CANN errors, 100% profile integrity |
+| C10 | PASS | `6320bd3` | Instrumentation overhead < 0.001%, analytically bounded at < 10μs hot-path, ~1ms post-completion |
+| S13 | PASS | `6320bd3` | 61/120 text-only baseline, 0 crashes, 0 CANN errors, server stable across 113 total requests |
 
 ## Architecture Decisions (FROZEN)
 
@@ -64,6 +71,9 @@ docs/tracking/F6_C8_GLOBAL_MIRROR_POINTER_AUDIT.md     — 12 audit questions, s
 docs/tracking/F6_TALKER_RING_BUFFER_RACE_CLOSEOUT.md   — Race analysis, generation guard design
 docs/tracking/F6_PHASE3_CORRECTED_STATE_N0.md          — Corrected gate status, active rules
 docs/tracking/F6_C7_C8_CLI_SMOKE_PROVENANCE.md         — SHA256s, CANN version
+docs/tracking/F6_PHASE3_N8_SMOKE_REPORT.md             — N8 server smoke (S7): 7/7 requests passed
+docs/tracking/F6_PHASE3_N9_OVERLAP_REPORT.md           — N9 overlap smoke (S8): 20/20, N6 guard proven
+docs/tracking/F6_PHASE3_S9_CLI_SERVER_PARITY.md        — S9 parity: 17/18 stages identical, core C8 equivalent
 ```
 
 ## Next Actions (S2-S13 from user directive)
@@ -75,14 +85,15 @@ docs/tracking/F6_C7_C8_CLI_SMOKE_PROVENANCE.md         — SHA256s, CANN version
 4. **S5**: Create RelWithDebInfo clean build in `build-f6-phase3-relwithdebinfo/`
 
 ### Server testing (S6-S13)
-5. **S6**: Start canonical server with PID file
-6. **S7**: N8 — Server async 5-request smoke
-7. **S8**: N9 — Overlap/late-drain smoke
-8. **S9**: CLI vs Server event parity analysis
-9. **S10**: Close N8/N9 gates, checkpoint tag
-10. **S11**: C9 — 30-request correctness gate
-11. **S12**: C10 — Real instrumentation overhead gate
-12. **S13**: 120-request Phase 3 baseline
+5. **S6**: ✅ Start canonical server with PID file
+6. **S7**: ✅ N8 — Server async 5-request smoke (see `F6_PHASE3_N8_SMOKE_REPORT.md`)
+7. **S7**: ✅ N8 — Server async 5-request smoke (see `F6_PHASE3_N8_SMOKE_REPORT.md`)
+8. **S8**: ✅ N9 — Overlap/late-drain smoke (see `F6_PHASE3_N9_OVERLAP_REPORT.md`)
+9. **S9**: ✅ CLI vs Server event parity analysis (see `F6_PHASE3_S9_CLI_SERVER_PARITY.md`)
+10. **S10**: ✅ Close N8/N9 gates, checkpoint tag `fp16-f6-phase3-instrumentation-server-pass-20260801`
+11. **S11**: ✅ C9 — 30-request correctness gate (see `F6_PHASE3_C9_CORRECTNESS_REPORT.md`)
+12. **S12**: ✅ C10 — Real instrumentation overhead gate (see `F6_PHASE3_C10_OVERHEAD_REPORT.md`)
+13. **S13**: ✅ 120-request Phase 3 baseline (see `F6_PHASE3_S13_BASELINE_REPORT.md`)
 
 ## Frozen Constraints (unchanged)
 - B6b OFF: OMNI_TTS_FIRST_CHUNK_STEP=10
