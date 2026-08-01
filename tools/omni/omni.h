@@ -298,22 +298,50 @@ struct TalkerStepBuffer {
     TalkerStepRecord steps[TALKER_MAX_STEPS];
     int count = 0;
     bool truncated = false;
+    mutable std::atomic<uint32_t> active_generation{0};
+    mutable std::atomic<bool>     finalized{false};
+    mutable std::atomic<uint32_t> late_write_rejected{0};
+    mutable std::atomic<uint32_t> write_after_finalize{0};
+    mutable std::atomic<uint32_t> invalid_generation_write{0};
 
-    void record_step(const TalkerStepRecord &rec) {
-        if (count < TALKER_MAX_STEPS) {
-            steps[count++] = rec;
-        } else {
-            truncated = true;
+    bool record_step(const TalkerStepRecord &rec, uint32_t generation) {
+        if (finalized.load(std::memory_order_acquire)) {
+            write_after_finalize.fetch_add(1, std::memory_order_relaxed);
+            return false;
         }
+        uint32_t current_gen = active_generation.load(std::memory_order_acquire);
+        if (generation != current_gen) {
+            if (generation < current_gen)
+                late_write_rejected.fetch_add(1, std::memory_order_relaxed);
+            else
+                invalid_generation_write.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (count < TALKER_MAX_STEPS) { steps[count++] = rec; }
+        else { truncated = true; }
+        return true;
+    }
+
+    void record_step_unchecked(const TalkerStepRecord &rec) {
+        uint32_t gen = active_generation.load(std::memory_order_acquire);
+        (void)record_step(rec, gen);
     }
 
     void reset() {
+        active_generation.fetch_add(1, std::memory_order_release);
+        finalized.store(false, std::memory_order_relaxed);
         count = 0;
         truncated = false;
     }
 
-    // Compute summary from recorded steps.
-    // Call at request completion (from HTTP handler or T2W worker).
+    void finalize() const {
+        finalized.store(true, std::memory_order_release);
+    }
+
+    uint32_t capture_generation() const {
+        return active_generation.load(std::memory_order_acquire);
+    }
+
     TalkerStepSummary summarize() const;
 };
 
