@@ -197,7 +197,24 @@ NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker compute + token accumulatio
   → CHUNK_SIZE=25 = ENGINEERING_POLICY (FROZEN)
 ```
 
-## Phase 3 Gates (2026-08-01)
+## Phase 3 Gates (2026-08-01) — N0-N6 FROZEN
+
+### N-Gates: Instrumentation Fixes (ALL FROZEN)
+
+| Gate | Description | Status | Commit | Evidence |
+|------|-------------|--------|--------|----------|
+| N0 | Corrected state tracking | PASS | `ce53b18` | `F6_PHASE3_CORRECTED_STATE_N0.md` |
+| N1 | Binary provenance recorded | PASS | `ce53b18` | `F6_C7_C8_CLI_SMOKE_PROVENANCE.md` |
+| N2 | Event schema fix (Q1→Q2) | PASS | `2150274` | enum comment fixed |
+| N3 | Q-semantics confirmed | PASS | `2150274` | Q0/Q1/Q2 assigned |
+| N4 | 4 global ptrs removed | PASS | `de9290e` | C8ProfileScope RAII |
+| N5 | thread_local context | PASS | `de9290e` | exception-safe, nesting-safe |
+| N6 | Ring buffer race closed | CLOSED | `0f9be2f` | generation guard + finalize + 3 rejection counters |
+| N7 | Schema V5 + docs | PASS | `ce53b18` | `F6_EVENT_SCHEMA_V5_FINAL.md` |
+| N8 | Server async 5-request smoke | **PENDING** | — | Requires S5 RelWithDebInfo build |
+| N9 | Overlap/late-drain smoke | **PENDING** | — | Requires N8 |
+
+### C-Gates: Correctness + Overhead (BLOCKED on S5)
 
 | Gate | Description | Status | Depends On |
 |------|-------------|--------|------------|
@@ -206,20 +223,13 @@ NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker compute + token accumulatio
 | C2 | D0→D2 CI=[0,0] audit | **COMPLETE** | `F6_C2_D0D2_CI_ZERO_AUDIT.md` (ROUNDING_ARTIFACT) |
 | C3 | D2→G0 zero-gap audit | **COMPLETE** | `F6_C3_D2G0_ZERO_GAP_AUDIT.md` (BIMODAL) |
 | C4 | Event contract V4 | **COMPLETE** | `F6_EVENT_CONTRACT_V4.md` |
-| C5 | Global fallback removal plan | **COMPLETE** | `F6_C5_GLOBAL_FALLBACK_AUDIT.md` — 4 globals identified; fix: T2W queue handle |
-| C6 | Request profile lifecycle state machine | **COMPLETE** | `F6_C6_PROFILE_LIFECYCLE_STATE_MACHINE.md` — 8-state FSM |
-| C7 | Talker per-step instrumentation (P9) | **COMPLETE** (compiled, not smoke-tested) | Commit `9a916ce`; binary `bd000463`; smoke test deferred (model load >180s) |
-| C8 | Flow/Vocoder fine-grained events | **PLAN** | `F6_C8_FLOW_VOCODER_FINEGRAINED.md` — requires T2W queue item header change |
-| C9 | Instrumentation correctness gate | **PENDING** | C7 smoke test + C8 |
-| C10 | Instrumentation overhead gate | **PENDING** | C9 |
-| C11 | Phase 3 workload freeze | **PENDING** | C10 |
-| C12 | 120-request canonical baseline | **PENDING** | C11 |
-| C13 | Additive residual check | **PENDING** | C12 |
-| C14 | Compute/wait/policy decomposition | **PENDING** | C12 |
-| C15 | Backend reachability | **PENDING** | C14 |
-| C16 | msprof | **PENDING** | C15 |
-| C17 | Amdahl candidate ranking | **PENDING** | C14-C16 |
-| C18 | First candidate experiment | **PENDING** | C17 |
+| C5 | Global fallback removal plan | **COMPLETE** | `F6_C5_GLOBAL_FALLBACK_AUDIT.md` |
+| C6 | Request profile lifecycle state machine | **COMPLETE** | `F6_C6_PROFILE_LIFECYCLE_STATE_MACHINE.md` |
+| C7 | Talker per-step instrumentation (P9) | **COMPILED+CLI_SMOKED** | `0f9be2f`; CLI smoke: Talker summary present |
+| C8 | Flow/Vocoder fine-grained events | **IMPLEMENTED** (N5 thread_local) | `de9290e`; CLI smoke: per-stage present, 0 stale |
+| C9 | Instrumentation correctness gate | **NOT_READY** | N8 server async smoke |
+| C10 | Instrumentation overhead gate | **NOT_READY** | S5 RelWithDebInfo build |
+| C11-C18 | Phase 3 baseline | **PENDING** | C9+C10 |
 
 NEXT PHASE (P7-P15):
   P7:  Rebuild latency budget from valid FP16 data → CONFIRMED: G0→W0 dominates
