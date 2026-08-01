@@ -242,7 +242,7 @@ enum E2EStage : int {
     STAGE_tts_wake,                    // 18 — G0: TTS thread wakes from cv.wait
     STAGE_tts_first_decode,            // 19 — G2: first TTS llama_decode call
     // F6 C8: request-scoped Flow/Vocoder decomposition
-    STAGE_t2w_preprocess_end,          // 20 — Q1: T2W preprocessing before Flow begins
+    STAGE_t2w_preprocess_end,          // 20 — Q2: T2W preprocessing completed, Flow input ready
     STAGE_COUNT
 };
 
