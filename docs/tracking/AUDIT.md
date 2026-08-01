@@ -313,3 +313,9 @@
 ## 2026-08-01 14:06 | C6_LIFECYCLE | ACTIVE→TALKER→AUDIO→T2W→WAV→FINALIZED→RETIRED state machine
 ## 2026-08-01 14:06 | C7_TALKER_STATS | P9 implemented @ 9a916ce; binary bd000463; compiled OK; smoke test deferred
 ## 2026-08-01 14:06 | C8_FLOW_VOCODER | PLAN: request-scoped F0-F1,V0-V1 via T2W queue handle
+## 2026-08-01 XX:XX | M2_EVENT_SCHEMA | FIX: 21 enum = 21 names = STAGE_COUNT=21; Q0/Q1/Q2 semantics confirmed
+## 2026-08-01 XX:XX | N3_Q_SEMANTICS | FIX: Q0=t2w_submit, Q1=t2w_dequeue, Q2=t2w_preprocess_end
+## 2026-08-01 XX:XX | C8_GLOBAL_PTR | FIX: 4 process-global raw ptrs → thread_local C8ProfileScope RAII guard
+## 2026-08-01 XX:XX | N6_RING_BUFFER | CLOSED: generation guard + finalize gate + 3 rejection counters
+## 2026-08-01 XX:XX | N2_N6_COMMIT | COMMIT: 5 commits @ ce53b18; N2-N6 frozen; N0-N7 documented
+## 2026-08-01 XX:XX | S1_COMPLETE | 5 logical commits; git status clean; ready for S2-S5 pre-build verification
