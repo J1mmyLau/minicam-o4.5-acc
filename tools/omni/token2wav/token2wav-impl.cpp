@@ -27,6 +27,15 @@ extern std::atomic<int64_t> g_e2e_flow_end_ns;
 extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
 extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
 
+// F6 C8: Mirror pointers for request-scoped Flow/Vocoder recording.
+// Set by T2W worker before feed_window(), cleared after.  When non-null,
+// e2e_record_ns() mirrors every write to the corresponding per-request
+// timestamps_ns[] entry, replacing the global fallback mechanism.
+extern std::atomic<int64_t>* g_c8_flow_start_ptr;
+extern std::atomic<int64_t>* g_c8_flow_end_ptr;
+extern std::atomic<int64_t>* g_c8_vocoder_start_ptr;
+extern std::atomic<int64_t>* g_c8_vocoder_end_ptr;
+
 // ============================================================================
 // P3: Vocoder path hit counters (default OFF, zero overhead when OFF)
 // Gate: OMNI_VOC_PATH_STATS=1
@@ -75,8 +84,20 @@ static void vocoder_path_stats_dump() {
 static void e2e_record_ns(std::atomic<int64_t>& target) {
     if (!g_e2e_profile_enabled) return;
     auto now = std::chrono::steady_clock::now().time_since_epoch();
-    target.store(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
-                 std::memory_order_relaxed);
+    int64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
+    target.store(ns, std::memory_order_relaxed);
+
+    // F6 C8: mirror to request-scoped per-stage timestamps when C8 pointers are wired.
+    // Compare by address to determine which stage this write belongs to.
+    if (&target == &g_e2e_flow_start_ns && g_c8_flow_start_ptr) {
+        g_c8_flow_start_ptr->store(ns, std::memory_order_relaxed);
+    } else if (&target == &g_e2e_flow_end_ns && g_c8_flow_end_ptr) {
+        g_c8_flow_end_ptr->store(ns, std::memory_order_relaxed);
+    } else if (&target == &g_e2e_vocoder_start_ns && g_c8_vocoder_start_ptr) {
+        g_c8_vocoder_start_ptr->store(ns, std::memory_order_relaxed);
+    } else if (&target == &g_e2e_vocoder_end_ns && g_c8_vocoder_end_ptr) {
+        g_c8_vocoder_end_ptr->store(ns, std::memory_order_relaxed);
+    }
 }
 
 static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {

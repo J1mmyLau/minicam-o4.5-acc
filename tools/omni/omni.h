@@ -97,6 +97,8 @@ enum T2WTerminalOutput {
     T2W_GENERATION_FAILURE      = 6,  // Upstream failure (LLM/TTS did not produce)
 };
 
+struct E2EStageTiming;  // forward decl for T2WOut::profile_handle (F6 C8)
+
 struct T2WOut {
     std::vector<llama_token> audio_tokens;  // Audio token IDs (25 tokens per chunk)
     bool is_final = false;  // Whether this is the final chunk (turn end)
@@ -104,6 +106,7 @@ struct T2WOut {
     int round_idx = -1;  // 🔧 [修复目录同步] 轮次索引，由 TTS 线程设置，T2W 线程使用此值确定输出目录
     uint32_t generation_id = 0;  // F6 W5: generation at TTS submit time for correct W0 attribution
     int request_index = 0;  // F6 W5: request_index at submit time for audio profile file naming
+    E2EStageTiming *profile_handle = nullptr;  // F6 C8: request-scoped profile for Flow/Vocoder
     std::chrono::steady_clock::time_point enqueue_time = std::chrono::steady_clock::now();
 };
 
@@ -238,6 +241,8 @@ enum E2EStage : int {
     STAGE_llm_first_decode_step,       // 17 — D1: first autoregressive llama_decode call
     STAGE_tts_wake,                    // 18 — G0: TTS thread wakes from cv.wait
     STAGE_tts_first_decode,            // 19 — G2: first TTS llama_decode call
+    // F6 C8: request-scoped Flow/Vocoder decomposition
+    STAGE_t2w_preprocess_end,          // 20 — Q1: T2W preprocessing before Flow begins
     STAGE_COUNT
 };
 
@@ -483,6 +488,7 @@ struct E2EStageTiming {
             case STAGE_llm_first_decode_step:     return "llm_first_decode_step";
             case STAGE_tts_wake:                  return "tts_wake";
             case STAGE_tts_first_decode:          return "tts_first_decode";
+            case STAGE_t2w_preprocess_end:        return "t2w_preprocess_end";
             default: return "unknown";
         }
     }

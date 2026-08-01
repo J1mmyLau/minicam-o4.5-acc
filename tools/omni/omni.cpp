@@ -83,6 +83,16 @@ std::atomic<int64_t> g_e2e_flow_start_ns{0};
 std::atomic<int64_t> g_e2e_flow_end_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_start_ns{0};
 std::atomic<int64_t> g_e2e_vocoder_end_ns{0};
+
+// F6 C8: Mirror pointers for request-scoped Flow/Vocoder recording.
+// Set by T2W worker before feed_window(), read+written by e2e_record_ns() in
+// token2wav-impl.cpp.  These point into the active request's E2EStageTiming::
+// timestamps_ns[] entries for flow/vocoder stages.  Cleared after feed_window()
+// returns so that stale pointers never persist across requests.
+std::atomic<int64_t>* g_c8_flow_start_ptr    = nullptr;
+std::atomic<int64_t>* g_c8_flow_end_ptr      = nullptr;
+std::atomic<int64_t>* g_c8_vocoder_start_ptr = nullptr;
+std::atomic<int64_t>* g_c8_vocoder_end_ptr   = nullptr;
 static omni_context *g_e2e_summary_ctx = nullptr;  // for atexit summary dump
 
 // Pipeline Trace global buffer (gated by OMNI_PIPELINE_TRACE=1)
@@ -1089,20 +1099,24 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
     if (t0 <= 0) t0 = t.timestamps_ns[STAGE_decode_loop_begin].load(std::memory_order_acquire);
     if (t0 <= 0) t0 = 1;  // Avoid div-by-zero
 
-    // Async stages: Q0, flow, vocoder, W0, client first audio
+    // Async stages: Q0, Q1, flow, vocoder, W0, client first audio
+    // F6 C8: Q1 (t2w_preprocess_end) added; flow/vocoder are now request-scoped
+    // via C8 mirror pointers — no global fallback needed.
     static const E2EStage async_stages[] = {
-        STAGE_t2w_dequeue, STAGE_flow_start, STAGE_flow_end,
+        STAGE_t2w_dequeue, STAGE_t2w_preprocess_end,
+        STAGE_flow_start, STAGE_flow_end,
         STAGE_vocoder_start, STAGE_vocoder_end,
         STAGE_wav_ready, STAGE_client_first_audio,
     };
     static const char* async_names[] = {
-        "t2w_dequeue", "flow_start", "flow_end",
+        "t2w_dequeue", "t2w_preprocess_end",
+        "flow_start", "flow_end",
         "vocoder_start", "vocoder_end",
         "wav_ready", "client_first_audio",
     };
 
     bool first = true;
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
         int64_t val = t.timestamps_ns[async_stages[i]].load(std::memory_order_relaxed);
         // F6 W5: use direct wav_ready_ns as ground truth for W0, bypassing
         // per-stage timestamps that may have been cleared by a concurrent reset().
@@ -1117,23 +1131,9 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
         fprintf(f, "    \"%s\": %lld", async_names[i], (long long)elapsed);
     }
 
-    // F6 W5: fallback to global atomics only when per-stage not set (avoids duplicate keys)
-    // Fix 3 (deferred) will migrate flow/vocoder to per-stage timestamps.
-    auto add_global_fallback = [&](const char* name, const std::atomic<int64_t>& ns, E2EStage stage) {
-        // Skip if per-stage timestamp already written above
-        if (t.timestamps_ns[stage].load(std::memory_order_relaxed) > 0) return;
-        int64_t val = ns.load(std::memory_order_relaxed);
-        if (val <= 0) return;
-        int64_t elapsed = (val - t0) / 1'000'000;
-        if (elapsed < 0) return;
-        if (!first) fprintf(f, ",\n");
-        first = false;
-        fprintf(f, "    \"%s\": %lld", name, (long long)elapsed);
-    };
-    add_global_fallback("flow_start",    g_e2e_flow_start_ns,    STAGE_flow_start);
-    add_global_fallback("flow_end",      g_e2e_flow_end_ns,      STAGE_flow_end);
-    add_global_fallback("vocoder_start", g_e2e_vocoder_start_ns, STAGE_vocoder_start);
-    add_global_fallback("vocoder_end",   g_e2e_vocoder_end_ns,   STAGE_vocoder_end);
+    // F6 C8: Flow/Vocoder stages are now request-scoped via C8 mirror pointers.
+    // The per-stage timestamps_ns[] entries are populated by e2e_record_ns() in
+    // token2wav-impl.cpp during feed_window, so no global fallback is needed.
 
     fprintf(f, "\n  }");
 
@@ -7182,6 +7182,7 @@ static bool generate_audio_tokens_local_simplex(
             t2w_out->is_final = false;
             t2w_out->round_idx = ctx_omni->simplex_round_idx;
             t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5: correct attribution
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
 
             {
@@ -7292,6 +7293,7 @@ static bool generate_audio_tokens_local_simplex(
                     t2w_out->is_final = false;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
@@ -7328,6 +7330,7 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->is_final = false;  // 注意：这里不设 is_final=true，is_final 由 tts_thread_func 在 llm_finish 时发送
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
@@ -7351,6 +7354,7 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->is_chunk_end = true;  // 🔧 标记 chunk 结束，T2W 需要 flush buffer
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
@@ -7697,6 +7701,7 @@ static bool generate_audio_tokens_local(
             t2w_out->is_chunk_end = false;  // 🔧 中间推送，不是 chunk 结束
             t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
             
@@ -7729,6 +7734,7 @@ static bool generate_audio_tokens_local(
         t2w_out->is_chunk_end = !is_end_of_turn;  // 非 turn 结束时才用 is_chunk_end
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
         
@@ -8203,6 +8209,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
@@ -8273,6 +8280,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                     t2w_out->is_chunk_end = true;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
@@ -8296,6 +8304,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                     t2w_out->is_chunk_end = false;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
@@ -8536,6 +8545,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
@@ -8554,6 +8564,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
@@ -8605,6 +8616,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_chunk_end = false;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
@@ -8975,6 +8987,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->is_final = false;  // 先发送剩余 tokens
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 {
@@ -9422,6 +9435,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         t2w_out->is_final = false;  // 还不是最后一个，后面还有 turn_end 的 is_final
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         
@@ -9466,6 +9480,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->is_final = true;
                     t2w_out->round_idx = current_round_idx;  // 🔧 使用递增前的值
                     t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
@@ -9871,6 +9886,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->is_final = false;  // Not final, more chunks may come
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     
@@ -9962,6 +9978,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->is_final = (audio_gen_finish || llm_finish);  // Mark as final if generation finished
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 
@@ -10072,6 +10089,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->is_final = true;
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+        t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 
@@ -11007,6 +11025,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         std::chrono::steady_clock::time_point oldest_enqueue_time = dequeue_time;
         bool have_enqueue_time = false;
+        // F6 C8: capture request-scoped profile handle from first queue item
+        E2EStageTiming *captured_profile_handle = nullptr;
+        uint32_t        captured_profile_gen    = 0;
         while (!queue.empty()) {
             T2WOut *t2w_out = queue.front();
             queue.pop();
@@ -11018,7 +11039,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 oldest_enqueue_time = t2w_out->enqueue_time;
                 have_enqueue_time = true;
             }
-            
+            // F6 C8: capture profile handle from the first item that carries one
+            if (!captured_profile_handle && t2w_out->profile_handle) {
+                captured_profile_handle = t2w_out->profile_handle;
+                captured_profile_gen   = t2w_out->generation_id;
+            }
+
             new_tokens.insert(new_tokens.end(), t2w_out->audio_tokens.begin(), t2w_out->audio_tokens.end());
             is_final = is_final || t2w_out->is_final;  // 任何一个是 final 就是 final
             is_chunk_end = is_chunk_end || t2w_out->is_chunk_end;  // 任何一个是 chunk_end 就是 chunk_end
@@ -11133,6 +11159,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         // Process windows using sliding window
         int process_count = 0;
+
+        // F6 C8: wire up request-scoped Flow/Vocoder recording before feed_window.
+        // The mirror pointers are read by e2e_record_ns() in token2wav-impl.cpp.
+        if (captured_profile_handle) {
+            g_c8_flow_start_ptr    = &captured_profile_handle->timestamps_ns[STAGE_flow_start];
+            g_c8_flow_end_ptr      = &captured_profile_handle->timestamps_ns[STAGE_flow_end];
+            g_c8_vocoder_start_ptr = &captured_profile_handle->timestamps_ns[STAGE_vocoder_start];
+            g_c8_vocoder_end_ptr   = &captured_profile_handle->timestamps_ns[STAGE_vocoder_end];
+            // Record Q1 (t2w_preprocess_end) — after dequeue+buffer_merge, before Flow
+            captured_profile_handle->record(STAGE_t2w_preprocess_end, captured_profile_gen);
+        }
 
         // E2E profiling: record when buffer first reaches 28 tokens (generation-safe)
         if (token_buffer.size() >= WINDOW_SIZE &&
@@ -11357,6 +11394,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 break;
             }
         }
+
+        // F6 C8: clear mirror pointers — feed_window is done, prevent stale
+        // pointers from persisting across requests
+        g_c8_flow_start_ptr    = nullptr;
+        g_c8_flow_end_ptr      = nullptr;
+        g_c8_vocoder_start_ptr = nullptr;
+        g_c8_vocoder_end_ptr   = nullptr;
 
         // ====================================================================
         // P7.3 Drain State Machine — notify main thread when is_final done
