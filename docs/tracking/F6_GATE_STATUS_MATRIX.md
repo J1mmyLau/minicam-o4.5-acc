@@ -206,11 +206,11 @@ NEXT_BOTTLENECK = G0→t2w_dequeue ≈ 621ms (Talker compute + token accumulatio
 | C2 | D0→D2 CI=[0,0] audit | **COMPLETE** | `F6_C2_D0D2_CI_ZERO_AUDIT.md` (ROUNDING_ARTIFACT) |
 | C3 | D2→G0 zero-gap audit | **COMPLETE** | `F6_C3_D2G0_ZERO_GAP_AUDIT.md` (BIMODAL) |
 | C4 | Event contract V4 | **COMPLETE** | `F6_EVENT_CONTRACT_V4.md` |
-| C5 | Global fallback removal plan | **PENDING** | C4 complete |
-| C6 | Request profile lifecycle state machine | **PENDING** | C5 |
-| C7 | Talker per-step instrumentation (P9) | **PENDING** | C5-C6 |
-| C8 | Flow/Vocoder fine-grained events | **PENDING** | C5 |
-| C9 | Instrumentation correctness gate | **PENDING** | C7-C8 |
+| C5 | Global fallback removal plan | **COMPLETE** | `F6_C5_GLOBAL_FALLBACK_AUDIT.md` — 4 globals identified; fix: T2W queue handle |
+| C6 | Request profile lifecycle state machine | **COMPLETE** | `F6_C6_PROFILE_LIFECYCLE_STATE_MACHINE.md` — 8-state FSM |
+| C7 | Talker per-step instrumentation (P9) | **COMPLETE** (compiled, not smoke-tested) | Commit `9a916ce`; binary `bd000463`; smoke test deferred (model load >180s) |
+| C8 | Flow/Vocoder fine-grained events | **PLAN** | `F6_C8_FLOW_VOCODER_FINEGRAINED.md` — requires T2W queue item header change |
+| C9 | Instrumentation correctness gate | **PENDING** | C7 smoke test + C8 |
 | C10 | Instrumentation overhead gate | **PENDING** | C9 |
 | C11 | Phase 3 workload freeze | **PENDING** | C10 |
 | C12 | 120-request canonical baseline | **PENDING** | C11 |
