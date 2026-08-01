@@ -1135,6 +1135,7 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
 
     // F6 Phase 3 (P9): Talker per-step summary
     if (t.talker_stats_enabled && t.talker_step_buffer.count > 0) {
+        t.talker_step_buffer.finalize();
         TalkerStepSummary s = t.talker_step_buffer.summarize();
         fprintf(f, ",\n  \"talker_step_summary\": {\n");
         fprintf(f, "    \"steps_before_first_audio_token\": %d,\n", s.steps_before_first_audio_token);
@@ -1154,7 +1155,13 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
         fprintf(f, "    \"total_allocations\": %d,\n", s.total_allocations);
         fprintf(f, "    \"total_allocation_bytes\": %lld,\n", (long long)s.total_allocation_bytes);
         fprintf(f, "    \"truncated\": %s,\n", s.truncated ? "true" : "false");
-        fprintf(f, "    \"valid\": %s\n", s.valid ? "true" : "false");
+        fprintf(f, "    \"valid\": %s,\n", s.valid ? "true" : "false");
+        fprintf(f, "    \"late_write_rejected\": %u,\n",
+                t.talker_step_buffer.late_write_rejected.load());
+        fprintf(f, "    \"write_after_finalize\": %u,\n",
+                t.talker_step_buffer.write_after_finalize.load());
+        fprintf(f, "    \"invalid_generation_write\": %u\n",
+                t.talker_step_buffer.invalid_generation_write.load());
         fprintf(f, "  }");
 
         // Full mode: emit step-level details
@@ -6939,7 +6946,7 @@ static bool generate_audio_tokens_local_simplex(
             rec.audio_token_count_after = (int16_t)output_audio_tokens.size();
             rec.stream_sync_ns = 0;     // placeholder
             rec.queue_wait_ns = 0;      // placeholder
-            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec);
+            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec, ctx_omni->e2e_stage.tts_thread_generation);
         }
 
         // E2E profiling: record first audio token (one-shot across all chunks, generation-safe)
@@ -7663,7 +7670,7 @@ static bool generate_audio_tokens_local(
             rec.audio_token_count_after = (int16_t)output_audio_tokens.size();
             rec.stream_sync_ns = 0;
             rec.queue_wait_ns = 0;
-            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec);
+            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec, ctx_omni->e2e_stage.tts_thread_generation);
         }
 
         // 🔧 [与 Python 对齐] EOS token 检测 - 必须在流式推送之前
