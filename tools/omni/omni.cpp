@@ -964,6 +964,62 @@ static void kv_cache_print_stats() {
     // Note: evictions/max counters are NOT reset — they're cumulative server lifetime stats
 }
 
+// F6 Phase 3 (P9): Compute summary from Talker step buffer.
+// Called at request completion. Sorts compute durations for median/p95.
+TalkerStepSummary TalkerStepBuffer::summarize() const {
+    TalkerStepSummary s = {};
+    if (count == 0) { s.valid = false; return s; }
+    s.valid = true;
+    s.truncated = truncated;
+    s.total_steps = count;
+
+    // Collect compute durations for median/p95
+    std::vector<int64_t> compute_durs;
+    compute_durs.reserve(count);
+    bool first_audio_seen = false;
+
+    for (int i = 0; i < count; i++) {
+        const auto &rec = steps[i];
+        int64_t compute_ns = rec.step_compute_end_ns - rec.step_start_ns;
+        if (compute_ns > 0) {
+            s.total_talker_compute_ns += compute_ns;
+            compute_durs.push_back(compute_ns);
+        }
+        if (i == 0) s.first_step_ns = compute_ns;
+        s.total_sampling_ns += (rec.step_sample_end_ns - rec.step_compute_end_ns);
+        s.total_sync_ns += rec.stream_sync_ns;
+        s.total_wait_ns += rec.queue_wait_ns;
+        s.total_cpu_ops += rec.backend_cpu_op_count;
+        s.total_cann_ops += rec.backend_cann_op_count;
+        s.total_allocations += rec.allocation_count;
+        s.total_allocation_bytes += rec.allocation_bytes;
+
+        if (rec.is_audio_token) {
+            s.total_audio_tokens++;
+            if (!first_audio_seen) {
+                s.steps_before_first_audio_token = i;
+                first_audio_seen = true;
+            }
+            s.steps_G3_to_threshold = i - s.steps_before_first_audio_token + 1;
+        }
+    }
+
+    // Compute p50/p95 from sorted durations (exclude step 0 as "first step")
+    if (compute_durs.size() > 1) {
+        std::vector<int64_t> steady(compute_durs.begin() + 1, compute_durs.end());
+        std::sort(steady.begin(), steady.end());
+        int n = (int)steady.size();
+        if (n > 0) {
+            s.steady_step_median_ns = steady[n / 2];
+            int p95_idx = (int)(n * 0.95);
+            if (p95_idx >= n) p95_idx = n - 1;
+            s.steady_step_p95_ns = steady[p95_idx];
+        }
+    }
+
+    return s;
+}
+
 void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
     if (!t.enabled) return;
     cross_platform_mkdir_p(dir);
@@ -1079,7 +1135,54 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
     add_global_fallback("vocoder_start", g_e2e_vocoder_start_ns, STAGE_vocoder_start);
     add_global_fallback("vocoder_end",   g_e2e_vocoder_end_ns,   STAGE_vocoder_end);
 
-    fprintf(f, "\n  }\n}\n");
+    fprintf(f, "\n  }");
+
+    // F6 Phase 3 (P9): Talker per-step summary
+    if (t.talker_stats_enabled && t.talker_step_buffer.count > 0) {
+        TalkerStepSummary s = t.talker_step_buffer.summarize();
+        fprintf(f, ",\n  \"talker_step_summary\": {\n");
+        fprintf(f, "    \"steps_before_first_audio_token\": %d,\n", s.steps_before_first_audio_token);
+        fprintf(f, "    \"steps_G3_to_threshold\": %d,\n", s.steps_G3_to_threshold);
+        fprintf(f, "    \"first_step_ns\": %lld,\n", (long long)s.first_step_ns);
+        fprintf(f, "    \"steady_step_median_ns\": %lld,\n", (long long)s.steady_step_median_ns);
+        fprintf(f, "    \"steady_step_p95_ns\": %lld,\n", (long long)s.steady_step_p95_ns);
+        fprintf(f, "    \"total_talker_compute_ns\": %lld,\n", (long long)s.total_talker_compute_ns);
+        fprintf(f, "    \"total_sampling_ns\": %lld,\n", (long long)s.total_sampling_ns);
+        fprintf(f, "    \"total_sync_ns\": %lld,\n", (long long)s.total_sync_ns);
+        fprintf(f, "    \"total_allocation_ns\": %lld,\n", (long long)s.total_allocation_ns);
+        fprintf(f, "    \"total_wait_ns\": %lld,\n", (long long)s.total_wait_ns);
+        fprintf(f, "    \"total_steps\": %d,\n", s.total_steps);
+        fprintf(f, "    \"total_audio_tokens\": %d,\n", s.total_audio_tokens);
+        fprintf(f, "    \"total_cpu_ops\": %d,\n", s.total_cpu_ops);
+        fprintf(f, "    \"total_cann_ops\": %d,\n", s.total_cann_ops);
+        fprintf(f, "    \"total_allocations\": %d,\n", s.total_allocations);
+        fprintf(f, "    \"total_allocation_bytes\": %lld,\n", (long long)s.total_allocation_bytes);
+        fprintf(f, "    \"truncated\": %s,\n", s.truncated ? "true" : "false");
+        fprintf(f, "    \"valid\": %s\n", s.valid ? "true" : "false");
+        fprintf(f, "  }");
+
+        // Full mode: emit step-level details
+        if (t.dump_mode == E2E_DUMP_FULL) {
+            fprintf(f, ",\n  \"talker_steps\": [\n");
+            for (int i = 0; i < t.talker_step_buffer.count; i++) {
+                const auto &rec = t.talker_step_buffer.steps[i];
+                if (i > 0) fprintf(f, ",\n");
+                fprintf(f, "    {\"i\":%d,\"start\":%lld,\"compute\":%lld,\"sample\":%lld,"
+                        "\"token\":%d,\"audio\":%d,\"acc_before\":%d,\"acc_after\":%d}",
+                        rec.step_index,
+                        (long long)rec.step_start_ns,
+                        (long long)(rec.step_compute_end_ns - rec.step_start_ns),
+                        (long long)(rec.step_sample_end_ns - rec.step_compute_end_ns),
+                        rec.sampled_token_id,
+                        rec.is_audio_token,
+                        rec.audio_token_count_before,
+                        rec.audio_token_count_after);
+            }
+            fprintf(f, "\n  ]");
+        }
+    }
+
+    fprintf(f, "\n}\n");
     fclose(f);
 }
 
@@ -5834,6 +5937,16 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 g_e2e_summary_ctx = ctx_omni;
                 std::atexit(e2e_profile_dump_summary_atexit);
             }
+
+            // F6 Phase 3 (P9): Talker per-step statistics (gated, zero overhead when OFF)
+            {
+                const char *ts_env = getenv("F6_PHASE3_TALKER_STATS");
+                if (ts_env && (strcmp(ts_env, "1") == 0 || strcmp(ts_env, "true") == 0)) {
+                    ctx_omni->e2e_stage.talker_stats_enabled = true;
+                    print_with_timestamp("F6 Phase 3: Talker per-step stats ENABLED (max %d steps)\n",
+                                        TALKER_MAX_STEPS);
+                }
+            }
         }
     }
 
@@ -6766,15 +6879,22 @@ static bool generate_audio_tokens_local_simplex(
     
     // ===== Phase 1: 正常生成（不带 text_eos_embed） =====
     for (int t = 0; t < max_audio_tokens; ++t) {
+        // F6 Phase 3 (P9): per-step recording start
+        int64_t step_start_ns = 0;
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            step_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
         // 🔧 [P0-立即打断] 检测 break_event，立即停止 TTS 生成
         if (ctx_omni->break_event.load()) {
             print_with_timestamp("TTS Simplex: break_event detected at step %d, stopping immediately\n", t);
             break;
         }
-        
+
         // 🔧 [修复过早EOS] 如果还没达到 min_new_tokens，阻止 EOS 被采样
         bool force_no_eos = (t < min_new_tokens);
-        
+
         // Phase 1 始终使用 is_final_text_chunk=false：EOS 不 prefill，保持 KV cache 干净
         llama_token sampled_token_abs = sample_tts_token_simplex(
             tts_sampler,
@@ -6786,20 +6906,45 @@ static bool generate_audio_tokens_local_simplex(
             force_no_eos,
             false  // Phase 1: 不 prefill EOS，留给 Phase 2 处理
         );
-        
+
+        // F6 Phase 3 (P9): record compute + sample end
+        int64_t step_end_ns = 0;
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            step_end_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
         if (sampled_token_abs == 0) {
             LOG_ERR("TTS Simplex: sample_tts_token failed at step %d\n", t);
             break;
         }
-        
+
         int relative_idx = sampled_token_abs - audio_bos_token_id;
         if (relative_idx < 0 || relative_idx >= num_audio_tokens) {
             LOG_ERR("TTS Simplex: invalid token ID %d at step %d\n", sampled_token_abs, t);
             break;
         }
-        
+
         output_audio_tokens.push_back(relative_idx);
         ctx_omni->tts_all_generated_tokens.push_back(sampled_token_abs);
+
+        // F6 Phase 3 (P9): record Talker step
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            TalkerStepRecord rec = {};
+            rec.step_index = (int16_t)t;
+            rec.step_start_ns = step_start_ns;
+            rec.step_compute_end_ns = step_end_ns;
+            rec.step_sample_end_ns = step_end_ns;  // merged with compute for now
+            rec.sampled_token_id = (int32_t)sampled_token_abs;
+            rec.token_type = 0;  // audio token
+            rec.is_audio_token = 1;
+            int audio_count_before = (int)output_audio_tokens.size() - 1;  // before push_back
+            rec.audio_token_count_before = (int16_t)(audio_count_before >= 0 ? audio_count_before : 0);
+            rec.audio_token_count_after = (int16_t)output_audio_tokens.size();
+            rec.stream_sync_ns = 0;     // placeholder
+            rec.queue_wait_ns = 0;      // placeholder
+            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec);
+        }
 
         // E2E profiling: record first audio token (one-shot across all chunks, generation-safe)
         if (ctx_omni->e2e_stage.timestamps_ns[STAGE_talker_first_audio_token].load(std::memory_order_relaxed) == 0) {
@@ -7445,11 +7590,18 @@ static bool generate_audio_tokens_local(
     std::vector<int32_t> stream_buffer;
     
     for (int t = 0; t < max_audio_tokens; ++t) {
+        // F6 Phase 3 (P9): per-step recording start
+        int64_t step_start_ns = 0;
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            step_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
         // 🔧 [差异1修复] 计算 force_no_eos
         // Python generate_chunk: if force_no_stop or t < min_new_tokens: logits[:, eos_token] = -torch.inf
         // 如果还没达到 min_new_tokens，阻止 EOS 被采样（在采样前设置 EOS logit 为 -inf）
         bool force_no_eos = (t < min_new_tokens);
-        
+
         // Sample next token
         // 🔧 [差异2&3修复] 传入：
         // - all_generated_tokens: 用于判断是否是整个生成过程的第一个 token
@@ -7469,11 +7621,18 @@ static bool generate_audio_tokens_local(
             is_end_of_turn                         // 🔧 [与 Python 对齐] EOS 是否加入 KV cache
         );
         
+        // F6 Phase 3 (P9): record compute + sample end
+        int64_t step_end_ns = 0;
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            step_end_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
         if (sampled_token_abs == 0) {
             LOG_ERR("TTS Local: sample_tts_token failed at step %d\n", t);
             break;
         }
-        
+
         // Convert to relative index and check EOS
         int relative_idx = sampled_token_abs - audio_bos_token_id;
         if (relative_idx < 0 || relative_idx >= num_audio_tokens) {
@@ -7481,14 +7640,32 @@ static bool generate_audio_tokens_local(
                     sampled_token_abs, relative_idx, t);
             break;
         }
-        
+
         // Store token (as absolute ID for internal use, will convert to relative for output)
         output_audio_tokens.push_back(relative_idx);  // Store relative ID for token2wav
         stream_buffer.push_back(relative_idx);  // Also add to stream buffer
         ctx_omni->tts_all_generated_tokens.push_back(sampled_token_abs);
         // 🔧 [差异3修复] 添加到当前 chunk 的列表
         chunk_generated_tokens.push_back(sampled_token_abs);
-        
+
+        // F6 Phase 3 (P9): record Talker step (before EOS pop-back so we see the token)
+        if (ctx_omni->e2e_stage.talker_stats_enabled) {
+            TalkerStepRecord rec = {};
+            rec.step_index = (int16_t)t;
+            rec.step_start_ns = step_start_ns;
+            rec.step_compute_end_ns = step_end_ns;
+            rec.step_sample_end_ns = step_end_ns;
+            rec.sampled_token_id = (int32_t)sampled_token_abs;
+            rec.token_type = 0;
+            rec.is_audio_token = 1;
+            int audio_count_before = (int)output_audio_tokens.size() - 1;
+            rec.audio_token_count_before = (int16_t)(audio_count_before >= 0 ? audio_count_before : 0);
+            rec.audio_token_count_after = (int16_t)output_audio_tokens.size();
+            rec.stream_sync_ns = 0;
+            rec.queue_wait_ns = 0;
+            ctx_omni->e2e_stage.talker_step_buffer.record_step(rec);
+        }
+
         // 🔧 [与 Python 对齐] EOS token 检测 - 必须在流式推送之前
         // Python: if next_id.eq(self.eos_token).any(): finished[:] = True; else: 添加到 buffer
         // 如果是 EOS，立即从 buffer 中移除，防止被推送到 T2W
