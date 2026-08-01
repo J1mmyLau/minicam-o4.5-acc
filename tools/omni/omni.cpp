@@ -11167,7 +11167,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             g_c8_flow_end_ptr      = &captured_profile_handle->timestamps_ns[STAGE_flow_end];
             g_c8_vocoder_start_ptr = &captured_profile_handle->timestamps_ns[STAGE_vocoder_start];
             g_c8_vocoder_end_ptr   = &captured_profile_handle->timestamps_ns[STAGE_vocoder_end];
-            // Record Q1 (t2w_preprocess_end) — after dequeue+buffer_merge, before Flow
+            // Record Q2 (t2w_preprocess_end) — after dequeue+buffer_merge, before Flow
             captured_profile_handle->record(STAGE_t2w_preprocess_end, captured_profile_gen);
         }
 
