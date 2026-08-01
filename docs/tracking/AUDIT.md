@@ -309,3 +309,7 @@
 ## 2026-08-01 13:56 | C2_D0D2_CI_ZERO | ROUNDING_ARTIFACT: 59% delta=0, ms quantization
 ## 2026-08-01 13:56 | C3_D2G0_ZERO_GAP | BIMODAL: 72% 0ms, 28% ~221ms OFF / ~98ms ON
 ## 2026-08-01 13:56 | C4_V4_CONTRACT | 20 events defined; Flow/Vocoder globals identified
+## 2026-08-01 14:06 | C5_GLOBAL_FALLBACK | PLAN: 4 globals → request-scoped via T2W queue handle
+## 2026-08-01 14:06 | C6_LIFECYCLE | ACTIVE→TALKER→AUDIO→T2W→WAV→FINALIZED→RETIRED state machine
+## 2026-08-01 14:06 | C7_TALKER_STATS | P9 implemented @ 9a916ce; binary bd000463; compiled OK; smoke test deferred
+## 2026-08-01 14:06 | C8_FLOW_VOCODER | PLAN: request-scoped F0-F1,V0-V1 via T2W queue handle
