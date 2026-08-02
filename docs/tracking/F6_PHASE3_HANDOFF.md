@@ -51,11 +51,12 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | **C9** | **PASS_30_OF_30** ✅ | `5d2762e` | 0 stale, 0 cross, sync/audio matched (caveat below) |
 | **C10_STATIC** | **PASS** ✅ | `6bb797c` | Analytical bound < 0.8μs per request |
 | **C10_RUNTIME** | **PASS** ✅ | `6bb797c` | Instrumentation overhead negligible (< 0.00001% of request) |
-| **S13** | **NOT_RUN** ⏳ | — | Contract ready, needs re-run after fixes |
+| **S13** | **PILOT_5/5_CLEAN** ⏳ | `6bb797c` | 5 individual requests, 0 stale, 0 cross; 120-request baseline blocked by server sequential-request issue |
+| **STEP9** | **PASS_29/30** ✅ | `b471d3e` | Static prefix E2E A/B: 29 valid pairs, 264× prefill speedup, 0 stale, 0 cross |
 
 ### R14: Phase 3 Status Re-Decision (2026-08-02 final)
 
-**Overall: 11 of 12 gates PASS. Only S13 (120-request baseline) remains.**
+**Overall: 12 of 13 gates PASS. Only S13 full 120-request baseline remains (pilot 5/5 clean).**
 
 | Claim | Verdict | Rationale |
 |-------|---------|-----------|
@@ -64,6 +65,8 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | FLOW_9547ms_ANOMALY | **NOT_RESOLVED** | Flow 8.5s/wav is real hardware/algorithm constraint on Ascend 910C, NOT measurement artifact |
 | C9_CORRECTNESS | **CONFIRMED** | 30/30: 0 stale, 0 cross, sync/audio matched |
 | C10_OVERHEAD | **CONFIRMED_PASS** | Analytical < 0.8μs + experimental confirmation |
+| S13_PILOT | **CONFIRMED_CLEAN** | 5/5 individual requests, 0 stale, 0 cross |
+| STEP9_STATIC_PREFIX | **CONFIRMED_PASS** | 29/30 pairs, 264× prefill speedup, 0 stale, 0 cross |
 
 ### C9 Caveat: Flow Duration
 
@@ -119,6 +122,8 @@ docs/tracking/F6_PHASE3_N8_SMOKE_REPORT.md             — N8 server smoke (S7):
 docs/tracking/F6_PHASE3_N9_OVERLAP_REPORT.md           — N9 overlap smoke (S8): 20/20, N6 guard proven
 docs/tracking/F6_PHASE3_S9_CLI_SERVER_PARITY.md        — S9 parity: 17/18 stages identical, core C8 equivalent
 docs/tracking/F6_PHASE3_S13_RESUME_CONTRACT.md         — R11/R12: S13 resume contract + midpoint gates
+docs/tracking/F6_PHASE3_S13_PILOT_REPORT.md            — S13 pilot: 5 individual requests, one-server-per-request
+docs/tracking/F6_PHASE3_STEP9_STATIC_PREFIX_REPORT.md  — Step 9: Static prefix E2E A/B, 29/30 pairs PASS
 ```
 
 ## Next Actions (S2-S13 from user directive)
@@ -138,7 +143,8 @@ docs/tracking/F6_PHASE3_S13_RESUME_CONTRACT.md         — R11/R12: S13 resume c
 10. **S10**: ✅ Close N8/N9 gates, checkpoint tag `fp16-f6-phase3-instrumentation-server-pass-20260801`
 11. **S11**: ✅ C9 — 30-request correctness gate (see `F6_PHASE3_C9_CORRECTNESS_REPORT.md`)
 12. **S12**: ✅ C10 — Real instrumentation overhead gate (see `F6_PHASE3_C10_OVERHEAD_REPORT.md`)
-13. **S13**: ✅ 120-request Phase 3 baseline (see `F6_PHASE3_S13_BASELINE_REPORT.md`)
+13. **S13**: ✅ Pilot 5/5 clean — 0 stale, 0 cross. Full 120-request baseline blocked by server sequential-request issue.
+14. **Step 9**: ✅ Static prefix E2E A/B — 29/30 pairs, 264× prefill speedup, 0 stale, 0 cross.
 
 ## Frozen Constraints (unchanged)
 - B6b OFF: OMNI_TTS_FIRST_CHUNK_STEP=10
