@@ -1108,7 +1108,10 @@ void e2e_profile_dump_audio_json(const E2EStageTiming &t, const std::string &dir
 
     bool first = true;
     for (int i = 0; i < 8; i++) {
-        int64_t val = t.timestamps_ns[async_stages[i]].load(std::memory_order_relaxed);
+        // F6 R7: acquire pairs with release-store in e2e_record_ns mirror write.
+        // On aarch64 this is required for inter-thread visibility; same-thread
+        // program-order would suffice but the pairing must be explicit.
+        int64_t val = t.timestamps_ns[async_stages[i]].load(std::memory_order_acquire);
         // F6 W5: use direct wav_ready_ns as ground truth for W0, bypassing
         // per-stage timestamps that may have been cleared by a concurrent reset().
         if (async_stages[i] == STAGE_wav_ready && wav_ready_ns > 0 && val <= 0) {
