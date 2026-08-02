@@ -13769,15 +13769,19 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         // drain guarantees the T2W worker finishes all processing (and all
         // mirror writes) before reset() can be called again.
         //
+        // F6 R7 fix v2: drain is ONLY needed before sync dump (FULL mode).
+        // The drain guarantees T2W worker finishes all mirror writes before
+        // e2e_profile_dump_json reads timestamps_ns[].  In SUMMARY mode there
+        // is no sync dump, so we skip the drain entirely — the generation
+        // guard in e2e_record_ns rejects stale writes from old requests.
+        //
         // The WebSocket handler calls omni_duplex_drain_tts_audio after
-        // stream_decode returns; this drain call is idempotent — the second
-        // call will either be a near-instant no-op or handle edge cases
-        // (audio queue polling for non-T2W paths).
-        if (ctx_omni->use_tts && ctx_omni->t2w_thread_info) {
-            t2w_drain_signal_and_wait(ctx_omni);
-        }
-
+        // stream_decode returns for audio queue draining; that path is
+        // independent of the profiling drain.
         if (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_FULL) {
+            if (ctx_omni->use_tts && ctx_omni->t2w_thread_info) {
+                t2w_drain_signal_and_wait(ctx_omni);
+            }
             const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
             std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
             e2e_profile_dump_json(ctx_omni->e2e_stage, dir);
