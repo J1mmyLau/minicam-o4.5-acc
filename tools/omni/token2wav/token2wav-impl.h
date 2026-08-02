@@ -2346,6 +2346,8 @@ struct C8FlowVocoderTargets {
     std::atomic<int64_t>* vocoder_end   = nullptr;
     uint32_t               generation   = 0;
     int                    depth         = 0;
+    // F6 R7: pointer to active generation ID for stale-write detection in mirror path
+    std::atomic<uint32_t>* active_gen   = nullptr;
 };
 
 extern thread_local C8FlowVocoderTargets g_c8_thread_targets;
@@ -2354,7 +2356,7 @@ class C8ProfileScope {
 public:
     C8ProfileScope(std::atomic<int64_t>* fs, std::atomic<int64_t>* fe,
                    std::atomic<int64_t>* vs, std::atomic<int64_t>* ve,
-                   uint32_t gen)
+                   uint32_t gen, std::atomic<uint32_t>* active_gen = nullptr)
         : saved_(g_c8_thread_targets)
     {
         g_c8_thread_targets.flow_start    = fs;
@@ -2362,6 +2364,7 @@ public:
         g_c8_thread_targets.vocoder_start = vs;
         g_c8_thread_targets.vocoder_end   = ve;
         g_c8_thread_targets.generation    = gen;
+        g_c8_thread_targets.active_gen    = active_gen;
         g_c8_thread_targets.depth         = saved_.depth + 1;
     }
     ~C8ProfileScope() { g_c8_thread_targets = saved_; }

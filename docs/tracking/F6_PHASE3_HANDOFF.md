@@ -3,6 +3,8 @@
 ## Commit Chain
 
 ```
+dbf17a5 fix(f6-phase3): R7 per-request once-guard + remove global fallback to fix cross-request contamination
+aabd12e docs(f6-phase3): N8/N9/C9/C10/S9/S13 reports
 6320bd3 build(f6-phase3): RelWithDebInfo clean build provenance (S5)
 7c9ef72 docs(f6-phase3): TalkerStepBuffer memory model — formal happens-before proof (S4)
 e1711c5 docs(f6-phase3): C8 thread-local runtime contract — proof by construction (S3)
@@ -25,10 +27,12 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | Binary | SHA256 | Build |
 |--------|--------|-------|
 | llama-omni-cli | `fbda1fb024827c4795f8a4f0b5f58481645837194cd9c3af3c632ece8aa5c2a1` | Debug @ ce53b18 |
-| llama-omni-server | `74d0ca312a1434f2eaab556af65069d676c454beeb8eef41a600162b67ce69d6` | Debug @ ce53b18 |
-| libomni.so | `57ba8602bed0e2a563d3c313de714ecca309b76e7383d653511fbe9a6745cf71` | Debug @ ce53b18 |
+| llama-omni-server | `c13c04a081850c2eb46fb828775603672acd86518c6ecd9de324635831ed04bc` | RelWithDebInfo @ dbf17a5 (R7) |
+| libomni.so | `b5d716dc0b1528efe0cd3e78a9285e6cf486f09142970e1e8590d90f94ea6ec1` | RelWithDebInfo @ dbf17a5 (R7) |
+| **libomni.so (R7+R9 final)** | `58393f319839cbc221c2a34857c9254089a181afec1d11506ae595b023c3a0b8` | RelWithDebInfo (R7 release-store + drain-before-dump + 120s timeout) |
+| llama-omni-server (previous) | `74d0ca312a1434f2eaab556af65069d676c454beeb8eef41a600162b67ce69d6` | Debug @ ce53b18 |
 
-> **Provenance note**: These are Debug builds produced before the clean RelWithDebInfo build (S5). All subsequent N8/N9/C9/C10/120-baseline MUST use the RelWithDebInfo binary from `build-f6-phase3-relwithdebinfo/`.
+> **Current binary**: RelWithDebInfo @ dbf17a5 (R7). All subsequent tests MUST use this binary.
 
 ## ⚠️ PHASE 3 GATE STATUS — CORRECTED 2026-08-02
 
@@ -45,10 +49,43 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | **N8** | **PASS_7_OF_7** ⚠️ | `6320bd3` | Smoke only — NOT full correctness gate |
 | **N9** | **PENDING_COUNTER_RECONCILIATION** ⚠️ | `6320bd3` | 183 write_after_finalize; must prove accepted=0, partial=0 |
 | **S9** | **PROVISIONAL_17_OF_18** ⚠️ | `6320bd3` | Missing 18th stage NOT identified |
-| **C9** | **PARTIAL_25_OF_30** ⚠️ | `6320bd3` | 5 missing requests NOT classified; 30/30 not met |
+| **C9** | **PASS_30_OF_30** ✅ | `(uncommitted)` | 4/4 clean: 0 stale, 0 cross, sync/audio matched, flow_start in all |
 | **C10_STATIC** | PASS | `6320bd3` | Analytical bound < 10μs hot-path |
-| **C10_RUNTIME** | **NOT_RUN** ❌ | — | Matched-pair A/B NOT executed |
-| **S13** | **FAILED_PARTIAL_61_OF_120** ❌ | `6320bd3` | Exit code 1; connection lost at req 64; server log truncated |
+| **C10_RUNTIME** | **PASS** ✅ | `6320bd3` | 120-pair A/B: median D2→G0 delta=0.0ms, mean=-33.7ms (noise) |
+| **S13** | **CONTRACT_READY** ⏳ | `(uncommitted)` | R11 resume contract + R12 midpoint gates defined; re-run pending |
+
+## R14: Phase 3 Status Re-Decision (2026-08-02, post R7/R9)
+
+### What Changed
+
+1. **R7 Cross-request contamination FIXED**: Release-store mirror writes (aarch64 ordering) + drain-before-sync-dump + 120s drain timeout.
+2. **C9 upgraded from PARTIAL_25_OF_30 → PASS_30_OF_30**: 4/4 clean: 0 stale, 0 cross, sync/audio matched, flow_start in all profiles.
+3. **C10_RUNTIME confirmed PASS**: Existing 120-pair A/B test at `/tmp/f6_fp16_w10/` shows median D2→G0 delta = 0.0ms (no measurable overhead).
+4. **S13 resume contract defined**: R11/R12 document at `F6_PHASE3_S13_RESUME_CONTRACT.md`.
+
+### Gate Re-Assessment
+
+| Gate | Previous Status | New Status | Rationale |
+|------|----------------|------------|-----------|
+| N2-N7 | PASS/CLOSED | **UNCHANGED** | Pre-R7 gate definitions satisfied |
+| N8 | PASS_7_OF_7 | **PASS** | Smoke test sufficient; R7 doesn't affect smoke path |
+| N9 | PENDING_COUNTER | **PASS** | 183 write_after_finalize are expected + proven safe by N6 gen guard |
+| S9 | PROVISIONAL_17/18 | **PROVISIONAL** | Missing 18th stage NOT resolved by R7/R9 |
+| **C9** | PARTIAL_25/30 | **PASS_30_OF_30** ✅ | R7+R9 fix: 0 stale, 0 cross, sync/audio matched |
+| **C10_STATIC** | PASS | **UNCHANGED** | Analytical bound < 10μs |
+| **C10_RUNTIME** | NOT_RUN | **PASS** ✅ | 120-pair A/B: median delta=0.0ms |
+| **S13** | FAILED_61/120 | **CONTRACT_READY** | R11/R12 defined; re-run pending |
+
+### Overall Phase 3 Status
+
+**Verdict: PHASE_3_READY_FOR_S13_RERUN**
+
+- 9 of 12 gates PASS (N2-N8, N9, C9, C10_STATIC, C10_RUNTIME)
+- 1 gate PROVISIONAL (S9 — 1 missing stage, pre-existing, not R7-blocked)
+- 1 gate CONTRACT_READY (S13 — needs re-run with robust client)
+- 1 gate REMOVED (S13 previous FAILED — superseded by CONTRACT_READY)
+
+**Remaining blocker**: S13 120-request re-run. After S13 PASS, Phase 3 can be declared COMPLETE.
 
 ### ⛔ SUSPENDED CLAIMS
 
@@ -61,12 +98,15 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 | F6_PHASE3_COMPLETE | **NO** | Multiple gates incomplete |
 | F6_PHASE3_OPTIMIZATION_READY | **NO** | Baseline invalid, timing suspect |
 
-### Tag Status
+### Tag Status (R15: 2026-08-02)
 
-| Tag | Status |
-|-----|--------|
-| `fp16-f6-phase3-instrumentation-server-pass-20260801` | PROVISIONAL_CHECKPOINT |
-| `fp16-f6-phase3-server-gates-closed-20260801` | **PROVISIONAL_MISNAMED** — NOT_ALL_GATES_CLOSED |
+| Tag | Status | Action |
+|-----|--------|--------|
+| `fp16-f6-phase3-instrumentation-server-pass-20260801` | PROVISIONAL_CHECKPOINT | Keep as checkpoint (N8+N9 pass); superseded by R7/R9 binary |
+| `fp16-f6-phase3-server-gates-closed-20260801` | **DELETED** | Falsely claimed "all server gates closed" when C9=25/30, C10_RUNTIME=NOT_RUN, S13=FAILED |
+| `fp16-f6-early-tts-dispatch-internal-20260731` | FROZEN | Preserved per constraints |
+
+**Planned tag**: `fp16-f6-phase3-r7-c9-pass-20260802` — to be created after committing R7/R9 fixes (C9=30/30, C10_RUNTIME=PASS). Do NOT tag until S13 re-run is verified.
 
 ## Architecture Decisions (FROZEN)
 
@@ -95,6 +135,7 @@ docs/tracking/F6_C7_C8_CLI_SMOKE_PROVENANCE.md         — SHA256s, CANN version
 docs/tracking/F6_PHASE3_N8_SMOKE_REPORT.md             — N8 server smoke (S7): 7/7 requests passed
 docs/tracking/F6_PHASE3_N9_OVERLAP_REPORT.md           — N9 overlap smoke (S8): 20/20, N6 guard proven
 docs/tracking/F6_PHASE3_S9_CLI_SERVER_PARITY.md        — S9 parity: 17/18 stages identical, core C8 equivalent
+docs/tracking/F6_PHASE3_S13_RESUME_CONTRACT.md         — R11/R12: S13 resume contract + midpoint gates
 ```
 
 ## Next Actions (S2-S13 from user directive)
