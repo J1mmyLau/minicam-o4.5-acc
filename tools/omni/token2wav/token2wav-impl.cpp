@@ -85,18 +85,33 @@ static void e2e_record_ns(std::atomic<int64_t>& target) {
     target.store(ns, std::memory_order_relaxed);
 
     // F6 C8 N5: mirror to request-scoped per-stage timestamps via thread-local context.
-    // The C8ProfileScope RAII guard sets g_c8_thread_targets before feed_window().
-    // Because the T2W worker is single-threaded per request, all Flow/Vocoder writes
-    // happen on the same thread that set the scope, making thread_local correct.
     const C8FlowVocoderTargets& ctx = g_c8_thread_targets;
     if (!ctx.flow_start) return;
+
+    // F6 R7: generation-guard the mirror write.
+    // Compares the C8Scope's captured generation against the live
+    // active_generation_id.  A mismatch means the request's reset() has
+    // already fired for the NEXT generation — the current write is stale
+    // and MUST be dropped to prevent cross-request contamination.
+    if (ctx.active_gen) {
+        uint32_t cur = ctx.active_gen->load(std::memory_order_acquire);
+        if (cur != ctx.generation) {
+            return;
+        }
+    }
 
     std::atomic<int64_t>* mirror = nullptr;
     if (&target == &g_e2e_flow_start_ns)       mirror = ctx.flow_start;
     else if (&target == &g_e2e_flow_end_ns)     mirror = ctx.flow_end;
     else if (&target == &g_e2e_vocoder_start_ns) mirror = ctx.vocoder_start;
     else if (&target == &g_e2e_vocoder_end_ns)   mirror = ctx.vocoder_end;
-    if (mirror) mirror->store(ns, std::memory_order_relaxed);
+    if (mirror) {
+        // F6 R7: release store pairs with acquire loads in elapsed_ms() and
+        // e2e_record_ns_oneshot().  On aarch64, relaxed stores are NOT ordered
+        // against acquire loads across threads — the dump thread may read 0
+        // while the T2W worker has already written the correct timestamp.
+        mirror->store(ns, std::memory_order_release);
+    }
 }
 
 static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {
@@ -105,22 +120,27 @@ static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {
     // F6 R7: per-request once-guard — check the mirror slot first via thread_local context.
     // This prevents cross-request contamination when the global atomic is reset between
     // requests while the T2W worker is still processing a previous request.
-    // The per-request slot is request-scoped and never reset externally, so it provides
-    // a reliable once-guard that survives concurrent global resets.
+    // The per-request slot is request-scoped: reset() zeros it between requests,
+    // so a non-zero slot means THIS request's mirror has already been written.
     const C8FlowVocoderTargets& ctx = g_c8_thread_targets;
+    bool has_per_request_slot = false;
     if (ctx.flow_start) {
         std::atomic<int64_t>* mirror = nullptr;
         if (&target == &g_e2e_flow_start_ns)       mirror = ctx.flow_start;
         else if (&target == &g_e2e_flow_end_ns)     mirror = ctx.flow_end;
         else if (&target == &g_e2e_vocoder_start_ns) mirror = ctx.vocoder_start;
         else if (&target == &g_e2e_vocoder_end_ns)   mirror = ctx.vocoder_end;
+        has_per_request_slot = (mirror != nullptr);
         // Per-request once-guard: skip if already recorded for THIS request
         if (mirror && mirror->load(std::memory_order_relaxed) != 0) return;
     }
 
-    // Global once-guard as fallback (for sync profile add_global_stage).
-    // Only record if not already set (one-shot for first window only).
-    if (target.load(std::memory_order_relaxed) != 0) return;
+    // Global once-guard as fallback. Skip if we have a valid per-request slot —
+    // the per-request check above is authoritative. The global atomic may be
+    // contaminated by a late worker from a previous request.
+    if (!has_per_request_slot) {
+        if (target.load(std::memory_order_relaxed) != 0) return;
+    }
     e2e_record_ns(target);
 }
 #include <unordered_map>

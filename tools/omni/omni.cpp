@@ -6053,10 +6053,15 @@ void omni_stop_threads(struct omni_context * ctx_omni) {
 // Read OMNI_T2W_DRAIN_TIMEOUT_MS from environment, bounded [1000, 60000], default 5000.
 static int t2w_get_drain_timeout_ms() {
     const char * env = getenv("OMNI_T2W_DRAIN_TIMEOUT_MS");
-    if (!env) return 5000;
+    // F6 R7: default to 120s.  Flow processing takes 5-10s per window and the
+    // T2W worker may process multiple windows per request.  When E2E profiling
+    // is enabled, the sync dump inside stream_decode calls drain_before_dump;
+    // if the drain times out before the worker finishes, the sync profile
+    // will show -1 for all flow/vocoder stages (racing the mirror writes).
+    if (!env) return 120000;
     int val = atoi(env);
-    if (val < 1000)  return 1000;
-    if (val > 60000) return 60000;
+    if (val < 1000)   return 1000;
+    if (val > 300000) return 300000;
     return val;
 }
 
@@ -6069,14 +6074,21 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
 
     info->terminal_output.store(T2W_TERMINAL_UNKNOWN, std::memory_order_release);
 
-    // If is_final was already processed (worker finished before we got here),
-    // drain is already complete — nothing to do.
-    if (info->is_final_processed.load(std::memory_order_acquire)) {
-        print_with_timestamp("T2W drain: is_final already processed (wav_count=%d)\n",
-                             info->wav_count.load());
-        info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
-        return;
-    }
+    // F6 R7: Always reset is_final_processed BEFORE checking it.
+    //
+    // In turn-based sessions the round-switch heuristic (effective_round_idx !=
+    // last_round_idx) often does NOT trigger because simplex_round_idx is not
+    // incremented between WebSocket requests.  When the round switch is skipped,
+    // is_final_processed stays true from the first request forever, and every
+    // subsequent drain returns immediately without actually waiting for the
+    // T2W worker to finish flow+vocoder processing.
+    //
+    // Resetting here ensures each drain call forces a fresh wait for the
+    // CURRENT request's T2W completion.  If the worker has already finished
+    // (is_final_processed was true for this cycle), the EOS force-flush path
+    // will set it again with an empty buffer (sub-millisecond overhead).
+    info->is_final_processed.store(false, std::memory_order_release);
+    info->drain_state.store(T2W_DRAIN_RUNNING, std::memory_order_release);
 
     // Signal EOS to the T2W worker
     info->eos_received.store(true, std::memory_order_release);
@@ -10981,13 +10993,18 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             pipeline_thread_hash(),
             (uint32_t)queue.size(), 1,
             0, WAIT_QUEUE_EMPTY);
-        // F6 W5: capture generation from the oldest queued item (correct attribution)
-        // instead of from current active_generation_id (which may have advanced)
-        if (!queue.empty() && queue.front()->generation_id > 0) {
-            ctx_omni->e2e_stage.t2w_thread_generation = queue.front()->generation_id;
-            ctx_omni->e2e_stage.t2w_request_index = queue.front()->request_index;  // F6 W5: for audio profile naming
-        } else {
-            ctx_omni->e2e_stage.t2w_thread_generation = ctx_omni->e2e_stage.capture_generation();
+        // F6 R7: capture t2w generation.  Prefer the current active epoch
+        // (capture_generation) over the oldest queue item — the oldest item
+        // may carry a stale generation from a previous request when items
+        // from two requests coexist in the queue (TTS thread enqueues for
+        // request N+1 before T2W drains request N's remaining items).
+        // If active_generation_id has already advanced to the next request,
+        // the dequeue will be attributed to the newer request (harmless).
+        // The alternative — using a stale generation — causes silent
+        // rejection of every per-request recording for the current batch.
+        ctx_omni->e2e_stage.t2w_thread_generation = ctx_omni->e2e_stage.capture_generation();
+        if (!queue.empty() && queue.front()->request_index >= 0) {
+            ctx_omni->e2e_stage.t2w_request_index = queue.front()->request_index;
         }
 
         auto dequeue_time = std::chrono::steady_clock::now();
@@ -11037,10 +11054,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 oldest_enqueue_time = t2w_out->enqueue_time;
                 have_enqueue_time = true;
             }
-            // F6 C8: capture profile handle from the first item that carries one
-            if (!captured_profile_handle && t2w_out->profile_handle) {
+            // F6 R7: capture profile handle and the MAX generation across all
+            // queue items in this drain.  Using the first item's generation is
+            // racy: when items from request N (gen=G) and N+1 (gen=G+1) coexist
+            // in the queue, the oldest item may carry the stale generation G,
+            // causing every mirror write for request N+1 to be silently rejected
+            // by the generation guard in e2e_record_ns().
+            if (t2w_out->profile_handle) {
                 captured_profile_handle = t2w_out->profile_handle;
-                captured_profile_gen   = t2w_out->generation_id;
+                if (t2w_out->generation_id > captured_profile_gen) {
+                    captured_profile_gen = t2w_out->generation_id;
+                }
             }
 
             new_tokens.insert(new_tokens.end(), t2w_out->audio_tokens.begin(), t2w_out->audio_tokens.end());
@@ -11067,9 +11091,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 print_with_timestamp("T2W(C++): EOS force flush — buffer has %zu tokens\n",
                                      token_buffer.size() - 3);
             } else {
-                // No tokens to flush — mark drain complete directly
+                // No tokens to flush — mark drain complete directly.
+                // F6 R7: reset eos_received to prevent infinite force-flush spin
+                // when the drain resets is_final_processed and wakes us again.
                 ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
                 ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+                ctx_omni->t2w_thread_info->eos_received.store(false, std::memory_order_release);
                 ctx_omni->t2w_thread_info->drain_cv.notify_one();
                 print_with_timestamp("T2W(C++): EOS drain — buffer empty (wav_count=%d)\n",
                                      ctx_omni->t2w_thread_info->wav_count.load());
@@ -11106,6 +11133,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             // P7.3: reset drain state machine for new round
             ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_RUNNING, std::memory_order_release);
             ctx_omni->t2w_thread_info->is_final_processed.store(false, std::memory_order_release);
+            ctx_omni->t2w_thread_info->eos_received.store(false, std::memory_order_release);
             ctx_omni->t2w_thread_info->wav_count.store(0, std::memory_order_relaxed);
             ctx_omni->t2w_thread_info->feed_window_errors.store(0, std::memory_order_relaxed);
             
@@ -11166,7 +11194,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_flow_end]      : nullptr,
             captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_vocoder_start] : nullptr,
             captured_profile_handle ? &captured_profile_handle->timestamps_ns[STAGE_vocoder_end]   : nullptr,
-            captured_profile_gen);
+            captured_profile_gen,
+            // F6 R7: pass active_generation_id pointer for stale-write detection in mirror path
+            captured_profile_handle ? &captured_profile_handle->active_generation_id : nullptr);
 
         if (captured_profile_handle) {
             // Record Q2 (t2w_preprocess_end) — after dequeue+buffer_merge, before Flow
@@ -11406,6 +11436,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         if (is_final) {
             ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
             ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
+            // F6 R7: clear eos_received after completing drain cycle so the
+            // worker goes back to normal cv-wait instead of spinning on
+            // infinite force-flush iterations.
+            ctx_omni->t2w_thread_info->eos_received.store(false, std::memory_order_release);
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
             print_with_timestamp("T2W(C++): drain complete — wav_count=%d\n",
                 ctx_omni->t2w_thread_info->wav_count.load());
@@ -13719,6 +13753,27 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
 
     // E2E profiling: dump or accumulate per-request
     if (ctx_omni->e2e_stage.enabled) {
+        // F6 R7: drain T2W worker BEFORE dumping the sync profile.
+        //
+        // The sync dump reads timestamps_ns[] which are written by the T2W
+        // worker via C8 mirror writes.  Without draining first, the dump races
+        // the worker: if the worker hasn't processed the current generation's
+        // flow/vocoder yet, flow_start/flow_end/vocoder_start/vocoder_end are
+        // all -1 in the sync profile.
+        //
+        // This also prevents the next request's reset() from zeroing
+        // timestamps_ns[] between the mirror writes and the dump read — the
+        // drain guarantees the T2W worker finishes all processing (and all
+        // mirror writes) before reset() can be called again.
+        //
+        // The WebSocket handler calls omni_duplex_drain_tts_audio after
+        // stream_decode returns; this drain call is idempotent — the second
+        // call will either be a near-instant no-op or handle edge cases
+        // (audio queue polling for non-T2W paths).
+        if (ctx_omni->use_tts && ctx_omni->t2w_thread_info) {
+            t2w_drain_signal_and_wait(ctx_omni);
+        }
+
         if (ctx_omni->e2e_stage.dump_mode == E2E_DUMP_FULL) {
             const char *profile_dir = getenv("OMNI_E2E_PROFILE_DIR");
             std::string dir = profile_dir ? profile_dir : (ctx_omni->base_output_dir + "/e2e_profile");
@@ -13972,6 +14027,33 @@ bool omni_duplex_drain_tts_audio(struct omni_context * ctx_omni,
     if (!ctx_omni) return false;
     if (!ctx_omni->async || !ctx_omni->use_tts) return true;
 
+    // F6 R7: The old idle-queue poll was fundamentally broken for C8 mirror timing.
+    // The T2W worker dequeues items quickly (~1s) then spends 5-8s inside
+    // feed_window (flow+vocoder).  While the worker is busy in feed_window, the
+    // queues are empty → the old poll returned after 3s idle, BEFORE flow_end /
+    // vocoder timestamps were recorded.  The next request's reset() then advanced
+    // active_generation_id, causing the gen guard in e2e_record_ns() to reject
+    // every remaining mirror write from the previous request.
+    //
+    // Fix: call the proper T2W drain (t2w_drain_signal_and_wait) which waits for
+    // is_final_processed — set by the T2W worker AFTER flow+vocoder complete.
+    // Fall back to the idle-queue poll as a secondary safety net (e.g. when
+    // t2w_thread_info is unavailable or the request never sent is_final).
+
+    // Primary: proper T2W drain — waits for is_final_processed.
+    // F6 R7: always call t2w_drain_signal_and_wait — it internally resets
+    // is_final_processed before waiting, so even if the flag is true from a
+    // previous force-flush cycle, the drain will correctly wait for the
+    // CURRENT request's processing (via EOS → force-flush → is_final_processed).
+    // Skipping the call when is_final_processed is superficially "true" causes
+    // the drain to return before the T2W worker finishes flow+vocoder for the
+    // current request, producing stale-write rejection in e2e_record_ns().
+    if (ctx_omni->t2w_thread_info) {
+        t2w_drain_signal_and_wait(ctx_omni);
+        return ctx_omni->t2w_thread_info->is_final_processed.load(std::memory_order_acquire);
+    }
+
+    // Fallback: idle-queue poll (no t2w_thread_info, e.g. non-TTS path).
     const int tick_ms = 100;
     const int idle_ticks_required = std::max(1, idle_ms / tick_ms);
     const int max_ticks            = std::max(idle_ticks_required, max_wait_ms / tick_ms);
