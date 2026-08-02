@@ -296,6 +296,15 @@ int main(int argc, char ** argv) {
                 res_error(res, format_error_response("stream_decode failed"));
                 return;
             }
+            // F6 R7 fix v3: drain T2W audio after stream_decode to serialize
+            // requests.  Without this, the next request can start while the
+            // T2W worker is still processing audio from the current request,
+            // causing resource conflicts and crashes.
+            // Note: internally, omni_duplex_drain_tts_audio polls with a
+            // 120s total timeout, matching the T2W worker's drain timeout.
+            if (state.octx->use_tts) {
+                omni_duplex_drain_tts_audio(state.octx);
+            }
             res_ok(res, {{"success", true}});
             return;
         }
