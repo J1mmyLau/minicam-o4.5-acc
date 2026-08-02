@@ -1054,20 +1054,15 @@ void e2e_profile_dump_json(const E2EStageTiming &t, const std::string &dir) {
         first = false;
         fprintf(f, "    \"%s\": %lld", t.stage_name(static_cast<E2EStage>(i)), (long long)elapsed);
     }
-    // Include flow/vocoder stages from global atomics
-    auto add_global_stage = [&](const char* name, const std::atomic<int64_t>& ns) {
-        int64_t val = ns.load(std::memory_order_relaxed);
-        if (val == 0 || t0 == 0) return;
-        int64_t elapsed = (val - t0) / 1'000'000;
-        if (elapsed < 0) return;
-        if (!first) fprintf(f, ",\n");
-        first = false;
-        fprintf(f, "    \"%s\": %lld", name, (long long)elapsed);
-    };
-    add_global_stage("flow_start", g_e2e_flow_start_ns);
-    add_global_stage("flow_end", g_e2e_flow_end_ns);
-    add_global_stage("vocoder_start", g_e2e_vocoder_start_ns);
-    add_global_stage("vocoder_end", g_e2e_vocoder_end_ns);
+    // F6 R7: Per-request flow/vocoder stages are read above from timestamps_ns[].
+    // Do NOT add global fallback — global atomics are shared across requests and
+    // can contain values from a different request under concurrent T2W worker
+    // execution (cross-request contamination). Missing per-request data is
+    // corrected in the audio profile (e2e_XXXX_audio.json) which is written
+    // by the T2W worker thread after Flow/Vocoder complete.
+    //
+    // If per-request slots are 0, they simply won't appear in the sync profile.
+    // The audio profile is authoritative for async T2W/Flow/Vocoder stages.
     fprintf(f, "\n  }\n}\n");
     fclose(f);
 }

@@ -101,7 +101,25 @@ static void e2e_record_ns(std::atomic<int64_t>& target) {
 
 static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {
     if (!g_e2e_profile_enabled) return;
-    // Only record if not already set (one-shot for first window only)
+
+    // F6 R7: per-request once-guard — check the mirror slot first via thread_local context.
+    // This prevents cross-request contamination when the global atomic is reset between
+    // requests while the T2W worker is still processing a previous request.
+    // The per-request slot is request-scoped and never reset externally, so it provides
+    // a reliable once-guard that survives concurrent global resets.
+    const C8FlowVocoderTargets& ctx = g_c8_thread_targets;
+    if (ctx.flow_start) {
+        std::atomic<int64_t>* mirror = nullptr;
+        if (&target == &g_e2e_flow_start_ns)       mirror = ctx.flow_start;
+        else if (&target == &g_e2e_flow_end_ns)     mirror = ctx.flow_end;
+        else if (&target == &g_e2e_vocoder_start_ns) mirror = ctx.vocoder_start;
+        else if (&target == &g_e2e_vocoder_end_ns)   mirror = ctx.vocoder_end;
+        // Per-request once-guard: skip if already recorded for THIS request
+        if (mirror && mirror->load(std::memory_order_relaxed) != 0) return;
+    }
+
+    // Global once-guard as fallback (for sync profile add_global_stage).
+    // Only record if not already set (one-shot for first window only).
     if (target.load(std::memory_order_relaxed) != 0) return;
     e2e_record_ns(target);
 }

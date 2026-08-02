@@ -30,22 +30,43 @@ f4133d0 docs(f6): canonical FP16 B6b rejection and historical confounder correct
 
 > **Provenance note**: These are Debug builds produced before the clean RelWithDebInfo build (S5). All subsequent N8/N9/C9/C10/120-baseline MUST use the RelWithDebInfo binary from `build-f6-phase3-relwithdebinfo/`.
 
-## Phase 3 Gate Status (N0-N6 FROZEN)
+## ⚠️ PHASE 3 GATE STATUS — CORRECTED 2026-08-02
+
+**Previous status (2026-08-01) was OVERSTATED. See `F6_PHASE3_GATE_MATRIX_CORRECTED_AFTER_S13_FAILURE.md` for full details.**
 
 | Gate | Status | Commit | Evidence |
 |------|--------|--------|----------|
 | N2 | PASS | `2150274` | Enum comment Q1→Q2 fixed; 21≡21 proof |
-| N3 | PASS | `2150274` | Q0=t2w_submit, Q1=t2w_dequeue, Q2=t2w_preprocess_end confirmed |
-| N4 | PASS | `de9290e` | 4 global ptrs removed; C8ProfileScope RAII added |
+| N3 | PASS | `2150274` | Q0/Q1/Q2 semantics confirmed |
+| N4 | PASS | `de9290e` | 4 global ptrs removed; C8ProfileScope RAII |
 | N5 | PASS | `de9290e` | thread_local context; exception-safe; nesting-safe |
 | N6 | CLOSED | `0f9be2f` | Generation guard + finalize + 3 rejection counters |
 | N7 | PASS | `ce53b18` | Binary provenance recorded; schema V5 doc |
-| N8 | CLOSED | `6320bd3` | Server async 7/7 requests (5 text-only + KV MISS + TTS), 0 rejection counters, full C8 instrumentation |
-| N9 | CLOSED | `6320bd3` | 10 A→B pairs, 20/20 passed, ~0ms gaps, write_after_finalize=183 proves N6 guard active, 0 cross-contamination |
-| S9 | PASS | `6320bd3` | CLI vs Server: 17/18 stages identical, Q2 server-only, core C8 equivalent, audio profiles server-only |
-| C9 | PASS | `6320bd3` | 25/30 requests completed, 0 crashes, 0 CANN errors, 100% profile integrity |
-| C10 | PASS | `6320bd3` | Instrumentation overhead < 0.001%, analytically bounded at < 10μs hot-path, ~1ms post-completion |
-| S13 | PASS | `6320bd3` | 61/120 text-only baseline, 0 crashes, 0 CANN errors, server stable across 113 total requests |
+| **N8** | **PASS_7_OF_7** ⚠️ | `6320bd3` | Smoke only — NOT full correctness gate |
+| **N9** | **PENDING_COUNTER_RECONCILIATION** ⚠️ | `6320bd3` | 183 write_after_finalize; must prove accepted=0, partial=0 |
+| **S9** | **PROVISIONAL_17_OF_18** ⚠️ | `6320bd3` | Missing 18th stage NOT identified |
+| **C9** | **PARTIAL_25_OF_30** ⚠️ | `6320bd3` | 5 missing requests NOT classified; 30/30 not met |
+| **C10_STATIC** | PASS | `6320bd3` | Analytical bound < 10μs hot-path |
+| **C10_RUNTIME** | **NOT_RUN** ❌ | — | Matched-pair A/B NOT executed |
+| **S13** | **FAILED_PARTIAL_61_OF_120** ❌ | `6320bd3` | Exit code 1; connection lost at req 64; server log truncated |
+
+### ⛔ SUSPENDED CLAIMS
+
+| Claim | Status | Reason |
+|-------|--------|--------|
+| FLOW_TIMING (9547ms) | **SUSPECT** | ~100× expected 135-180ms |
+| VOCODER_TIMING (639ms) | **NEEDS_REVALIDATION** | Depends on Flow endpoints |
+| PHASE3_FINE_GRAIN_LATENCY_BUDGET | **INVALID_PENDING_RECONCILIATION** | All per-stage budgets suspect |
+| "113 total requests" | **UNVERIFIED** | Does not reconcile across gates |
+| F6_PHASE3_COMPLETE | **NO** | Multiple gates incomplete |
+| F6_PHASE3_OPTIMIZATION_READY | **NO** | Baseline invalid, timing suspect |
+
+### Tag Status
+
+| Tag | Status |
+|-----|--------|
+| `fp16-f6-phase3-instrumentation-server-pass-20260801` | PROVISIONAL_CHECKPOINT |
+| `fp16-f6-phase3-server-gates-closed-20260801` | **PROVISIONAL_MISNAMED** — NOT_ALL_GATES_CLOSED |
 
 ## Architecture Decisions (FROZEN)
 
