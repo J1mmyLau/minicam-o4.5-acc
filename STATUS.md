@@ -1,87 +1,71 @@
-# Vision CANN NaN 定位 — 项目状态
+# F6 Phase 3 — Decode-to-Speak Optimization — 项目状态
 
 ## 当前阶段
 
-`Phase A：FUNCTIONAL PASS` — Vision CANN 功能验证通过。原始 NaN 未复现。
+`Phase 3：R13 COMPLETE` — 全部 R13 Gate 通过，准备进入 S13/S14 或 Decode-to-Speak 优化。
 
-## 阶段结论
+## R13 Gate 总结 (2026-08-03)
 
-```text
-Vision CANN 功能验证：PASS
-原始 Vision NaN：NOT REPRODUCED
-多切片参数 Bug：FIXED
-Full Omni 基础链路：基本跑通
-```
+| Gate | 状态 | 关键数据 |
+|------|------|----------|
+| **R13_PER_GEN_ACTIVE** | ✅ PASS | 3/3 sequential; per-generation active eliminates cross-gen blocking |
+| **R13_OCTX_MUTEX** | ✅ PASS | correctness PASS; mutex_wait p50=0ms sequential; handler_hold p50=71s |
+| **R13_HARDWARE** | ✅ CONFIRMED | 1× Ascend 910C (dual-die), 2× Ascend910 chips, single-card compliant |
+| **R13_CANONICAL_KV_CACHE** | ✅ PASS | 30/30 pairs; prefill 2.4× speedup (206→85ms p50); n_past=130 tokens |
 
-### 已完成验证
-
-| 项目 | 状态 | 结论 |
-|------|------|------|
-| Vision CANN 单图 | ✅ | 所有检查边界 NaN=0, Inf=0 |
-| synchronize ON/OFF | ✅ | 结果一致，排除当前单图路径的异步读取假说 |
-| CPU Vision 对照 | ✅ | CPU 同样无 NaN，LLM 输出正常 |
-| MiniCPM-o 多切片参数 | ✅ 修复 | 补充 `minicpmv_max_slice_nums=9` |
-| 多切片 CANN | ✅ | grid=2×1、3 chunks、192 tokens |
-| Vision → LLM | ✅ | LLM 能正确描述图片 |
-| 原始 NaN | ⚠️ 未复现 | 当前证据无法确认历史 NaN 根因 |
-
-### 关键 Bug：多切片参数失效（非 NaN 根因）
-
-MiniCPM_o 模型加载分支未初始化 `hparams.minicpmv_max_slice_nums`，默认值 0
-导致运行时切片上限为 0，图像被错误限制为 grid 1×1，无法进入多切片路径。
-
-修复：
-```cpp
-case MiniCPM_o:
-    hparams.minicpmv_max_slice_nums = 9;  // 新增
-    break;
-```
-
-修复效果：
-```
-修复前：max_slice_nums=0 → grid=1×1 → 单图路径
-修复后：max_slice_nums=9 → grid=2×1 → 3 chunks, 192 tokens, CANN 全路径 NaN=0
-```
-
-### 原始 NaN 正式结论
-
-> 在 Ascend 910、CANN 9.0.0、MiniCPM-o 4.5 F16 和 `feat/ascend-cann@6eeeb4d` 环境下，
-> 通过单图、CPU/CANN 对照、同步开关对照以及多切片输入测试，均未能重新复现此前观察到的
-> Vision Embedding 全 NaN 问题。各边界 Tensor 的 NaN 和 Inf 计数均为 0，Vision Embedding
-> 可被 LLM 正常消费并输出合理的图片描述。因此，目前没有证据证明原始 NaN 来源于 CANN
-> Vision 算子、异步同步或多切片路径。后续若该问题再次出现，应保存完整输入图片、运行命令、
-> 环境变量、模型哈希及逐边界 Tensor 统计，以便精确复现。
-
-## 验证矩阵
-
-| 测试 | 日志 | 结果 |
-|------|------|------|
-| K1: sync=ON 单图 | v2/k1-f16-full-omni-cnt2.log | NaN=0 ✅ |
-| K2: sync=OFF 单图 | v3/k2-sync-off-cnt2.log | NaN=0 ✅ |
-| K3: CPU 单图 | v3/k3-cpu-vision-cnt2.log | NaN=0 ✅ |
-| K4: slice 调试 | v3/k4-debug-slice.log | 诊断用 |
-| K5: 多切片 CANN | v3/k5-multislice-cann.log | NaN=0 ✅ |
-
-## 下一阶段
+## R13 Canonical KV Cache A/B 详细
 
 ```
-A-final：Full Omni + TTS 验收
-    ↓
-固定 patch 和源码 commit
-    ↓
-Reference Baseline (2 warmup + 5 measured)
-    ↓
-30 分钟稳定性
-    ↓
-官方 Harness 对齐
-    ↓
-Profiling 和性能优化
+Server:   PID 18026, port 18093
+Model:    MiniCPM-o-4_5-F16.gguf, -ngl 999, CANN0
+Binary:   a47eabf48fb2a6ff3b87de215e814e400db40d51b6fc7569e8e38711059ea034 @ ec6dbc7
+Method:   5 cases × 6 pairs = 30 strict matched pairs (A=MISS, B=HIT)
+Cache:    /tmp/f6_r13_kv_cache, OMNI_KV_CACHE_REUSE=1
+
+Results (30/30 valid):
+  MISS prefill: p50=206ms, p95=216ms
+  HIT prefill:  p50=85ms,  p95=91ms
+  Delta:        p50=121ms, p95=128ms
+  Speedup:      p50=2.4×,  p95=2.5×
+  tokens_reused: 130 (consistent across all pairs)
+  5 distinct cache keys, 0 collisions
+
+Integrity:
+  CPU fallback:   0
+  NOT_REUSABLE:   0
+  BUSY:           0
+  timeout:        0
+  mutex_wait:     p50=2.0µs
+  handler_hold:   p50=400ms
+  lifecycle:      100% IDLE→VALIDATING→DECODING→RESPONDING→IDLE
+
+Data:   /tmp/f6_r13_ab_results/canonical_kv_ab.csv + report.json
+Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 ```
 
-## 待办
+## 当前待办
 
-| 任务 | 状态 |
-|------|------|
-| BatchMatMulV3 内核缺失 | BLOCKED (CANN 内核编译) |
-| debug_print_tensors Full Omni 下为空 | TODO |
-| 补全 prefill 边界检查 | TODO |
+| 优先级 | 任务 | 状态 |
+|--------|------|------|
+| P0 | S13 120/120 baseline | PENDING — next after canonical KV cache |
+| P1 | Decode-to-Speak bottleneck optimization | ON HOLD per user instruction |
+| P2 | T2W WAV production fix (current config: no WAV output) | DEFERRED |
+| P3 | M6 6h mixed-workload soak audit (kvcache-prod worktree) | DEFERRED |
+
+## 约束
+
+- B6b: OFF (frozen)
+- CHUNK_SIZE: 25 (frozen)
+- 模式: simplex
+- FA/speculation/operator fusion: OFF
+- NPU: Ascend910C, CANN 9.1.0-beta.1
+- Model: MiniCPM-o-4_5
+- `-ngl 100/999 --device CANN0`
+
+## Git
+
+```
+HEAD:    ec6dbc7 fix(f6-phase3): R13 per-generation active accounting
+Branch:  perf/f6-decode-to-speak
+Worktree: /workspace/llama.cpp-omni-f6
+```
