@@ -215,9 +215,27 @@ struct T2WThreadInfo {
     // is_final marker) have been converted to T2W tasks and enqueued.
     std::atomic<uint32_t> tts_producer_done_generation{0};
 
-    // Set by T2W worker after the is_final task for this generation has been
-    // fully processed (flow + vocoder complete, WAVs written).
+    // F6 R12: Authoritative completion — set by T2W worker ONLY after the
+    // is_final task for this generation has been fully processed:
+    //   Flow complete → Vocoder complete → WAV written → bookkeeping done.
+    // This is the ONLY field the drain predicate trusts for "is this gen done?".
+    // It MUST NOT be set at dequeue time (see final_dequeued_generation below).
     std::atomic<uint32_t> final_processed_generation{0};
+
+    // F6 R12: Diagnostic counter — set at DEQUEUE time when the worker pops
+    // the is_final item from the queue.  Exists purely for observability;
+    // NEVER used in drain/completion predicates.
+    std::atomic<uint32_t> final_dequeued_generation{0};
+
+    // F6 R12: Per-generation item accounting (monotonically increasing).
+    // Invariant: enqueue_count == completion_count + cancelled_count.
+    // Used to detect leaks and cross-generation contamination.
+    std::atomic<uint32_t> generation_enqueue_count{0};   // items TTS has enqueued
+    std::atomic<uint32_t> generation_dequeue_count{0};   // items worker has dequeued
+    std::atomic<uint32_t> generation_complete_count{0};  // items worker has finished processing
+    std::atomic<uint32_t> generation_final_enqueued{0};  // gen of last is_final enqueued by TTS
+    std::atomic<uint32_t> generation_final_dequeued{0};  // gen of last is_final dequeued by worker
+    std::atomic<uint32_t> generation_final_completed{0}; // gen of last is_final fully processed
 
     // Set when the is_final task for this generation is enqueued (diagnostic).
     std::atomic<uint32_t> final_enqueued_generation{0};
