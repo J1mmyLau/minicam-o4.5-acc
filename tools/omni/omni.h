@@ -194,22 +194,38 @@ struct T2WThreadInfo {
 
     // F6 A1: atomic counters for lock-free queue depth readout
     // These replace unsafe queue.size() calls in instrumentation paths.
-    std::atomic<size_t> queued_t2w_task_count{0};   // items waiting in queue for T2W worker
-    std::atomic<size_t> active_t2w_task_count{0};   // items currently being processed (0 or 1)
+    std::atomic<size_t> queued_t2w_task_count{0};   // items waiting in queue for T2W worker (global)
+    std::atomic<size_t> active_t2w_task_count{0};   // items currently being processed (legacy: 0 or 1)
 
     // ========================================================================
-    // F6 A6: Generation-scoped T2W drain protocol
+    // F6 A6: Generation-scoped T2W drain protocol (R13: per-generation active)
     //
-    // Drain completion for generation N requires ALL of:
+    // Drain completion for generation N requires:
     //   1. tts_producer_done_generation >= N  (no more tasks will be enqueued)
-    //   2. queued_t2w_task_count == 0          (all tasks dequeued by worker)
-    //   3. active_t2w_task_count == 0          (worker is idle)
+    //   2. queued_t2w_task_count == 0          (all items dequeued — global,
+    //      safe under octx_mutex serialization; per-gen TODO)
+    //   3. active_t2w_generation == 0          (worker idle)
+    //      OR active_t2w_generation > N        (worker processing LATER gen;
+    //      gen N is fully done — do NOT block)
     //   4. final_processed_generation >= N     (is_final fully processed)
+    //
+    // R13 CORRECTION: active_t2w_task_count (global 0/1) is replaced by
+    // active_t2w_generation (per-generation) for drain predicates.
+    // active_t2w_task_count is retained for backwards-compat diagnostics only.
     //
     // The heuristic timeout is a SAFETY NET only — the drain predicate above
     // determines actual completion.  Expanding the timeout to "fix" a drain
     // failure is a category error; the drain must satisfy the state predicate.
     // ========================================================================
+
+    // F6 R13: Per-generation active tracking.
+    // Set to the maximum generation ID of tasks currently being processed
+    // by the T2W worker, or 0 if the worker is idle.
+    // Drain predicate for gen N: active_t2w_generation == 0 (worker idle)
+    // OR active_t2w_generation > N (worker busy with a later gen).
+    // Only block when 0 < active_t2w_generation <= N (worker still on gen N
+    // or earlier — gen N not yet fully done).
+    std::atomic<uint32_t> active_t2w_generation{0};
 
     // Set by TTS thread when all text chunks for this generation (including the
     // is_final marker) have been converted to T2W tasks and enqueued.
