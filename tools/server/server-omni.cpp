@@ -51,10 +51,20 @@ static void _f6_event_ctx_state(int req_id, const omni_context *ctx) {
     uint32_t drain_gen = ctx->drain_complete_generation.load();
     int      ctx_state = ctx->context_state.load();
     int      req_state = ctx->request_state.load();
+    // F6 R12: per-generation accounting counters
+    uint32_t final_dequeued  = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->final_dequeued_generation.load() : (uint32_t)0;
+    uint32_t final_completed = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->final_processed_generation.load() : (uint32_t)0;
+    uint32_t gen_dequeue   = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->generation_dequeue_count.load() : (uint32_t)0;
+    uint32_t gen_complete  = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->generation_complete_count.load() : (uint32_t)0;
     fprintf(stderr, "F6_CTXSTATE|%lu|req=%d|ctx=0x%lx|t2w_joinable=%d|"
             "queued=%zu|active=%zu|need_speek=%d|speek_done=%d|"
             "n_past=%d|llm_gen_done=%d|"
             "req_gen=%u|drain_gen=%u|ctx_state=%d|req_state=%d(%s)|"
+            "final_dequeued=%u|final_completed=%u|gen_deq=%u|gen_cmp=%u|"
             "GLOBAL_prefill_done=%d|GLOBAL_t2w_thread_running=%d\n",
             ns, req_id, reinterpret_cast<uint64_t>(ctx),
             ctx->t2w_thread.joinable() ? 1 : 0,
@@ -64,6 +74,7 @@ static void _f6_event_ctx_state(int req_id, const omni_context *ctx) {
             ctx->n_past,
             ctx->llm_generation_done.load() ? 1 : 0,
             req_gen, drain_gen, ctx_state, req_state, req_state_name((OmniRequestState)req_state),
+            final_dequeued, final_completed, gen_dequeue, gen_complete,
             prefill_done.load() ? 1 : 0,
             t2w_thread_running.load() ? 1 : 0);
 }
@@ -432,9 +443,14 @@ int main(int argc, char ** argv) {
                     // intentionally excluded — final_processed_generation is set
                     // at dequeue time, not process-complete time.
                     uint32_t req_gen = state.octx->request_generation.load(std::memory_order_relaxed);
+                    // F6 R12: Recovery requires full completion (Flow+Vocoder done),
+                    // not just dequeue.  final_processed_generation is now set ONLY
+                    // after WAV write; active==0 prevents recovery during in-flight
+                    // processing.
                     bool old_drain_done = state.octx->t2w_thread_info
                         && state.octx->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= req_gen
-                        && state.octx->t2w_thread_info->queued_t2w_task_count.load() == 0;
+                        && state.octx->t2w_thread_info->queued_t2w_task_count.load() == 0
+                        && state.octx->t2w_thread_info->active_t2w_task_count.load() == 0;
                     if (old_drain_done) {
                         uint32_t completed_gen = state.octx->request_generation.load();
                         state.octx->drain_complete_generation.store(completed_gen);
