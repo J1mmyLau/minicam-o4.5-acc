@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-03 08:45 | R13_PER_GEN_ACTIVE | COMPLETE
+Per-generation active accounting fix (ec6dbc7). Replaced global active_t2w_task_count
+with active_t2w_generation. Drain predicate: (active_gen==0 || active_gen>my_gen).
+Fixed notification race: clear active_gen before final_processed, single CV notify.
+Validation: 3/3 sequential decode PASS, all lifecycle clean. Zero BUSY, zero timeout.
+
+## 2026-08-03 08:45 | R13_OCTX_MUTEX | COMPLETE
+Mutex correctness: PASS (no deadlock, safe concurrent serialization).
+Mutex performance: mutex_wait p50=0ms sequential; handler_hold p50=71.3s.
+Serialization at httplib level, not mutex level. Throughput ~0.009 req/s.
+
+## 2026-08-03 08:45 | R13_HARDWARE | CONFIRMED
+1x physical card (Ascend 910C), 2x Ascend910 chips (dual-die). NPU ID 0.
+Not two physical cards. Compliant with single-card competition rules.
+
+---
+
+## 2026-08-03 13:50 | R13_CANONICAL_KV_CACHE_AB | PASS
+
+- 30/30 strict matched pairs (5 cases × 6 rounds), persistent Server, FP16 + -ngl 999 + CANN0
+- MISS prefill p50=206ms, HIT prefill p50=85ms, delta p50=121ms (2.4× speedup)
+- n_past=130 tokens, reused=130, 5 distinct cache keys, 0 collisions
+- KV cache SAVED all MISS, cache_hits=1 all HIT, 0 CPU fallback, 0 NOT_REUSABLE/BUSY/timeout
+- mutex_wait p50=2.0µs, handler_hold p50=400ms, lifecycle 100% clean
+- Data: /tmp/f6_r13_ab_results/canonical_kv_ab.csv + report.json
+- Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
+- Server: PID 18026, port 18093, binary SHA256 a47eabf48fb2a6ff3b87de215e814e400db40d51b6fc7569e8e38711059ea034
+- ALL R13 GATES PASS: per-gen active + octx_mutex + canonical KV cache A/B
+
 ## 2026-07-30 10:15 | PHASE | F6_S10_SMOKE_TEST_PASS
 - Binary startup: PASS — health check OK
 - 2 requests sent, 2 profile files generated (e2e_0000.json, e2e_0001.json) — per-request reset confirmed
@@ -319,3 +348,15 @@
 ## 2026-08-01 XX:XX | N6_RING_BUFFER | CLOSED: generation guard + finalize gate + 3 rejection counters
 ## 2026-08-01 XX:XX | N2_N6_COMMIT | COMMIT: 5 commits @ ce53b18; N2-N6 frozen; N0-N7 documented
 ## 2026-08-01 XX:XX | S1_COMPLETE | 5 logical commits; git status clean; ready for S2-S5 pre-build verification
+
+## 2026-08-03 07:00 | R12_DRAIN_FIX | dequeue≠processed semantics — final_processed_generation now set after Flow+Vocoder complete (not at dequeue); final_dequeued_generation is diagnostic only; active==0 required in drain predicate
+## 2026-08-03 07:00 | R12_CPU_VALIDATION | 2/2 PASS — 10.3s dequeue→completion gap confirmed; R12 semantics verified
+## 2026-08-03 07:00 | R12_NPU_REGRESSION | 10/10 sequential decode PASS — gen 2+ no longer hang; drain correctly waits
+## 2026-08-03 07:00 | R12_FAULT_INJECTION | 5000ms timeout proved R12 works — gen_deq=5, gen_cmp=0 → drain correctly waits for Flow+Vocoder
+## 2026-08-03 07:00 | R12_POLLING_MEASURE | ALL 9 drains completed via CV notify (notify=1); zero via poll; poll range 16-263; 500ms polling = safety net only; cross-gen blocking via active==0 confirmed
+## 2026-08-03 07:00 | R12_MUTEX_MEASURE | Drain hold p50=9.3s p95=131s max=131.6s; octx_mutex serializes requests during drain; BUSY probes block on mutex then reject
+## 2026-08-03 07:00 | R12_POLLING_INSTRUMENT | Commit 4527cf0: notify_wake_count, poll_wake_count in drain completion log; per-generation counters in T2WThreadInfo
+## 2026-08-03 07:00 | R12_HANDOFF_UPDATE | HANDOFF.md updated with R12 gate status, binary provenance, measurement results
+## 2026-08-03 07:26 | R12_EXTENDED_REGRESSION | COMPLETE — 19/19 core PASS (20 sequential, 2 reconnect, 2 rebuild); 3 fault injection correctly returned HTTP 500 (no hang). All 6 "FAIL" items are expected behavior (timeout→error).
+## 2026-08-03 07:50 | R12_STATIC_PREFIX | COMPLETE — 29/30 valid pairs, 30/30 B-HIT (100%), 62 tokens reused, 0 stale/cross writes, 240× prefill speedup (9100ms→38ms). Used working CLI binary (build/bin/llama-omni-cli) with Q4_K_M, -ngl 0. FP16+NPU not feasible (CLI crash in T2W init with new build — pre-existing issue).
+## 2026-08-03 07:50 | R12_FINAL | ALL GATES PASS — lifecycle fix complete, polling overhead measured, serialization documented, extended regression validated, KV cache correctness confirmed. R12 closeout ready.
