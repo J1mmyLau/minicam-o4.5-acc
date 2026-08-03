@@ -240,6 +240,18 @@ struct T2WThreadInfo {
     // Set when the is_final task for this generation is enqueued (diagnostic).
     std::atomic<uint32_t> final_enqueued_generation{0};
 
+    // F6 R12: Polling overhead instrumentation.
+    // drain_notify_wakes: count of wait_for returns from drain_cv.notify_one()
+    // drain_poll_wakes:   count of wait_for returns from timeout expiry (500ms polls)
+    // A healthy system should be >90% notify-driven; excessive poll wakes indicate
+    // lost notifications or predicate churn.
+    std::atomic<uint32_t> drain_notify_wake_count{0};
+    std::atomic<uint32_t> drain_poll_wake_count{0};
+    // Timestamp (ns) of the last drain predicate satisfaction.
+    std::atomic<uint64_t> drain_predicate_satisfied_ns{0};
+    // Latency (ns) from predicate satisfaction to wait_for return.
+    std::atomic<uint64_t> drain_wake_latency_ns{0};
+
     T2WThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
 

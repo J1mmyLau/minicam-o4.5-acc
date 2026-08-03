@@ -6209,18 +6209,24 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     const int POLL_INTERVAL_MS = 500;
     int elapsed_ms = 0;
     bool drained = false;
+    uint32_t notify_wakes = 0;
+    uint32_t poll_wakes   = 0;
+    uint32_t fast_path     = 0;
 
     std::unique_lock<std::mutex> lock(info->drain_mtx);
     // Quick check before entering the polling loop
     if (drain_predicate()) {
         drained = true;
+        fast_path = 1;
     } else {
         while (elapsed_ms < timeout_ms) {
             int wait_ms = std::min(POLL_INTERVAL_MS, timeout_ms - elapsed_ms);
             if (info->drain_cv.wait_for(lock, std::chrono::milliseconds(wait_ms), drain_predicate)) {
                 drained = true;
+                notify_wakes++;
                 break;
             }
+            poll_wakes++;
             elapsed_ms += wait_ms;
         }
     }
@@ -6229,12 +6235,21 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     // between CV wakeup and our re-check (lost notification race recovery).
     if (!drained) {
         drained = drain_predicate();
+        if (drained) {
+            // Race recovery: predicate true but wait_for missed the CV signal.
+            // This counts as a notify wake (the CV was signaled, we just missed it).
+            notify_wakes++;
+        }
     }
+
+    // F6 R12: Update polling instrumentation counters.
+    info->drain_notify_wake_count.fetch_add(notify_wakes, std::memory_order_relaxed);
+    info->drain_poll_wake_count.fetch_add(poll_wakes, std::memory_order_relaxed);
 
     if (drained) {
         info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
-        print_with_timestamp("T2W drain: complete (wav_count=%d)\n",
-                             info->wav_count.load());
+        print_with_timestamp("T2W drain: complete (wav_count=%d, notify=%u poll=%u fast=%u)\n",
+                             info->wav_count.load(), notify_wakes, poll_wakes, fast_path);
     } else {
         print_with_timestamp("T2W drain: TIMEOUT after %dms — "
                              "(queued=%zu active=%zu tts_done=%u "
