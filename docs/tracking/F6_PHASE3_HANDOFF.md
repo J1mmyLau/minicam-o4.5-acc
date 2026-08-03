@@ -218,7 +218,16 @@ Different audio files (0000-0004.wav) with images for 5 distinct cache keys (0ff
 | **R12_EXTENDED_REGRESSION** | **PASS** ✅ | `4527cf0` | 20 seq + 2 reconnect + 2 rebuild + 3 fault inject |
 | **R13_PER_GEN_ACTIVE** | **PASS** ✅ | `ec6dbc7` | 3/3 sequential decode; cross-gen blocking eliminated |
 | **R13_OCTX_MUTEX** | **CORRECTNESS_PASS** ✅ | `ec6dbc7` | mutex_wait=0ms sequential; concurrent serialized safely |
-| **R13_STATIC_PREFIX_FP16** | **PENDING** ⏳ | TBD | 30 strict matched pairs, FP16, -ngl 999, persistent server |
+| **R13_STATIC_PREFIX_FP16** | **PASS (PREFILL)** ✅ | `f298c10` | 30/30 pairs, 2.4× prefill speedup (206→85ms). E2E first-audio NOT_COLLECTED (USE_TTS=False) |
+| **S13_120_BASELINE** | **PASS** ✅ | `f298c10` | 120/120 valid, 0 fail, 0 timeout, 0 crash. p50=17.0s p95=121.6s. TTS WAV confirmed |
+
+### PHASE 3 GATE STATUS — 2026-08-03 R13+S13 Complete
+
+| Gate | Status | Commit | Evidence |
+|------|--------|--------|----------|
+| **R13_CANONICAL_KV_CACHE** | **PASS** ✅ | `f298c10` | 30/30 strict matched pairs, FP16+CANN0. Prefill p50: 206→85ms (58.7%). n_past=130. 5 cache keys, 0 collisions. |
+| **R13_E2E_FIRST_AUDIO** | **NOT_COLLECTED** ⏳ | — | USE_TTS=False in R13 test. Needs 30-pair MISS/HIT with TTS enabled. |
+| **S13_120_BASELINE** | **PASS** ✅ | `f298c10` | 120/120 valid across 4 case types. p50=17.0s p95=121.6s. TTS WAV confirmed. Progressive gates 20/40/60/80/100 all PASS. |
 
 ### PHASE 3 GATE STATUS — 2026-08-02 (Historical)
 
@@ -236,7 +245,7 @@ Different audio files (0000-0004.wav) with images for 5 distinct cache keys (0ff
 | **C9** | **PASS_30_OF_30** ✅ | `5d2762e` | 0 stale, 0 cross, sync/audio matched (caveat below) |
 | **C10_STATIC** | **PASS** ✅ | `6bb797c` | Analytical bound < 0.8μs per request |
 | **C10_RUNTIME** | **PASS** ✅ | `6bb797c` | Instrumentation overhead negligible (< 0.00001% of request) |
-| **S13** | **PILOT_5/5_CLEAN** ⏳ | `6bb797c` | 5 individual requests, 0 stale, 0 cross; 120-request baseline blocked by server sequential-request issue |
+| **S13** | **PASS_120/120** ✅ | `f298c10` | 120/120 valid requests, 0 fail, 0 timeout, 0 crash, TTS working, progressive gates all PASS |
 | **STEP9** | **PASS_29/30** ✅ | `b471d3e` | Static prefix E2E A/B: 29 valid pairs, 264× prefill speedup, 0 stale, 0 cross |
 
 ### R14: Phase 3 Status Re-Decision (2026-08-02 final)

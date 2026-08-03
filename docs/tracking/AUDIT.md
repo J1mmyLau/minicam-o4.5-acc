@@ -22,6 +22,8 @@ Not two physical cards. Compliant with single-card competition rules.
 
 ---
 
+## 2026-08-03 17:20 | S13_120_BASELINE | PASS — 120/120 valid, 0 fail, 0 timeout, 0 crash, 0 CANN error. p50=17.0s p95=121.6s. 94.2% clean lifecycle. TTS WAV output confirmed (CANN Flow/Vocoder). KV sliding window loop edge case identified with complex mixed-language prompts (3 transient, all resolved).
+
 ## 2026-08-03 13:50 | R13_CANONICAL_KV_CACHE_AB | PASS
 
 - 30/30 strict matched pairs (5 cases × 6 rounds), persistent Server, FP16 + -ngl 999 + CANN0
