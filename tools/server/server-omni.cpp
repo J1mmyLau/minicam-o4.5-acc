@@ -16,6 +16,110 @@
 #include <condition_variable>
 #include <fstream>
 #include <string>
+#include <chrono>
+#include <sstream>
+#include <unistd.h>
+
+// ============================================================================
+// F6 LIFECYCLE INSTRUMENTATION — provides nanosecond-precision handler events
+// to distinguish (A) drain hang, (B) handler/mutex block, (C) context reuse race.
+// Events go to stderr (unbuffered) to avoid mixing with server.log.
+// ============================================================================
+static uint64_t _f6_ns_now() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static void _f6_event(const char *event, int req_id, const omni_context *ctx) {
+    uint64_t ns = _f6_ns_now();
+    uint64_t ctx_ptr = reinterpret_cast<uint64_t>(ctx);
+    size_t   tid     = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    fprintf(stderr, "F6_EVENT|%lu|%s|req=%d|ctx=0x%lx|tid=0x%zx\n",
+            ns, event, req_id, ctx_ptr, tid);
+}
+static void _f6_event_ctx_state(int req_id, const omni_context *ctx) {
+    if (!ctx) return;
+    uint64_t ns = _f6_ns_now();
+    // F6 A1: use atomic counters for lock-free reads of T2W queue depth.
+    // queue.size() is UNSAFE without holding t2w_thread_info->mtx.
+    // GLOBAL_ prefix on prefill_done and t2w_thread_running: these are
+    // file-scope atomics in omni.cpp, NOT per-omni_context fields.
+    size_t queued = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->queued_t2w_task_count.load() : (size_t)0;
+    size_t active = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->active_t2w_task_count.load() : (size_t)0;
+    uint32_t req_gen  = ctx->request_generation.load();
+    uint32_t drain_gen = ctx->drain_complete_generation.load();
+    int      ctx_state = ctx->context_state.load();
+    int      req_state = ctx->request_state.load();
+    fprintf(stderr, "F6_CTXSTATE|%lu|req=%d|ctx=0x%lx|t2w_joinable=%d|"
+            "queued=%zu|active=%zu|need_speek=%d|speek_done=%d|"
+            "n_past=%d|llm_gen_done=%d|"
+            "req_gen=%u|drain_gen=%u|ctx_state=%d|req_state=%d(%s)|"
+            "GLOBAL_prefill_done=%d|GLOBAL_t2w_thread_running=%d\n",
+            ns, req_id, reinterpret_cast<uint64_t>(ctx),
+            ctx->t2w_thread.joinable() ? 1 : 0,
+            queued, active,
+            ctx->need_speek.load() ? 1 : 0,
+            ctx->speek_done.load() ? 1 : 0,
+            ctx->n_past,
+            ctx->llm_generation_done.load() ? 1 : 0,
+            req_gen, drain_gen, ctx_state, req_state, req_state_name((OmniRequestState)req_state),
+            prefill_done.load() ? 1 : 0,
+            t2w_thread_running.load() ? 1 : 0);
+}
+
+// F6 R10: Request state machine — validates and logs state transitions.
+// Returns true if the transition is legal, false if illegal (logged as ERROR).
+static bool _f6_transition_req_state(omni_context *ctx, OmniRequestState new_state,
+                                      int req_id, const char *label) {
+    if (!ctx) {
+        fprintf(stderr, "F6_REQSTATE|%lu|req=%d|(null)→%s|label=%s|SKIP_NULL_CTX\n",
+                _f6_ns_now(), req_id, req_state_name(new_state), label ? label : "?");
+        return false;
+    }
+    int old_val = ctx->request_state.load(std::memory_order_relaxed);
+    OmniRequestState old_state = (OmniRequestState)old_val;
+
+    // Transition validity matrix — sparse: only specific (old→new) pairs allowed.
+    bool legal = false;
+    switch (old_state) {
+    case REQ_IDLE:
+        legal = (new_state == REQ_VALIDATING);
+        break;
+    case REQ_VALIDATING:
+        legal = (new_state == REQ_DECODING || new_state == REQ_ERROR);
+        break;
+    case REQ_DECODING:
+        legal = (new_state == REQ_TTS_PENDING || new_state == REQ_DRAINING || new_state == REQ_RESPONDING || new_state == REQ_ERROR);
+        break;
+    case REQ_TTS_PENDING:
+        legal = (new_state == REQ_DRAINING || new_state == REQ_ERROR);
+        break;
+    case REQ_DRAINING:
+        legal = (new_state == REQ_RESPONDING || new_state == REQ_ERROR);
+        break;
+    case REQ_RESPONDING:
+        legal = (new_state == REQ_IDLE);
+        break;
+    case REQ_ERROR:
+        legal = (new_state == REQ_IDLE);
+        break;
+    default:
+        legal = false;
+        break;
+    }
+
+    ctx->request_state.store((int)new_state, std::memory_order_release);
+
+    uint64_t ns = _f6_ns_now();
+    fprintf(stderr, "F6_REQSTATE|%lu|req=%d|%s→%s|label=%s|%s\n",
+            ns, req_id,
+            req_state_name(old_state), req_state_name(new_state),
+            label ? label : "?",
+            legal ? "OK" : "ILLEGAL");
+
+    return legal;
+}
 
 #include "httplib.h"
 #include <nlohmann/json.hpp>
@@ -84,6 +188,8 @@ struct omni_server_state {
     omni_context * octx = nullptr;    // WS backend uses this as shared_octx
     std::mutex octx_mutex;            // protects omni_context lifecycle + prefill/decode entry
     SessionManager session_mgr;       // WS backend session management
+    int server_pid = 0;               // F6 R11: port ownership guard — set at startup
+    int bound_port = 0;               // F6 R11: port this server bound to
 };
 
 int main(int argc, char ** argv) {
@@ -122,21 +228,34 @@ int main(int argc, char ** argv) {
 
     omni_server_state state;
 
-    // GET /health
+    // GET /health — includes PID for port ownership verification
     svr.Get("/health", [&](const httplib::Request &, httplib::Response & res) {
-        json health = {{"status", "ok"}, {"engine", "comni"}};
+        json health = {
+            {"status", "ok"},
+            {"engine", "comni"},
+            {"pid", state.server_pid},
+            {"port", state.bound_port},
+        };
         res.set_header("X-Engine", "comni");
+        res.set_header("X-Server-PID", std::to_string(state.server_pid));
         res_ok(res, health);
     });
 
     svr.Get("/v1/health", [&](const httplib::Request &, httplib::Response & res) {
-        json health = {{"status", "ok"}, {"engine", "comni"}};
+        json health = {
+            {"status", "ok"},
+            {"engine", "comni"},
+            {"pid", state.server_pid},
+            {"port", state.bound_port},
+        };
         res.set_header("X-Engine", "comni");
+        res.set_header("X-Server-PID", std::to_string(state.server_pid));
         res_ok(res, health);
     });
 
     // POST /v1/stream/omni_init
     svr.Post("/v1/stream/omni_init", [&](const httplib::Request & req, httplib::Response & res) {
+        _f6_event("OMNI_INIT_HANDLER_ENTER", -1, state.octx);
         try {
         json data = json::parse(req.body);
 
@@ -182,14 +301,18 @@ int main(int argc, char ** argv) {
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             if (state.octx) {
+                _f6_event("OMNI_FREE_BEGIN", -1, state.octx);
                 omni_free(state.octx);
+                _f6_event("OMNI_FREE_END", -1, nullptr);
                 state.octx = nullptr;
             }
         }
 
+        _f6_event("OMNI_INIT_BEGIN", -1, nullptr);
         omni_context * octx = omni_init(&params, media_type, use_tts, params.tts_bin_dir, tts_gpu_layers,
                                          token2wav_device, duplex_mode,
                                          /*existing_model=*/nullptr, /*existing_ctx=*/nullptr, output_dir);
+        _f6_event("OMNI_INIT_END", -1, octx);
         if (!octx) {
             res_error(res, format_error_response("omni_init failed"));
             return;
@@ -263,6 +386,8 @@ int main(int argc, char ** argv) {
 
     // POST /v1/stream/decode (SSE)
     svr.Post("/v1/stream/decode", [&](const httplib::Request & req, httplib::Response & res) {
+        _f6_event("HANDLER_ENTER", -1, state.octx);
+        _f6_transition_req_state(state.octx, REQ_VALIDATING, -1, "handler_enter");
         json data = json::parse(req.body);
 
         {
@@ -288,24 +413,110 @@ int main(int argc, char ** argv) {
 
         if (!stream) {
             bool ok = false;
+
+            // F6 LIFECYCLE: acquire octx_mutex for stream_decode
+            _f6_event("OCTX_LOCK_WAIT_BEGIN", round_idx, state.octx);
             {
                 std::lock_guard<std::mutex> lock(state.octx_mutex);
+                _f6_event("OCTX_LOCK_ACQUIRED", round_idx, state.octx);
+                _f6_event("STREAM_DECODE_BEGIN", round_idx, state.octx);
+                _f6_event_ctx_state(round_idx, state.octx);
+
+                // F6 A5: reject if context is not in a reusable state.
+                // Attempt recovery if NOT_REUSABLE: the old generation's T2W worker
+                // may have finished processing after the drain timed out.
+                int ctx_state = state.octx->context_state.load();
+                if (ctx_state == CTX_STATE_NOT_REUSABLE) {
+                    // F6 A6: Check if old gen's drain quietly completed using
+                    // generation-scoped predicate.  active_t2w_task_count is
+                    // intentionally excluded — final_processed_generation is set
+                    // at dequeue time, not process-complete time.
+                    uint32_t req_gen = state.octx->request_generation.load(std::memory_order_relaxed);
+                    bool old_drain_done = state.octx->t2w_thread_info
+                        && state.octx->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= req_gen
+                        && state.octx->t2w_thread_info->queued_t2w_task_count.load() == 0;
+                    if (old_drain_done) {
+                        uint32_t completed_gen = state.octx->request_generation.load();
+                        state.octx->drain_complete_generation.store(completed_gen);
+                        state.octx->context_state.store(CTX_STATE_REUSABLE);
+                        LOG_INF("Context recovered: old gen %u drain completed, state→REUSABLE\n",
+                                completed_gen);
+                        _f6_event("RECOVERY_DRAIN_COMPLETE", round_idx, state.octx);
+                        // fall through to proceed normally
+                    } else {
+                        _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "ctx_not_reusable");
+                        LOG_ERR("Context state=NOT_REUSABLE, old drain still pending (queued=%zu) — "
+                                "rejecting request\n",
+                                state.octx->t2w_thread_info
+                                    ? state.octx->t2w_thread_info->queued_t2w_task_count.load() : (size_t)0);
+                        _f6_event("HANDLER_RETURN_BUSY", round_idx, state.octx);
+                        res_error(res, format_error_response(
+                            "Context not ready — previous drain may have timed out, retry later"));
+                        _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "busy_response_sent");
+                        return;
+                    }
+                } else if (ctx_state != CTX_STATE_REUSABLE && ctx_state != CTX_STATE_DRAINING) {
+                    _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "bad_ctx_state");
+                    LOG_ERR("Context state=%d (not REUSABLE/DRAINING) — rejecting request\n", ctx_state);
+                    _f6_event("HANDLER_RETURN_BUSY", round_idx, state.octx);
+                    res_error(res, format_error_response(
+                        "Context not ready — previous drain may have timed out, retry later"));
+                    _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "busy_response_sent");
+                    return;
+                }
+
+                _f6_transition_req_state(state.octx, REQ_DECODING, round_idx, "stream_decode_begin");
                 ok = stream_decode(state.octx, debug_dir, round_idx);
+
+                _f6_event("STREAM_DECODE_END", round_idx, state.octx);
+
+                // F6 R10: transition to TTS_PENDING or RESPONDING based on whether
+                // T2W drain is needed.  For non-TTS requests or when TTS wasn't
+                // active, skip straight to RESPONDING.
+                if (state.octx->use_tts) {
+                    _f6_transition_req_state(state.octx, REQ_TTS_PENDING, round_idx, "decode_done_tts");
+                } else {
+                    _f6_transition_req_state(state.octx, REQ_RESPONDING, round_idx, "decode_done_no_tts");
+                }
+
+                // F6 R8: Drain T2W audio INSIDE the octx_mutex to prevent a race
+                // where request B acquires the lock, increments request_generation,
+                // and invalidates request A's drain between OCTX_UNLOCKED and
+                // T2W_DRAIN_BEGIN.  The drain holds drain_mtx (not octx_mutex),
+                // so stream_decode for the next request is still blocked by the
+                // outer lock_guard but the internal CV wait won't deadlock.
+                if (state.octx->use_tts) {
+                    _f6_transition_req_state(state.octx, REQ_DRAINING, round_idx, "drain_begin");
+                    _f6_event("T2W_DRAIN_BEGIN", round_idx, state.octx);
+                    _f6_event_ctx_state(round_idx, state.octx);
+                    bool drained = omni_duplex_drain_tts_audio(state.octx);
+                    _f6_event("T2W_DRAIN_END", round_idx, state.octx);
+
+                    if (!drained) {
+                        _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "drain_failed");
+                        LOG_ERR("T2W drain FAILED — context state is stale, "
+                                "rejecting request to prevent hang\n");
+                        _f6_event("HANDLER_RETURN_DRAIN_FAILED", round_idx, state.octx);
+                        res_error(res, format_error_response(
+                            "T2W drain timed out — context busy, retry later"));
+                        _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "error_response_sent");
+                        return;
+                    }
+                    _f6_transition_req_state(state.octx, REQ_RESPONDING, round_idx, "drain_complete");
+                }
             }
+            _f6_event("OCTX_UNLOCKED", round_idx, state.octx);
+
             if (!ok) {
+                _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "decode_failed");
                 res_error(res, format_error_response("stream_decode failed"));
+                _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "error_response_sent");
                 return;
             }
-            // F6 R7 fix v3: drain T2W audio after stream_decode to serialize
-            // requests.  Without this, the next request can start while the
-            // T2W worker is still processing audio from the current request,
-            // causing resource conflicts and crashes.
-            // Note: internally, omni_duplex_drain_tts_audio polls with a
-            // 120s total timeout, matching the T2W worker's drain timeout.
-            if (state.octx->use_tts) {
-                omni_duplex_drain_tts_audio(state.octx);
-            }
+
+            _f6_event("HANDLER_RETURN", round_idx, state.octx);
             res_ok(res, {{"success", true}});
+            _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "response_sent");
             return;
         }
 
@@ -432,6 +643,10 @@ int main(int argc, char ** argv) {
         resp["closed"] = true;
         res_ok(res, resp);
     });
+
+    // F6 R11: set PID and port for ownership verification in health endpoint
+    state.server_pid = (int)getpid();
+    state.bound_port = params.port;
 
     // start server
     svr.listen("0.0.0.0", params.port);
