@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-`Phase 3：R13 COMPLETE` — 全部 R13 Gate 通过，准备进入 S13/S14 或 Decode-to-Speak 优化。
+`Phase 3：R13 + S13 COMPLETE` — 全部 R13 Gate 通过，S13 120/120 Baseline PASS。
 
 ## R13 Gate 总结 (2026-08-03)
 
@@ -43,14 +43,25 @@ Data:   /tmp/f6_r13_ab_results/canonical_kv_ab.csv + report.json
 Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 ```
 
+## S13 120/120 Baseline 结果 (2026-08-03)
+
+```
+Combined:  120/120 valid, 0 fail, 0 timeout, 0 crash, 0 CANN error
+Latency:   p50=17.0s, p95=121.6s
+LC:        94.2% IDLE→VALIDATING→DECODING→TTS_PENDING→DRAINING→RESPONDING→IDLE
+TTS:       WAV output varies 0-20/request (CANN Flow/Vocoder working)
+Gate:      20/40/60/80/100 ALL PASS
+Known:     Complex mixed-language prompts trigger KV sliding window loop (3 transient, all resolved)
+```
+
 ## 当前待办
 
 | 优先级 | 任务 | 状态 |
 |--------|------|------|
-| P0 | S13 120/120 baseline | PENDING — next after canonical KV cache |
+| P0 | S13 → R13 End-to-End KV Cache A/B with TTS | PENDING — prefetch p50=121ms proven, need end-to-end first-audio MISS/HIT |
 | P1 | Decode-to-Speak bottleneck optimization | ON HOLD per user instruction |
-| P2 | T2W WAV production fix (current config: no WAV output) | DEFERRED |
-| P3 | M6 6h mixed-workload soak audit (kvcache-prod worktree) | DEFERRED |
+| P2 | M6 6h mixed-workload soak audit (kvcache-prod worktree) | DEFERRED |
+| P3 | KV sliding window loop prevention for complex prompts | KNOWN_ISSUE — -n enforcement incomplete in omni server mode |
 
 ## 约束
 
