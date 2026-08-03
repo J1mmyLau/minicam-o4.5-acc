@@ -29,6 +29,14 @@ class Token2WavSession;
 }
 }
 
+// =======================================================================
+// F6 A1: File-scope GLOBAL atomics in omni.cpp — NOT context-scoped.
+// These are declared extern so the server instrumentation can read them
+// while still reporting them as GLOBAL_* to prevent misattribution.
+// =======================================================================
+extern std::atomic<bool> prefill_done;
+extern std::atomic<bool> t2w_thread_running;
+
 // 🔧 [Duplex Pipeline] 仅在 duplex_mode=true 时分配；
 // 定义在 omni.cpp 的 "===== DUPLEX PIPELINE (Stage 1) =====" 区域，
 // omni_context 只持有指针，simplex 路径不受影响。
@@ -97,6 +105,46 @@ enum T2WTerminalOutput {
     T2W_GENERATION_FAILURE      = 6,  // Upstream failure (LLM/TTS did not produce)
 };
 
+// =======================================================================
+// F6 A5: Context lifecycle state machine — generation-based request isolation.
+// All cross-request CV predicates MUST check generation, not global bools.
+// =======================================================================
+enum OmniContextState {
+    CTX_STATE_REUSABLE     = 0,  // Idle, ready for next request
+    CTX_STATE_ACTIVE       = 1,  // Request in progress (stream_decode running)
+    CTX_STATE_DRAINING     = 2,  // T2W drain in progress (outside stream_decode)
+    CTX_STATE_NOT_REUSABLE = 3,  // Drain failed or critical error — reject next request
+};
+
+// F6 R10: Request state machine — tracks each HTTP request through its lifecycle.
+// Separate from OmniContextState (which tracks the omni_context reuse lifecycle).
+// Valid transitions:
+//   IDLE → VALIDATING → DECODING → TTS_PENDING → DRAINING → RESPONDING → IDLE
+//   any non-IDLE state → ERROR → IDLE
+enum OmniRequestState {
+    REQ_IDLE        = 0,  // No active request
+    REQ_VALIDATING  = 1,  // Request received, validating input / context guard
+    REQ_DECODING    = 2,  // stream_decode in progress (LLM generating tokens)
+    REQ_TTS_PENDING = 3,  // LLM done, TTS producing audio, waiting for is_final
+    REQ_DRAINING    = 4,  // T2W drain in progress (waiting for worker to dequeue is_final)
+    REQ_RESPONDING  = 5,  // Drain complete, building HTTP response
+    REQ_ERROR       = 6,  // Error state — returning error response, then → IDLE
+};
+
+// Human-readable names for request state diagnostic logging
+static inline const char * req_state_name(OmniRequestState s) {
+    switch (s) {
+        case REQ_IDLE:        return "IDLE";
+        case REQ_VALIDATING:  return "VALIDATING";
+        case REQ_DECODING:    return "DECODING";
+        case REQ_TTS_PENDING: return "TTS_PENDING";
+        case REQ_DRAINING:    return "DRAINING";
+        case REQ_RESPONDING:  return "RESPONDING";
+        case REQ_ERROR:       return "ERROR";
+        default:              return "UNKNOWN";
+    }
+}
+
 struct E2EStageTiming;  // forward decl for T2WOut::profile_handle (F6 C8)
 
 struct T2WOut {
@@ -143,6 +191,36 @@ struct T2WThreadInfo {
     // CV for main thread to wait on drain completion
     std::mutex drain_mtx;
     std::condition_variable drain_cv;
+
+    // F6 A1: atomic counters for lock-free queue depth readout
+    // These replace unsafe queue.size() calls in instrumentation paths.
+    std::atomic<size_t> queued_t2w_task_count{0};   // items waiting in queue for T2W worker
+    std::atomic<size_t> active_t2w_task_count{0};   // items currently being processed (0 or 1)
+
+    // ========================================================================
+    // F6 A6: Generation-scoped T2W drain protocol
+    //
+    // Drain completion for generation N requires ALL of:
+    //   1. tts_producer_done_generation >= N  (no more tasks will be enqueued)
+    //   2. queued_t2w_task_count == 0          (all tasks dequeued by worker)
+    //   3. active_t2w_task_count == 0          (worker is idle)
+    //   4. final_processed_generation >= N     (is_final fully processed)
+    //
+    // The heuristic timeout is a SAFETY NET only — the drain predicate above
+    // determines actual completion.  Expanding the timeout to "fix" a drain
+    // failure is a category error; the drain must satisfy the state predicate.
+    // ========================================================================
+
+    // Set by TTS thread when all text chunks for this generation (including the
+    // is_final marker) have been converted to T2W tasks and enqueued.
+    std::atomic<uint32_t> tts_producer_done_generation{0};
+
+    // Set by T2W worker after the is_final task for this generation has been
+    // fully processed (flow + vocoder complete, WAVs written).
+    std::atomic<uint32_t> final_processed_generation{0};
+
+    // Set when the is_final task for this generation is enqueued (diagnostic).
+    std::atomic<uint32_t> final_enqueued_generation{0};
 
     T2WThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
@@ -766,6 +844,18 @@ struct omni_context {
     // 当 LLM 检测到 end token 时设置为 true
     // TTS 线程检查此标志来决定是否添加 text_eos_embed
     std::atomic<bool> llm_generation_done{false};
+
+    // ===================================================================
+    // F6 A5: Generation-based request lifecycle (replaces bool-only CV preds)
+    // request_generation increments with each stream_decode entry.
+    // CV waits use ">= my_gen" so they cannot be satisfied by stale state.
+    // ===================================================================
+    std::atomic<uint32_t> request_generation{0};          // monotonically increasing per-request id
+    std::atomic<uint32_t> prefill_ready_generation{0};    // gen for which prefill is done
+    std::atomic<uint32_t> speak_requested_generation{0};  // gen for which speak was requested
+    std::atomic<uint32_t> drain_complete_generation{0};   // gen for which T2W drain completed
+    std::atomic<int>        context_state{CTX_STATE_REUSABLE};  // lifecycle FSM state
+    std::atomic<int>        request_state{REQ_IDLE};           // per-request lifecycle FSM state
     
     // ==================== 双工模式参数 ====================
     // 每个 chunk 最大生成 token 数（用于限制单次 speak 长度，便于及时响应打断）

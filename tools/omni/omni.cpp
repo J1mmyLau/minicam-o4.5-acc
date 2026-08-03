@@ -6053,19 +6053,83 @@ void omni_stop_threads(struct omni_context * ctx_omni) {
 // P7.3 T2W Drain Protocol — helper functions
 // ============================================================================
 
-// Read OMNI_T2W_DRAIN_TIMEOUT_MS from environment, bounded [1000, 60000], default 5000.
-static int t2w_get_drain_timeout_ms() {
+// Compute adaptive drain timeout based on queued T2W task count.
+//
+// Formula: base_ms + queued_count * per_item_ms, capped at [1000, 300000].
+//   base_ms      = 5000 (time to process the EOS/final item itself)
+//   per_item_ms  = 10000 (generous estimate for CPU ~8.6s/wav + margin)
+//
+// OMNI_T2W_DRAIN_TIMEOUT_MS env var acts as a MINIMUM floor — the adaptive
+// value can exceed it when the queue is deep, but never goes below it.
+// On NPU the per-item time is much shorter, so the adaptive overhead is
+// negligible; on CPU it prevents spurious timeouts from deep T2W queues.
+static int t2w_get_drain_timeout_ms(size_t pending_count, bool worker_active) {
+    // Safety-net timeout.
+    // pending_count: items still in queue (15s each).
+    // worker_active: if true, the worker is in the middle of a batch that may
+    //   contain hundreds of tokens from prior generations — add 60s headroom
+    //   for in-flight WAV processing (~200 tokens / 25 per window × 10s).
+    // The REAL drain completion is determined by the generation-scoped
+    // predicate, NOT by this timeout.  This exists only as deadlock protection.
+    int adaptive_ms = 5000 + (int)(pending_count * 15000);
+    if (worker_active) {
+        adaptive_ms += 60000;
+    }
+
+    // Clamp to [1000, 180000]
+    if (adaptive_ms < 1000)  adaptive_ms = 1000;
+    if (adaptive_ms > 180000) adaptive_ms = 180000;
+
     const char * env = getenv("OMNI_T2W_DRAIN_TIMEOUT_MS");
-    // F6 R7: default to 120s.  Flow processing takes 5-10s per window and the
-    // T2W worker may process multiple windows per request.  When E2E profiling
-    // is enabled, the sync dump inside stream_decode calls drain_before_dump;
-    // if the drain times out before the worker finishes, the sync profile
-    // will show -1 for all flow/vocoder stages (racing the mirror writes).
-    if (!env) return 120000;
-    int val = atoi(env);
-    if (val < 1000)   return 1000;
-    if (val > 300000) return 300000;
-    return val;
+    if (env) {
+        int env_val = atoi(env);
+        // Non-zero env value OVERRIDES the adaptive calculation entirely
+        // (enables fault injection with artificially short timeouts).
+        // Zero means "use adaptive".
+        if (env_val != 0) {
+            adaptive_ms = env_val;
+        } else if (adaptive_ms < env_val) {
+            adaptive_ms = env_val;
+        }
+        if (adaptive_ms > 180000)  adaptive_ms = 180000;
+    }
+
+    return adaptive_ms;
+}
+
+// F6 A6: Helper to mark TTS producer done for the current generation.
+// Sets both speek_done (legacy flag) and tts_producer_done_generation
+// (generation-scoped drain protocol).  Must be called at every site that
+// previously set speek_done = true alone.
+static inline void tts_mark_producer_done(struct omni_context * ctx_omni) {
+    ctx_omni->speek_done.store(true);
+    if (ctx_omni->t2w_thread_info) {
+        uint32_t gen = ctx_omni->request_generation.load(std::memory_order_acquire);
+        // Only advance — never regress.  Multiple calls within the same
+        // generation set the same value (idempotent).
+        uint32_t prev = ctx_omni->t2w_thread_info->tts_producer_done_generation.load(std::memory_order_relaxed);
+        if (gen > prev) {
+            ctx_omni->t2w_thread_info->tts_producer_done_generation.store(gen, std::memory_order_release);
+            // F6 A6: Wake the drain waiter — tts_producer_done advancing
+            // may satisfy the generation-scoped drain predicate.
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
+
+            // F6 A6: If no T2W tasks exist for this generation (queues are
+            // empty, worker is idle), advance final_processed_generation
+            // to match — there is nothing for the T2W worker to process,
+            // so the generation-scoped drain predicate would otherwise
+            // never satisfy its fourth condition.
+            size_t q = ctx_omni->t2w_thread_info->queued_t2w_task_count.load(std::memory_order_relaxed);
+            size_t a = ctx_omni->t2w_thread_info->active_t2w_task_count.load(std::memory_order_relaxed);
+            if (q == 0 && a == 0) {
+                uint32_t fp_prev = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+                if (gen > fp_prev) {
+                    ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
+                    ctx_omni->t2w_thread_info->drain_cv.notify_one();
+                }
+            }
+        }
+    }
 }
 
 // Signal EOS to the T2W worker and wait for drain completion on a bounded timeout.
@@ -6102,25 +6166,85 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     }
     info->cv.notify_all();
 
-    // Wait for worker to process is_final (or timeout)
-    int timeout_ms = t2w_get_drain_timeout_ms();
-    print_with_timestamp("T2W drain: waiting up to %dms for is_final processing...\n", timeout_ms);
+    // F6 A6: Generation-scoped drain predicate.
+    //
+    // Drain for generation N is complete ONLY when:
+    //   1. TTS has stopped producing tasks for gen N (tts_producer_done >= N)
+    //   2. All tasks for gen N dequeued (queued_t2w_task_count == 0)
+    //   3. is_final dequeued for gen N (final_processed_generation >= N)
+    //
+    // NOTE: active_t2w_task_count is intentionally NOT in the predicate.
+    // final_processed_generation is set at DEQUEUE time (not process-complete),
+    // so the drain completes as soon as all items are picked up.  The worker
+    // continues producing WAVs in the background; generation counters isolate
+    // the next request from stale state.
+    //
+    // The timeout is a SAFETY NET only — it does NOT determine drain completion.
+    uint32_t my_gen = ctx_omni->request_generation.load(std::memory_order_relaxed);
+    size_t queued = info->queued_t2w_task_count.load(std::memory_order_relaxed);
+    size_t active = info->active_t2w_task_count.load(std::memory_order_relaxed);
+    int timeout_ms = t2w_get_drain_timeout_ms(queued + active, active > 0);
+    print_with_timestamp("T2W drain: waiting up to %dms for generation %u drain "
+                         "(queued=%zu active=%zu tts_done_gen=%u final_processed_gen=%u)...\n",
+                         timeout_ms, my_gen, queued, active,
+                         info->tts_producer_done_generation.load(),
+                         info->final_processed_generation.load());
+
+    // F6 R8: Use a polling loop with short waits instead of a single long
+    // wait_for.  A single wait_for can lose the drain_cv notification if the
+    // worker dequeues is_final between the initial predicate check and the
+    // wait registration.  Short 500ms poles re-check the predicate frequently
+    // and are resilient to lost wakeups — the worst case is 500ms added
+    // latency, never a full timeout.
+    auto drain_predicate = [&]() {
+        return info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
+               info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
+               info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
+    };
+
+    const int POLL_INTERVAL_MS = 500;
+    int elapsed_ms = 0;
+    bool drained = false;
 
     std::unique_lock<std::mutex> lock(info->drain_mtx);
-    bool drained = info->drain_cv.wait_for(
-        lock, std::chrono::milliseconds(timeout_ms),
-        [&]() { return info->is_final_processed.load(std::memory_order_acquire); }
-    );
+    // Quick check before entering the polling loop
+    if (drain_predicate()) {
+        drained = true;
+    } else {
+        while (elapsed_ms < timeout_ms) {
+            int wait_ms = std::min(POLL_INTERVAL_MS, timeout_ms - elapsed_ms);
+            if (info->drain_cv.wait_for(lock, std::chrono::milliseconds(wait_ms), drain_predicate)) {
+                drained = true;
+                break;
+            }
+            elapsed_ms += wait_ms;
+        }
+    }
+
+    // Final re-check outside the loop — the predicate may have become true
+    // between CV wakeup and our re-check (lost notification race recovery).
+    if (!drained) {
+        drained = drain_predicate();
+    }
 
     if (drained) {
         info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
         print_with_timestamp("T2W drain: complete (wav_count=%d)\n",
                              info->wav_count.load());
     } else {
-        print_with_timestamp("T2W drain: TIMEOUT after %dms — worker did not process is_final\n",
-                             timeout_ms);
+        print_with_timestamp("T2W drain: TIMEOUT after %dms — worker did not process is_final "
+                             "(queued=%zu active=%zu tts_done=%u final_processed=%u my_gen=%u)\n",
+                             timeout_ms,
+                             info->queued_t2w_task_count.load(),
+                             info->active_t2w_task_count.load(),
+                             info->tts_producer_done_generation.load(),
+                             info->final_processed_generation.load(),
+                             my_gen);
     }
 }
+// F6 A5 NOTE: context_state and drain_complete_generation are managed by
+// omni_duplex_drain_tts_audio (handler-level), NOT by this low-level drain
+// (which is also called by the profiling drain inside stream_decode).
 
 // Classify terminal output after drain (or timeout).
 // Must be called after t2w_drain_signal_and_wait() and before worker join.
@@ -6128,9 +6252,15 @@ static void t2w_drain_classify_terminal(struct omni_context * ctx_omni) {
     auto * info = ctx_omni->t2w_thread_info;
     if (!info) return;
 
-    bool final_processed = info->is_final_processed.load(std::memory_order_acquire);
-    int  wavs           = info->wav_count.load(std::memory_order_relaxed);
-    int  errors         = info->feed_window_errors.load(std::memory_order_relaxed);
+    // F6 A6: Use generation-scoped drain check.
+    // is_final_processed may be stale from a previous generation;
+    // final_processed_generation >= current_gen is authoritative.
+    uint32_t my_gen = ctx_omni->request_generation.load(std::memory_order_relaxed);
+    bool final_processed =
+        info->final_processed_generation.load(std::memory_order_acquire) >= my_gen &&
+        info->is_final_processed.load(std::memory_order_acquire);
+    int  wavs   = info->wav_count.load(std::memory_order_relaxed);
+    int  errors = info->feed_window_errors.load(std::memory_order_relaxed);
 
     if (!final_processed) {
         // Worker never processed is_final → timeout or upstream failure
@@ -6219,9 +6349,11 @@ void omni_prepare_for_reuse(struct omni_context * ctx_omni) {
         while (!ctx_omni->t2w_thread_info->queue.empty()) {
             delete ctx_omni->t2w_thread_info->queue.front();
             ctx_omni->t2w_thread_info->queue.pop();
+            ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_sub(1, std::memory_order_relaxed);
         }
     }
 
+    ctx_omni->request_state.store(REQ_IDLE, std::memory_order_release);
     print_with_timestamp("omni_prepare_for_reuse: inference threads stopped and queues cleared\n");
 }
 
@@ -6628,15 +6760,22 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
         if (queue.empty() && ctx_omni->need_speek){
             // 标记前缀填充完成
             prefill_done = true;
-            
+
+            // F6 A5: advance prefill_ready_generation to the generation that
+            // requested this speak.  CV predicate in stream_decode waits on
+            // prefill_ready_generation >= my_gen, so stale state cannot
+            // falsely wake a newer request.
+            uint32_t speak_gen = ctx_omni->speak_requested_generation.load();
+            ctx_omni->prefill_ready_generation.store(speak_gen);
+
             // 如果使用TTS，重置speek_done标志，允许TTS线程开始工作
             if (ctx_omni->use_tts && !ctx_omni->duplex_mode) {
                 ctx_omni->speek_done = false;
             }
-            
+
             // 重置need_speek标志
             ctx_omni->need_speek = false;
-            
+
             // 通知等待的解码线程：前缀填充已完成，可以开始生成文本了
             g_decode_cv.notify_all();
         }
@@ -7200,7 +7339,7 @@ static bool generate_audio_tokens_local_simplex(
 
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
             }
             g_pipeline_trace.record(PE_TTS_QUEUE_PUSH,
                 (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
@@ -7311,7 +7450,7 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                     print_with_timestamp("TTS Simplex Phase2: yield %d tokens 到 T2W\n", CHUNK_SIZE);
@@ -7349,7 +7488,7 @@ static bool generate_audio_tokens_local_simplex(
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
         
@@ -7373,7 +7512,7 @@ static bool generate_audio_tokens_local_simplex(
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
         print_with_timestamp("TTS Simplex: 发送 is_chunk_end=true 信号\n");
@@ -7720,7 +7859,7 @@ static bool generate_audio_tokens_local(
             
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
             }
             ctx_omni->t2w_thread_info->cv.notify_one();
             stream_buffer.clear();
@@ -7753,7 +7892,7 @@ static bool generate_audio_tokens_local(
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
     }
@@ -8227,7 +8366,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8280,7 +8419,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         
         // Handle empty final chunk
         if (text_tokens.empty() && response.empty() && llm_finish) {
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
             ctx_omni->warmup_done = true;
             speek_cv.notify_all();
             
@@ -8298,7 +8437,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -8322,7 +8461,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -8543,7 +8682,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
             // Handle final chunk
             if (llm_finish) {
                 tts_finish = true;
-                ctx_omni->speek_done = true;
+                tts_mark_producer_done(ctx_omni);
                 ctx_omni->warmup_done = true;
                 speek_cv.notify_all();
                 
@@ -8563,7 +8702,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8582,7 +8721,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8634,7 +8773,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8657,7 +8796,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
             all_audio_tokens.clear();
             llm_finish = false;
             tts_finish = false;
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
             ctx_omni->warmup_done = true;
             speek_cv.notify_all();
             
@@ -9005,7 +9144,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
                 print_with_timestamp("TTS: flushed %zu remaining tokens from tts_token_buffer\n", 
@@ -9033,13 +9172,13 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_final->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    ctx_omni->t2w_thread_info->queue.push(t2w_final);
+                    t2w_final->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_final); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
                 print_with_timestamp("TTS: sent is_final=true to T2W (llm_finish with no data)\n");
             }
             
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
             ctx_omni->warmup_done = true;  // 第一轮对话结束，后续 prefill 需要等待
             speek_cv.notify_all();
             print_with_timestamp("TTS: finished processing all chunks (llm_finish with no data path)\n");
@@ -9454,7 +9593,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -9462,7 +9601,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 }
                 
                 tts_finish = true;
-                ctx_omni->speek_done = true;
+                tts_mark_producer_done(ctx_omni);
                 ctx_omni->warmup_done = true;  // 第一轮对话结束，后续 prefill 需要等待
                 speek_cv.notify_all();
                 print_with_timestamp("TTS: finished processing all chunks\n");
@@ -9498,7 +9637,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                     print_with_timestamp("TTS: sent is_final=true to T2W queue (turn end)\n");
@@ -9912,7 +10051,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                             std::this_thread::sleep_for(std::chrono::milliseconds(10));
                             lock.lock();
                         }
-                        ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -10003,7 +10142,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                         lock.lock();
                     }
-                    ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
             }
@@ -10108,7 +10247,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    ctx_omni->t2w_thread_info->queue.push(t2w_out);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
             }
@@ -10190,7 +10329,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
             all_audio_tokens.clear();  // Clear for next round
             printf("\ntts finished\n");
 
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
             ctx_omni->warmup_done = true;  // 第一轮对话结束，后续 prefill 需要等待
             speek_cv.notify_all();
         } else if (audio_gen_finish && !llm_finish) {
@@ -11043,12 +11182,21 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         std::chrono::steady_clock::time_point oldest_enqueue_time = dequeue_time;
         bool have_enqueue_time = false;
+        int  dequeued_count  = 0;  // F6 R8: diagnostic counter
         // F6 C8: capture request-scoped profile handle from first queue item
         E2EStageTiming *captured_profile_handle = nullptr;
         uint32_t        captured_profile_gen    = 0;
+        uint32_t        final_task_gen          = 0;  // F6 A6: generation of is_final task
         while (!queue.empty()) {
             T2WOut *t2w_out = queue.front();
             queue.pop();
+            dequeued_count++;  // F6 R8
+            ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_sub(1, std::memory_order_relaxed);
+            // F6 A6: Notify drain waiter when queue drains to 0 —
+            // this may satisfy the generation-scoped drain predicate.
+            if (queue.empty()) {
+                ctx_omni->t2w_thread_info->drain_cv.notify_one();
+            }
             g_pipeline_trace.record(PE_TTS_QUEUE_POP,
                 (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
                 pipeline_thread_hash(),
@@ -11069,6 +11217,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     captured_profile_gen = t2w_out->generation_id;
                 }
             }
+            // F6 A6: capture generation of the is_final task for drain tracking
+            if (t2w_out->is_final && t2w_out->generation_id > final_task_gen) {
+                final_task_gen = t2w_out->generation_id;
+            }
 
             new_tokens.insert(new_tokens.end(), t2w_out->audio_tokens.begin(), t2w_out->audio_tokens.end());
             is_final = is_final || t2w_out->is_final;  // 任何一个是 final 就是 final
@@ -11079,9 +11231,36 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             }
             delete t2w_out;
         }
-        
+
+        // F6 A6: Generation-scoped drain — mark is_final dequeued NOW,
+        // not after slow Python T2W processing.  The worker continues
+        // producing WAVs in the background; the drain only needs to know
+        // that all items for this generation have been picked up.
+        //
+        // Also track active count for drain timeout calculation.
+        if (!new_tokens.empty() || is_final || is_chunk_end) {
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(1, std::memory_order_relaxed);
+        }
+        if (is_final) {
+            uint32_t gen = (final_task_gen > 0)
+                ? final_task_gen
+                : ctx_omni->request_generation.load(std::memory_order_acquire);
+            uint32_t prev = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+            if (gen > prev) {
+                ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
+            }
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
+            print_with_timestamp("T2W(C++): is_final dequeued for generation %u, notifying drain\n", gen);
+        }
+
+        // F6 R8: Diagnostic logging — show what was dequeued each cycle
+        print_with_timestamp("T2W(C++) dequeued: %d items, %zu tokens, is_final=%d, chunk_end=%d, gen=%u, req_gen=%u\n",
+                             dequeued_count, new_tokens.size(), is_final ? 1 : 0, is_chunk_end ? 1 : 0,
+                             final_task_gen,
+                             ctx_omni->request_generation.load(std::memory_order_relaxed));
+
         lock.unlock();
-        
+
         // P7.3: EOS force flush — treat remaining buffer as final window.
         // Must come after need_flush is declared but before the empty check.
         // Declare need_flush early (actual value set below in existing code)
@@ -11100,6 +11279,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
                 ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
                 ctx_omni->t2w_thread_info->eos_received.store(false, std::memory_order_release);
+                // F6 A6: mark generation-scoped drain complete (no tasks were pending)
+                ctx_omni->t2w_thread_info->final_processed_generation.store(
+                    ctx_omni->request_generation.load(std::memory_order_acquire),
+                    std::memory_order_release);
                 ctx_omni->t2w_thread_info->drain_cv.notify_one();
                 print_with_timestamp("T2W(C++): EOS drain — buffer empty (wav_count=%d)\n",
                                      ctx_omni->t2w_thread_info->wav_count.load());
@@ -11108,6 +11291,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         }
 
         if (new_tokens.empty() && !is_chunk_end && !is_final) {
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
             continue;
         }
 
@@ -11171,6 +11355,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         // Check if token2wav is initialized
         if (!ctx_omni->token2wav_initialized || !ctx_omni->token2wav_session) {
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
             continue;
         }
         
@@ -11443,10 +11628,28 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             // worker goes back to normal cv-wait instead of spinning on
             // infinite force-flush iterations.
             ctx_omni->t2w_thread_info->eos_received.store(false, std::memory_order_release);
+            // F6 A6: mark generation-scoped drain complete.
+            // final_task_gen > 0 means an explicit is_final task was in the queue;
+            // final_task_gen == 0 means is_final was set via EOS force-flush
+            // (no queue items), so use the current request_generation.
+            {
+                uint32_t gen = (final_task_gen > 0)
+                    ? final_task_gen
+                    : ctx_omni->request_generation.load(std::memory_order_acquire);
+                uint32_t prev = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+                if (gen > prev) {
+                    ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
+                }
+            }
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
             print_with_timestamp("T2W(C++): drain complete — wav_count=%d\n",
                 ctx_omni->t2w_thread_info->wav_count.load());
         }
+
+        // F6 A6: Reset active counter after processing completes (or is skipped).
+        // Notify drain_cv — the worker may have been the last blocker.
+        ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+        ctx_omni->t2w_thread_info->drain_cv.notify_one();
 
     }
     
@@ -12068,7 +12271,7 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
         ctx_omni->ended_with_listen     = true;
         ctx_omni->current_turn_ended    = false;
         if (ctx_omni->use_tts) {
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
         }
         print_with_timestamp("Duplex decode: force_listen %d/%d, emit __IS_LISTEN__\n",
                              ctx_omni->force_listen_used, ctx_omni->force_listen_count);
@@ -12521,7 +12724,7 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         // 🔧 如果 break_event 已触发，跳过等待（上一轮已被打断）
         if (ctx_omni->break_event.load()) {
             print_with_timestamp("TTS: break_event active, skipping wait for previous round\n");
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
             ctx_omni->break_event.store(false);
             speek_cv.notify_all();
         }
@@ -12531,7 +12734,7 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
         auto wait_result = speek_cv.wait_for(lock, std::chrono::seconds(5), [&]{return ctx_omni->speek_done || ctx_omni->break_event.load(); });
         if (!wait_result) {
             // 强制设置为 true 以继续
-            ctx_omni->speek_done = true;
+            tts_mark_producer_done(ctx_omni);
         }
         // 等待完成后重置 speek_done，为下一轮做准备
         ctx_omni->speek_done = false;
@@ -13060,7 +13263,42 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         ctx_omni->text_done_flag = false;
         ctx_omni->text_streaming = true;
     }
-    
+
+    // F6 A5: Generation-based request lifecycle.
+    // Instead of unconditionally resetting cross-request state (which can
+    // mask a stale context), verify the context is REUSABLE and advance the
+    // generation counter.  CV predicates use ">= my_gen" so stale state
+    // from a previous request cannot falsely satisfy them.
+    {
+        int state = ctx_omni->context_state.load();
+        if (state != CTX_STATE_REUSABLE && state != CTX_STATE_DRAINING) {
+            print_with_timestamp("❌ F6 lifecycle: context_state=%d (not REUSABLE/DRAINING), "
+                                "rejecting request\n", state);
+            return false;
+        }
+        uint32_t prev_gen = ctx_omni->request_generation.load();
+        uint32_t drain_gen = ctx_omni->drain_complete_generation.load();
+        if (drain_gen < prev_gen) {
+            // Previous generation's drain hasn't completed yet
+            size_t queued = ctx_omni->t2w_thread_info
+                ? ctx_omni->t2w_thread_info->queued_t2w_task_count.load() : 0;
+            size_t active = ctx_omni->t2w_thread_info
+                ? ctx_omni->t2w_thread_info->active_t2w_task_count.load() : 0;
+            print_with_timestamp("❌ F6 lifecycle: drain_gen=%u < request_gen=%u, "
+                                "queued=%zu active=%zu — rejecting request\n",
+                                drain_gen, prev_gen, queued, active);
+            return false;
+        }
+        uint32_t my_gen = prev_gen + 1;
+        ctx_omni->request_generation.store(my_gen);
+        ctx_omni->context_state.store(CTX_STATE_ACTIVE);
+        print_with_timestamp("📍 F6 lifecycle: generation %u started (prev=%u, drain_gen=%u, "
+                             "need_speek=%d, speek_done=%d, prefill_done=%d)\n",
+                             my_gen, prev_gen, drain_gen,
+                             ctx_omni->need_speek.load(), ctx_omni->speek_done.load(),
+                             prefill_done.load());
+    }
+
     if (ctx_omni->async){
         // 🔧 确保线程已启动（如果 prefill 是同步模式执行的，线程可能还没启动）
         if (!ctx_omni->tts_thread.joinable() && ctx_omni->use_tts) {
@@ -13078,14 +13316,29 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             ctx_omni->t2w_thread = std::thread(t2w_thread_func, ctx_omni, ctx_omni->params);
             print_with_timestamp("stream_decode: create t2w thread\n");
         }
-        
+        // F6 A5 FIX: ensure LLM thread is running.  omni_init also creates it,
+        // but if that path was skipped for any reason, stream_decode must be
+        // self-sufficient — otherwise the CV wait for prefill_ready_generation
+        // will never be satisfied.
+        if (!ctx_omni->llm_thread.joinable()) {
+            llm_thread_running = true;
+            ctx_omni->llm_thread = std::thread(llm_thread_func, ctx_omni, ctx_omni->params);
+            print_with_timestamp("stream_decode: create llm thread\n");
+        }
+
+        uint32_t my_gen = ctx_omni->request_generation.load();
+        ctx_omni->speak_requested_generation.store(my_gen);
         ctx_omni->need_speek = true;
         //ctx_omni->llm_thread.join();
         ctx_omni->llm_thread_info->cv.notify_all();
-        print_with_timestamp("wait prefill done\n");
+        print_with_timestamp("wait prefill done (gen=%u)\n", my_gen);
         std::unique_lock<std::mutex> lock(ctx_omni->llm_thread_info->mtx);
-        g_decode_cv.wait(lock, []{ return prefill_done.load(); });
-        prefill_done.store(false);
+        g_decode_cv.wait(lock, [ctx_omni, my_gen]{
+            return ctx_omni->prefill_ready_generation.load() >= my_gen;
+        });
+        // prefill_done is still set by LLM thread for backward compat;
+        // the CV predicate above uses generation so stale state cannot
+        // falsely satisfy it.
         // Pipeline trace: decode loop starts (T2)
         g_pipeline_trace.record(PE_DECODE_BEGIN,
             (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
@@ -13148,7 +13401,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             ctx_omni->ended_with_listen = true;
             ctx_omni->current_turn_ended = false;
             if (ctx_omni->use_tts) {
-                ctx_omni->speek_done = true;
+                tts_mark_producer_done(ctx_omni);
             }
             print_with_timestamp("LLM Duplex: force_listen %d/%d, skip generation and emit __IS_LISTEN__\n",
                                  ctx_omni->force_listen_used, ctx_omni->force_listen_count);
@@ -13601,6 +13854,31 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         if (llm_finish) break;
     }
     fflush(stdout);
+
+    // F6 A6: Push final LLMOut with llm_finish=true if the loop exited
+    // without an EOS token (max_tgt_len reached).  The TTS thread needs
+    // llm_finish=true to flush remaining tokens and set speek_done.
+    if (!llm_finish && ctx_omni->use_tts && ctx_omni->tts_thread_info
+        && !ctx_omni->duplex_mode) {
+        llm_finish = true;
+        ctx_omni->llm_generation_done.store(true);
+        print_with_timestamp("LLM: max_tgt_len reached without EOS, pushing final llm_finish=true signal\n");
+        {
+            LLMOut * llm_out = new LLMOut();
+            llm_out->text = "";  // F6 A6: empty text so TTS enters response.empty() && llm_finish finalization path
+            llm_out->n_past = ctx_omni->n_past;
+            llm_out->llm_finish = true;
+            llm_out->debug_dir = debug_dir;
+            llm_out->token_ids = {};
+            llm_out->hidden_states = {};
+            llm_out->n_embd = 0;
+            llm_out->is_end_of_turn = true;
+            std::unique_lock<std::mutex> lock(ctx_omni->tts_thread_info->mtx);
+            ctx_omni->tts_thread_info->queue.push(llm_out);
+            ctx_omni->tts_thread_info->cv.notify_all();
+        }
+    }
+
     // 🔧 [P1-SSE响应] 推送轮次结束标记
     // mark text done
     {
@@ -13633,6 +13911,44 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     // 1. 先检查并执行滑窗（基于之前的轮次边界）
     // 2. 再记录当前轮次的结束边界（作为下一轮的开始位置）
     if (!ctx_omni->duplex_mode) {
+        // F6 A6: Join LLM thread BEFORE any post-decode operations.
+        // The LLM thread may still be running if max_tgt_len was reached
+        // without an EOS token.  Calling eval_string (which uses llama_decode)
+        // while the LLM thread is concurrently accessing the same context
+        // creates a data race → undefined behavior, including silent skips.
+        llm_thread_running = false;
+        ctx_omni->llm_thread_info->cv.notify_all();
+        if (ctx_omni->llm_thread.joinable()) {
+            ctx_omni->llm_thread.join();
+            print_with_timestamp("📍 LLM thread joined after decode completion\n");
+        }
+
+        // F6 A6: Wait for TTS to finish before continuing.
+        // The TTS thread processes tokens asynchronously from the LLM;
+        // without this wait, stream_decode can return while TTS is still
+        // producing audio, causing the drain to see speek_done=0 and
+        // tts_producer_done_generation < current generation.
+        if (ctx_omni->use_tts) {
+            print_with_timestamp("📍 Waiting for TTS to complete (speek_done)...\n");
+            std::unique_lock<std::mutex> slock(speek_mtx);
+            bool tts_done = speek_cv.wait_for(slock, std::chrono::seconds(120), [ctx_omni]{
+                return ctx_omni->speek_done.load() || ctx_omni->break_event.load();
+            });
+            if (!tts_done) {
+                print_with_timestamp("⚠️ TTS completion wait timed out (120s), forcing speek_done=true\n");
+                tts_mark_producer_done(ctx_omni);
+            }
+            print_with_timestamp("📍 TTS complete (speek_done=%d)\n",
+                                ctx_omni->speek_done.load() ? 1 : 0);
+        }
+        // Clear KV cache and reset n_past for clean next request.
+        if (ctx_omni->ctx_llama) {
+            auto mem = llama_get_memory(ctx_omni->ctx_llama);
+            if (mem) llama_memory_clear(mem, true);
+            ctx_omni->n_past = 0;
+            print_with_timestamp("📍 KV cache cleared + n_past reset for next request\n");
+        }
+
         // 🔧 [滑窗检查] 检查是否需要执行滑窗，确保下一轮有足够空间
         // 当 n_past > n_ctx - reserved_space 时执行滑窗
         const int reserved_space = 1024;  // 预留空间
@@ -13663,6 +13979,9 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         // 后续轮次需要在 decode 结束时添加，结束当前 assistant 回复并开始新一轮 user 输入
         eval_string(ctx_omni, ctx_omni->params, "<|im_end|>\n<|im_start|>user\n", ctx_omni->params->n_batch, &ctx_omni->n_past, false);
         print_with_timestamp("📍 为下一轮准备: eval <|im_end|>\\n<|im_start|>user\\n, n_past=%d\n", ctx_omni->n_past);
+
+        // F6 A6: LLM thread join + KV cache clear moved BEFORE eval_string
+        // to prevent data race on the LLM context (see above).
     }
     
     // ==================== response unit 注册 ====================
@@ -14047,17 +14366,31 @@ bool omni_duplex_drain_tts_audio(struct omni_context * ctx_omni,
     // Fall back to the idle-queue poll as a secondary safety net (e.g. when
     // t2w_thread_info is unavailable or the request never sent is_final).
 
-    // Primary: proper T2W drain — waits for is_final_processed.
-    // F6 R7: always call t2w_drain_signal_and_wait — it internally resets
-    // is_final_processed before waiting, so even if the flag is true from a
-    // previous force-flush cycle, the drain will correctly wait for the
-    // CURRENT request's processing (via EOS → force-flush → is_final_processed).
-    // Skipping the call when is_final_processed is superficially "true" causes
-    // the drain to return before the T2W worker finishes flow+vocoder for the
-    // current request, producing stale-write rejection in e2e_record_ns().
+    // Primary: proper T2W drain with generation-scoped completion check.
+    // F6 A6: Drain is complete when all four conditions hold for the current
+    // generation (tts_producer_done, queues empty, worker idle, is_final processed).
+    // The legacy is_final_processed bool alone is insufficient because it can be
+    // stale from a previous generation's force-flush cycle.
     if (ctx_omni->t2w_thread_info) {
         t2w_drain_signal_and_wait(ctx_omni);
-        return ctx_omni->t2w_thread_info->is_final_processed.load(std::memory_order_acquire);
+        // F6 A6: Generation-scoped drain verification — three conditions
+        // must hold for the current generation.  active_t2w_task_count is
+        // intentionally excluded: final_processed_generation is now set at
+        // dequeue time, so the drain completes as soon as all items are
+        // picked up; the worker finishes WAV production in the background.
+        uint32_t my_gen = ctx_omni->request_generation.load(std::memory_order_relaxed);
+        bool drained =
+            ctx_omni->t2w_thread_info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
+            ctx_omni->t2w_thread_info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
+            ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
+        // F6 A5: handler-level drain manages context lifecycle state.
+        if (drained) {
+            ctx_omni->drain_complete_generation.store(my_gen);
+            ctx_omni->context_state.store(CTX_STATE_REUSABLE);
+        } else {
+            ctx_omni->context_state.store(CTX_STATE_NOT_REUSABLE);
+        }
+        return drained;
     }
 
     // Fallback: idle-queue poll (no t2w_thread_info, e.g. non-TTS path).
@@ -14102,7 +14435,7 @@ void omni_duplex_session_end(struct omni_context * ctx_omni) {
 }
 
 bool stop_speek(struct omni_context * ctx_omni){
-    ctx_omni->speek_done = true;
+    tts_mark_producer_done(ctx_omni);
     if (ctx_omni->use_tts && ctx_omni->tts_thread_info) {
         std::unique_lock<std::mutex> lock(ctx_omni->tts_thread_info->mtx);
         while(!ctx_omni->tts_thread_info->queue.empty()){
