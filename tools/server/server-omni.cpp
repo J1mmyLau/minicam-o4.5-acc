@@ -447,10 +447,13 @@ int main(int argc, char ** argv) {
                     // not just dequeue.  final_processed_generation is now set ONLY
                     // after WAV write; active==0 prevents recovery during in-flight
                     // processing.
+                    // F6 R13: Use per-generation active check for recovery.
+                    uint32_t active_gen = state.octx->t2w_thread_info
+                        ? state.octx->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed) : 0;
                     bool old_drain_done = state.octx->t2w_thread_info
                         && state.octx->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= req_gen
                         && state.octx->t2w_thread_info->queued_t2w_task_count.load() == 0
-                        && state.octx->t2w_thread_info->active_t2w_task_count.load() == 0;
+                        && (active_gen == 0 || active_gen > req_gen);
                     if (old_drain_done) {
                         uint32_t completed_gen = state.octx->request_generation.load();
                         state.octx->drain_complete_generation.store(completed_gen);

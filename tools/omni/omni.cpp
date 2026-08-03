@@ -6114,14 +6114,16 @@ static inline void tts_mark_producer_done(struct omni_context * ctx_omni) {
             // may satisfy the generation-scoped drain predicate.
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
 
-            // F6 A6: If no T2W tasks exist for this generation (queues are
-            // empty, worker is idle), advance final_processed_generation
-            // to match — there is nothing for the T2W worker to process,
-            // so the generation-scoped drain predicate would otherwise
-            // never satisfy its fourth condition.
+            // F6 R13: If no T2W tasks exist for this generation (queues are
+            // empty, worker is idle OR working on a later generation),
+            // advance final_processed_generation to match — there is nothing
+            // for the T2W worker to process, so the generation-scoped drain
+            // predicate would otherwise never satisfy its fourth condition.
+            // Uses per-generation active check to avoid cross-gen blocking.
             size_t q = ctx_omni->t2w_thread_info->queued_t2w_task_count.load(std::memory_order_relaxed);
             size_t a = ctx_omni->t2w_thread_info->active_t2w_task_count.load(std::memory_order_relaxed);
-            if (q == 0 && a == 0) {
+            uint32_t a_gen = ctx_omni->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed);
+            if (q == 0 && (a_gen == 0 || a_gen > gen)) {
                 uint32_t fp_prev = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
                 if (gen > fp_prev) {
                     ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
@@ -6185,10 +6187,11 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     size_t queued = info->queued_t2w_task_count.load(std::memory_order_relaxed);
     size_t active = info->active_t2w_task_count.load(std::memory_order_relaxed);
     int timeout_ms = t2w_get_drain_timeout_ms(queued + active, active > 0);
+    uint32_t active_gen = info->active_t2w_generation.load(std::memory_order_relaxed);
     print_with_timestamp("T2W drain: waiting up to %dms for generation %u drain "
-                         "(queued=%zu active=%zu tts_done_gen=%u final_processed_gen=%u "
+                         "(queued=%zu active=%zu active_gen=%u tts_done_gen=%u final_processed_gen=%u "
                          "final_dequeued_gen=%u)...\n",
-                         timeout_ms, my_gen, queued, active,
+                         timeout_ms, my_gen, queued, active, active_gen,
                          info->tts_producer_done_generation.load(),
                          info->final_processed_generation.load(),
                          info->final_dequeued_generation.load());
@@ -6199,10 +6202,15 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     // wait registration.  Short 500ms poles re-check the predicate frequently
     // and are resilient to lost wakeups — the worst case is 500ms added
     // latency, never a full timeout.
+    // F6 R13: Per-generation active check.
+    // active_t2w_generation == 0  → worker idle, safe to drain
+    // active_t2w_generation > N   → worker busy with LATER gen, gen N is done
+    // 0 < active_t2w_generation ≤ N → worker still on gen N or earlier → WAIT
     auto drain_predicate = [&]() {
+        uint32_t active_gen = info->active_t2w_generation.load(std::memory_order_relaxed);
         return info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
                info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
-               info->active_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
+               (active_gen == 0 || active_gen > my_gen) &&
                info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
     };
 
@@ -6248,15 +6256,16 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
 
     if (drained) {
         info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
-        print_with_timestamp("T2W drain: complete (wav_count=%d, notify=%u poll=%u fast=%u)\n",
-                             info->wav_count.load(), notify_wakes, poll_wakes, fast_path);
+        print_with_timestamp("T2W drain: complete (wav_count=%d, notify=%u poll=%u fast=%u gen=%u)\n",
+                             info->wav_count.load(), notify_wakes, poll_wakes, fast_path, my_gen);
     } else {
         print_with_timestamp("T2W drain: TIMEOUT after %dms — "
-                             "(queued=%zu active=%zu tts_done=%u "
+                             "(queued=%zu active=%zu active_gen=%u tts_done=%u "
                              "final_dequeued=%u final_completed=%u my_gen=%u)\n",
                              timeout_ms,
                              info->queued_t2w_task_count.load(),
                              info->active_t2w_task_count.load(),
+                             info->active_t2w_generation.load(),
                              info->tts_producer_done_generation.load(),
                              info->final_dequeued_generation.load(),
                              info->final_processed_generation.load(),
@@ -11221,6 +11230,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         E2EStageTiming *captured_profile_handle = nullptr;
         uint32_t        captured_profile_gen    = 0;
         uint32_t        final_task_gen          = 0;  // F6 A6: generation of is_final task
+        uint32_t        max_dequeued_gen        = 0;  // F6 R13: max gen across ALL dequeued items
         while (!queue.empty()) {
             T2WOut *t2w_out = queue.front();
             queue.pop();
@@ -11230,6 +11240,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             // this may satisfy the generation-scoped drain predicate.
             if (queue.empty()) {
                 ctx_omni->t2w_thread_info->drain_cv.notify_one();
+            }
+            // F6 R13: track max generation across all dequeued items
+            if (t2w_out->generation_id > max_dequeued_gen) {
+                max_dequeued_gen = t2w_out->generation_id;
             }
             g_pipeline_trace.record(PE_TTS_QUEUE_POP,
                 (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
@@ -11272,9 +11286,14 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // for final_processed_generation, which is set after Flow+Vocoder
         // complete (line ~11641).  Dequeue ≠ processed.
         //
-        // Also set active counter for drain timeout calculation.
+        // F6 R13: Set per-generation active to the max gen in this batch.
+        // Legacy global counter kept for diagnostics and timeout calculation.
         if (!new_tokens.empty() || is_final || is_chunk_end) {
+            uint32_t active_gen = max_dequeued_gen > 0
+                ? max_dequeued_gen
+                : ctx_omni->request_generation.load(std::memory_order_acquire);
             ctx_omni->t2w_thread_info->active_t2w_task_count.store(1, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(active_gen, std::memory_order_relaxed);
         }
         if (is_final) {
             uint32_t gen = (final_task_gen > 0)
@@ -11330,6 +11349,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     }
                     ctx_omni->t2w_thread_info->generation_final_completed.store(cur_gen, std::memory_order_relaxed);
                     ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->drain_cv.notify_one();
                 print_with_timestamp("T2W(C++): EOS drain — buffer empty (wav_count=%d)\n",
@@ -11340,6 +11360,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
 
         if (new_tokens.empty() && !is_chunk_end && !is_final) {
             ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
             continue;
         }
 
@@ -11404,6 +11425,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // Check if token2wav is initialized
         if (!ctx_omni->token2wav_initialized || !ctx_omni->token2wav_session) {
             ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
             continue;
         }
         
@@ -11679,6 +11701,15 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // in drain/completion predicates.
         // ====================================================================
         if (is_final) {
+            // F6 R13: Reset per-generation active BEFORE setting
+            // final_processed_generation and notifying drain_cv.
+            // This prevents a notification race: if active_gen→0 happens
+            // AFTER final_processed→N, the drain can wake up between the
+            // two CV notifications, see active_gen still == my_gen, and
+            // miss the second notify.
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+
             ctx_omni->t2w_thread_info->is_final_processed.store(true, std::memory_order_release);
             ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
             // F6 R7: clear eos_received after completing drain cycle so the
@@ -11699,16 +11730,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 }
                 ctx_omni->t2w_thread_info->generation_final_completed.store(gen, std::memory_order_relaxed);
             }
+            // F6 R13: Single CV notify after ALL drain-predicate state updated.
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
             print_with_timestamp("T2W(C++): drain complete — wav_count=%d, gen=%u\n",
                 ctx_omni->t2w_thread_info->wav_count.load(),
                 ctx_omni->t2w_thread_info->final_processed_generation.load());
+        } else {
+            // F6 R13: Non-final batch done — reset active.
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
         }
-
-        // F6 R12: Reset active counter after processing completes (or is skipped).
-        // Notify drain_cv — active→0 may be the last unsatisfied predicate term.
-        ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
-        ctx_omni->t2w_thread_info->drain_cv.notify_one();
 
     }
     
@@ -14432,15 +14464,15 @@ bool omni_duplex_drain_tts_audio(struct omni_context * ctx_omni,
     // stale from a previous generation's force-flush cycle.
     if (ctx_omni->t2w_thread_info) {
         t2w_drain_signal_and_wait(ctx_omni);
-        // F6 R12: Generation-scoped drain verification — FOUR conditions
-        // must hold for the current generation.  final_processed_generation is
-        // now set ONLY after Flow+Vocoder complete (NOT at dequeue time), so
-        // active==0 is required to ensure the worker isn't mid-processing.
+        // F6 R13: Generation-scoped drain verification — FOUR conditions.
+        // Per-generation active check: worker must be idle (active_gen==0)
+        // OR processing a later generation (active_gen > my_gen).
         uint32_t my_gen = ctx_omni->request_generation.load(std::memory_order_relaxed);
+        uint32_t active_gen = ctx_omni->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed);
         bool drained =
             ctx_omni->t2w_thread_info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
             ctx_omni->t2w_thread_info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
-            ctx_omni->t2w_thread_info->active_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
+            (active_gen == 0 || active_gen > my_gen) &&
             ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
         // F6 A5: handler-level drain manages context lifecycle state.
         if (drained) {
