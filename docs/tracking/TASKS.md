@@ -164,3 +164,16 @@ KV Cache: RECOMMEND_OPT_IN (OMNI_KV_CACHE_REUSE=1), 2772x prefill reduction, -60
 | P2-S4 | DONE | MTP reachability audit — MTP_NOT_REACHABLE (1916743) |
 | P2-S5 | DONE | Amdahl ranking — T2W CANN move #1 OPTIMIZE_FIRST (7c0aa56) |
 | P2-S6 | DONE | CANN T2W A/B — W0 4798→894ms (−81.4%), 32/32, CI95 [−4220,−3732] (271265b) |
+
+## Phase 3：最终集成候选与证据 Gate（T1–T8）
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| T1 | DONE | 统一状态文档 — S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120；新 Gate=PENDING |
+| T2 | DONE | baseline 设备口径审计 — CPU T2W=默认回退+实测参考 baseline；候选=DEVICE_PLACEMENT_CORRECTION |
+| T3 | PENDING | 严格事件关联 — request_id/generation_id 埋点，禁止日志顺序对齐 |
+| T4 | PENDING | CANN T2W 严格复核 — ≥16 对，request-id 绑定，0 错配/缺失/超时 |
+| T5 | PENDING | 最终集成候选 — KV+token cap+生命周期+CANN Flow/Voc 组合冻结 |
+| T6 | PENDING | 最终集成回归 — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 |
+| T7 | PENDING | 质量/比赛 Gate — 外部资产缺失 → PENDING_EXTERNAL_ASSETS（不伪造） |
+| T8 | PENDING | 最终口径 — FINAL_INTEGRATED_CANDIDATE=INTERNAL_PASS 后不得宣称 OFFICIAL_BENCHMARK_PASS |
