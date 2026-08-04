@@ -21,6 +21,19 @@ Phase 2 Bottleneck 分析 COMPLETE, CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS` —
 `OFFICIAL_ACCURACY = PENDING`, `OFFICIAL_BENCHMARK = PENDING`,
 `COMPETITION_COMPLETE = NOT_CLAIMED`。
 
+## T4 严格复核 Gate (2026-08-04)
+
+| Gate | 状态 | 关键数据 |
+|------|------|----------|
+| **T4_STRICT_CORRELATION** | ✅ PASS 19/19 | 10 gates × 19 active 全通过（echo / single_w0 / gen_match / wav_req_bind / reqidx_e2e_bind / wav_count / d2fa_cross / d2fa_e2e_audio / audio_valid / stale_cross） |
+| **T4_STABILITY** | ✅ PASS | 0 CPU fallback / 0 CANN error / 0 timeout / RSS+HBM 单调 |
+| **T4_PERF** | ✅ PASS | **T2W-only delta 19/19 全负**（排除 LLM 随机 preamble）：p50 −4215.8ms，CI95 [−4395.6, −4085.4]；W0 E2E p50 4856→800ms（−3946ms），CI95 [−4379, −3799] |
+| **T4_WAV_COUNT_FIX** | ✅ PASS | 服务端 wav_count 跨轮累计 bug 已修（is_final 不再提前 last_round_idx）→ 19/19 wav_count gate |
+
+说明：2 对 E2E W0 正 delta（english_r01 +1077ms, number_mix_r04 +597ms）为 **LLM 随机 preamble 方差**（t2w_dequeue≈5.27s），T2W 本身 181/183ms、t2w_delta −4127/−4091ms 全负 — 设备放置收益不受影响。E2E W0 delta 不作为 Gate（受 LLM 采样噪声污染）。
+
+数据：`docs/f6-s13-closure/phase2/t4_strict_cann_t2w.json`（20 对 / 19 active / 1 NoSpeech=short_cn_r00）。
+
 ## R13 Gate 总结 (2026-08-03)
 
 | Gate | 状态 | 关键数据 |
@@ -95,8 +108,8 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 
 | 优先级 | 任务 | 状态 |
 |--------|------|------|
-| **P0** | **T3 严格事件关联** — request_id/generation_id 级埋点（不再靠日志顺序对齐） | PENDING |
-| **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配 | PENDING |
+| **P0** | **T3 严格事件关联** — 埋点实现并提交 510a9f0（decode-start 打 round_idx/gen/reqidx；W0/wav 行 req/gen；响应回显）；smoke 验证通过：value-bound 证据（log/e2e-JSON/pipeline-CSV/响应回显）全渠道一致 | **DONE** |
+| **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配；FULL PASS：20 对 / 19 active，10 gates 19/19，T2W-only delta 19/19 全负（p50 −4215.8ms，CI [−4395.6, −4085.4]），W0 E2E p50 −3946ms（CI [−4379, −3799]），0 fallback/0 error/0 timeout；wav_count 服务端 bug 已修 | **DONE** |
 | **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结 | PENDING |
 | **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | PENDING |
 | **P1** | **T7 质量/比赛 Gate** — 外部资产缺失项记为 PENDING_EXTERNAL_ASSETS（不伪造） | PENDING |
@@ -112,6 +125,7 @@ R13_STATIC_PREFIX_E2E             = PASS   (30/30 first-audio A/B, prefill 2.5×
 PHASE2_BOTTLENECK_ANALYSIS        = PASS   (decode→speak=2.9%, T2W CPU=93%)
 CANN_T2W_CANDIDATE                = STRONG_INTERNAL_PASS (W0 4798→894ms, −81.4%)
 BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参考 baseline)
+T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
 FINAL_INTEGRATED_CANDIDATE        = PENDING
 OFFICIAL_ACCURACY                 = PENDING
 OFFICIAL_BENCHMARK                = PENDING
