@@ -73,7 +73,7 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 |--------|------|------|
 | P0 | ~~修复 S13 无限生成问题 (per-request HTTP token cap)~~ | ✅ DONE (e159b3ee) |
 | P0 | 补 R13 端到端首音 30 对 A/B (USE_TTS=True) | PENDING |
-| P0 | 用原始 Prompt 重新运行 number_mix R23-R30 (targeted regression) | IN PROGRESS |
+| P0 | 用原始 Prompt 重新运行 number_mix R23-R30 (targeted regression) | ✅ DONE (7997acf) |
 | P0 | Full strict S13 120 re-run with frozen prompts | PENDING |
 | P1 | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | P2 | M6 6h mixed-workload soak audit | DEFERRED |
