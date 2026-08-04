@@ -9,7 +9,9 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 **最终集成候选已冻结 = INTERNAL_PASS**（"KV Cache + HTTP token cap + 生命周期
 + CANN Flow/Vocoder" 组合，见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)），
 **T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**。
-下一阶段：**T7 质量/比赛 Gate = PENDING_EXTERNAL_ASSETS**（外部资产缺失不伪造），随后 OFFICIAL_ACCURACY / OFFICIAL_BENCHMARK = PENDING_EXTERNAL_ASSETS。
+下一阶段：**T7 质量/比赛 Gate 已评估** — 官方资产部分到达；Daily-Omni 输入路径经修正协议确认可用，
+但**文本输出路径损坏（SSE 崩溃 + 非流式无文本）→ BLOCKED_BY_CANDIDATE_LIMITATION**；
+seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方结果。
 
 关键数据：
 - S13 frozen strict baseline **120/120 成功**（eos=111, max_tokens=9, 0 error, 0 timeout,
@@ -22,8 +24,9 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 - Baseline 设备口径审计：CPU T2W = 实测参考 baseline 且为代码默认，性质上是已知限制回退，
   候选 = `DEVICE_PLACEMENT_CORRECTION`（见 [Baseline Device Audit](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md)）
 
-**尚未完成（诚实口径）**：`FINAL_INTEGRATED_CANDIDATE = INTERNAL_PASS`（冻结完成，待 T6 回归）；
-`OFFICIAL_ACCURACY = PENDING`, `OFFICIAL_BENCHMARK = PENDING`,
+**尚未完成（诚实口径）**：`FINAL_INTEGRATED_CANDIDATE = FINAL`（T5 freeze + T6 回归全过）；
+`OFFICIAL_ACCURACY = BLOCKED_BY_CANDIDATE_LIMITATION`（Daily-Omni 文本输出路径损坏；见 [T7 评估](docs/f6-s13-closure/phase2/T7_QUALITY_GATES_ASSESSMENT.md)）,
+`OFFICIAL_BENCHMARK = BLOCKED_BY_CANDIDATE_LIMITATION + 接口未定`,
 `COMPETITION_COMPLETE = NOT_CLAIMED`。
 
 ## T4 严格复核 Gate (2026-08-04)
@@ -60,6 +63,25 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 ### T6 修复与发现
 - **断连-恢复竞争（修复）**：首轮 T6 在断连测试的 recovery `omni_init()` 处崩溃（use-after-free：omni_free 与在途 STREAM_DECODE_BEGIN req=3004 竞争，ctx=0x0）。根因：断连后客户端关闭连接但服务器 handler 仍在处理 decode；恢复 re-init 的 omni_free 与之竞争。修复：`run_disconnect` 不再调用 recovery omni_init（冻结协议本就是 once-init），改为等待在途 decode 平息后在常驻上下文上直接跑 followup。重跑后 5/5 断连存活 + followup OK。
 - **无音频 drain stall（真实候选行为）**：首轮 142 请求中有 6 次无音频响应触发 120s `speek_cv.wait_for` 超时（有界自恢复）。本轮干净运行 0 次。属已知候选边界，非崩溃。
+
+## T7 质量/比赛 Gate 评估 (2026-08-04)
+
+**官方资产部分到达**：`/workspace/benchmarks/Daily-Omni/`（qa.json 1197 项 + harness）、
+`/workspace/benchmarks/seed-tts-eval/`、`/workspace/llama.cpp-omni-official-eval/competition/`（provisional）。
+
+**输入侧 CONFIRMED（修正协议）**：冻结候选能处理用户图像+音频+文本。
+此前误判“不处理”是协议错误——omni_init 后**第一次 stream_prefill 被 system-prompt 初始化分支吞掉用户内容**
+（omni.cpp:12906，无论 index）。修正协议=两次 prefill（cnt:0 初始化 → cnt:1 用户内容）。
+实测：图像 202ms/128 tokens/2 chunks，音频 n_pos=30。
+
+**输出侧 BLOCKED（候选限制）**：冻结候选无法通过 HTTP 返回可读文本答案——
+(1) 非流式 decode 响应无 text 字段；(2) SSE 流式 decode **崩溃服务器**（std::bad_alloc in httplib
+write_response_core，2/2 可复现，含纯文本问题）。T6 从未测 stream:true，缺陷未被回归覆盖。
+
+**Gate 判定**：`OFFICIAL_ACCURACY = BLOCKED_BY_CANDIDATE_LIMITATION`（Daily-Omni 需文本答案字母）；
+seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）；`COMPETITION_COMPLETE = NOT_CLAIMED`。
+新边界：F7-1 SSE 崩溃 / F7-2 非流式无文本 / F7-3 首次 prefill 吞内容（协议陷阱）。
+详见 [T7 评估](docs/f6-s13-closure/phase2/T7_QUALITY_GATES_ASSESSMENT.md)。
 
 ## R13 Gate 总结 (2026-08-03)
 
@@ -139,7 +161,7 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 | **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配；FULL PASS：20 对 / 19 active，10 gates 19/19，T2W-only delta 19/19 全负（p50 −4215.8ms，CI [−4395.6, −4085.4]），W0 E2E p50 −3946ms（CI [−4379, −3799]），0 fallback/0 error/0 timeout；wav_count 服务端 bug 已修 | **DONE** |
 | **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结；freeze 文档 `docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md`（二进制 e77b43c3 + libomni f1d2f86d，HEAD b043257）；INTERNAL_PASS | **DONE** |
 | **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | **DONE — ALL 11 GATES PASS** |
-| **P1** | **T7 质量/比赛 Gate** — 外部资产缺失项记为 PENDING_EXTERNAL_ASSETS（不伪造） | PENDING |
+| **P1** | **T7 质量/比赛 Gate** — 评估完成：输入 CONFIRMED（修正协议），输出 BLOCKED_BY_CANDIDATE_LIMITATION（SSE 崩溃）；seed-tts=PENDING_EXTERNAL_ASSETS | **DONE** |
 | **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | **P2** | M6 6h mixed-workload soak audit | DEFERRED |
 
@@ -155,8 +177,8 @@ BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参�
 T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
 T6_FINAL_INTEGRATED_REGRESSION    = PASS   (11/11 gates, ACCEPT=True; e77b43c3)
 FINAL_INTEGRATED_CANDIDATE        = FINAL   (T5 freeze + T6 回归全过 → 最终集成候选确认)
-OFFICIAL_ACCURACY                 = PENDING_EXTERNAL_ASSETS
-OFFICIAL_BENCHMARK                = PENDING_EXTERNAL_ASSETS
+OFFICIAL_ACCURACY                 = BLOCKED_BY_CANDIDATE_LIMITATION   (Daily-Omni 文本输出路径损坏, 见 T7)
+OFFICIAL_BENCHMARK                = BLOCKED_BY_CANDIDATE_LIMITATION   (SSE 崩溃 + 接口 provisional)
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
 
