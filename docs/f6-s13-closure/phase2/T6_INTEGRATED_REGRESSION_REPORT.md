@@ -1,10 +1,10 @@
 # T6 最终集成回归 — 完成报告
 
-**日期**: 2026-08-04（本文档为 P0a/P0b 重建后当前候选 re-run #2；首轮 run #1 @ e77b43c3 的 KV A/B 为 30/30，见 STATUS.md 历史）
-**候选**: 最终集成候选 — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder + T9 文本输出 + T10/T11 TTS KV 生命周期守卫
-**二进制**: `llama-omni-server` `db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21` + `libomni.so` `c075c535d18d1213b27f1c51b61662b11a18af47b5441f8ea26b78d81e3b84bb` @ HEAD `91797e6`（+ 未提交 T11 生产 diff；正式冻结前 revert test hook 后提交）
+**日期**: 2026-08-04（本文档 re-run #3 = 冻结源码 bdd4550 重建二进制上的 T6 完整重跑；re-run #2 @ 91797e6+未提交 diff 的 KV A/B 为 27 valid / 机制 30/30，见 STATUS.md 历史）
+**候选**: 最终集成候选 — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder + T9 文本输出 + T10/T11 TTS KV 生命周期守卫 + P0 媒体输入（bdd4550）
+**二进制**: `llama-omni-server` `db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21` + `libomni.so` `c4b169376bced6bc3107cfda2f77abf35a634c1e146eed313a193e99e3739ea1` @ HEAD `bdd4550`（冻结源码，无调试钩子；REPRODUCIBLE_BINARY=PASS：同目录两次干净重建 SHA 逐字节一致）
 **硬件**: 1× Ascend 910C (dual-die), CANN 9.1.0-beta.1, 单卡
-**结果**: **ACCEPT = True — ALL 11 GATES PASS**
+**结果**: **ACCEPT = True — ALL 11 GATES PASS**（meta.binary_sha=db258375 确认冻结二进制）
 
 ---
 

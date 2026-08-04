@@ -7,11 +7,16 @@ T13 TTS KV bounds guard 边界测试 **PASS**（guard 39 次 prefill_with_emb_tt
 T10 Daily-Omni pilot **DONE**（服务器链 6/6 门全 PASS，DAILY_OMNI_INTERNAL_PILOT=PASS；
 期间定位并修复 3 个 P0：user_text 丢弃 / media_type=2 prompt 缺身份句 / image+audio 格式混用 think-loop；
 模型能力边界：whisper 编码上限 ~24-26s，Daily-Omni 29.5s 音频 → 输出 "?"，属模型限制非服务器 bug）。
-现进入 **Step 5 源码冻结**：F6DIAG 调试打印已移除、EXPERIMENT 标记已清，待提交 → 干净重建 → SHA 比对。
+**Step 5 源码冻结完成**：F6DIAG 已移除、EXPERIMENT 标记已清 → 源码冻结提交 **bdd4550** →
+**两次独立干净重建 SHA 逐字节一致 → REPRODUCIBLE_BINARY=PASS**（libomni `c4b16937` / server `db258375`；
+跨目录 object 级确定性强验证：omni.cpp.o 在 build/ 与 build-test/ 逐字节一致，.so 仅 rpath 路径差异）→
+冻结候选 **T6 在冻结二进制上重跑 11/11 GATES PASS（ACCEPT=True）**（binary_sha=db258375，
+S13 120/120、Extended 30/30、Voice 5/5、Disconnect 5/5、KV A/B 30 对 valid 28、Smoke 5/5，
+integrity cpu_fallback=0 / cann_error=0；user_text 修复触及 media_type=1 音频路径已覆盖）。
 候选命名（修正口径）：PRE_T9_T11_CANDIDATE=HISTORICAL_FINAL，POST_T11_RUNTIME_VALIDATION=PASS，
-POST_T11_SOURCE_FREEZE=IN_PROGRESS（F6DIAG 已移除，待提交 + 干净重建 + SHA 比对），
-POST_T11_FINAL_CANDIDATE=PENDING_T13_T10_AND_CLEAN_COMMIT（T13+T10 已完成，源码提交 + 重建通过后才 = FINAL_INTERNAL），
-OFFICIAL_ACCURACY/官方 Gate 待 T9 后复核，COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
+POST_T11_SOURCE_FREEZE=PASS（源码已冻结 bdd4550 + REPRODUCIBLE_BINARY=PASS + T6 冻结二进制 11/11 PASS），
+POST_T11_FINAL_CANDIDATE=FINAL_INTERNAL（T13+T10 已完成，源码提交 + 重建 SHA 固化 + 冻结二进制 T6 全过），
+OFFICIAL_ACCURACY/官方 Gate 待官方 Harness 复核，COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
 
 （前序阶段）`S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
 CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS,
@@ -34,9 +39,10 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 - Baseline 设备口径审计：CPU T2W = 实测参考 baseline 且为代码默认，性质上是已知限制回退，
   候选 = `DEVICE_PLACEMENT_CORRECTION`（见 [Baseline Device Audit](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md)）
 
-**尚未完成（诚实口径）**：`POST_T11_SOURCE_FREEZE = IN_PROGRESS`（F6DIAG 调试打印已移除、EXPERIMENT 标记已清 → 提交 → 干净重建 → SHA 比对；
-正式冻结源码 = 无调试钩子；user_text/prompt/format 三 P0 修复纳入新候选，T6 需重跑）；
-`POST_T11_FINAL_CANDIDATE = PENDING_T13_T10_AND_CLEAN_COMMIT`；
+**源码冻结完成**：`POST_T11_SOURCE_FREEZE = PASS`（F6DIAG 调试打印已移除、EXPERIMENT 标记已清 → 提交 bdd4550 → 干净重建 → SHA 比对一致；
+正式冻结源码 = 无调试钩子；user_text/prompt/format 三 P0 修复已纳入新候选，T6 在冻结二进制上重跑 11/11 PASS）；
+`POST_T11_FINAL_CANDIDATE = FINAL_INTERNAL`（T13+T10+源码提交 bdd4550+重建 SHA 固化 c4b16937/db258375+冻结二进制 T6 全过）；
+**尚未完成（诚实口径）**：
 `OFFICIAL_ACCURACY = PENDING_REVERIFY_AFTER_T9`（T9 已修复非流式 text 字段 + SSE bad_alloc + text-only 重复生命周期，
 `BLOCKED_BY_CANDIDATE_LIMITATION` 已过时 → pilot 已验证服务器链，官方 Harness 通过前不宣称），
 `OFFICIAL_BENCHMARK = PENDING_REVERIFY_AFTER_T9`,
@@ -301,8 +307,9 @@ TTS_KV_GUARD_IMPLEMENTED          = YES    (omni.cpp eval_tokens_tts + prefill_w
 TTS_KV_GUARD_RUNTIME_COVERAGE     = PASS   (T13 边界测试: guard=39 prefill_with_emb_tts, 10/10 项 PASS; tts_boundary_20260804_170049.json)
 PRE_T9_T11_CANDIDATE              = HISTORICAL_FINAL   (旧 FINAL 称号作废, 仅历史参考)
 POST_T11_RUNTIME_VALIDATION       = PASS   (T6 重跑 11/11 + T13 边界 PASS)
-POST_T11_SOURCE_FREEZE            = IN_PROGRESS (F6DIAG 移除 + EXPERIMENT 标记清理完成；待提交 → 干净重建 → SHA 比对)
-POST_T11_FINAL_CANDIDATE          = PENDING_T13_T10_AND_CLEAN_COMMIT  (T13+T10 已完成；源码提交 + 重建通过 → FINAL_INTERNAL)
+T6_FROZEN_BINARY_RE_RUN           = PASS   (11/11 gates, ACCEPT=True; 冻结二进制 db258375/c4b16937; S13 120/120 + Ext 30 + Voice 5 + Disc 5 + KV A/B 28valid + Smoke 5; cpu_fallback=0/cann_error=0)
+POST_T11_SOURCE_FREEZE            = PASS   (F6DIAG 移除 + EXPERIMENT 清理 + 提交 bdd4550 + REPRODUCIBLE_BINARY=PASS + 冻结二进制 T6 11/11 PASS)
+POST_T11_FINAL_CANDIDATE          = FINAL_INTERNAL  (T13+T10+源码提交+重建 SHA 固化+冻结二进制 T6 全过 → 内部最终候选)
 DAILY_OMNI_INTERNAL_PILOT         = PASS   (服务器链 6/6 门; P0 修复 3 项; whisper 上限 29.5s→"?" 为模型限制; PILOT_REPORT.md)
 OFFICIAL_DAILY_OMNI               = NOT_RUN
 OFFICIAL_ACCURACY                 = PENDING_REVERIFY_AFTER_T9  (T9 已修非流式 text + SSE bad_alloc + text-only 生命周期, 旧 BLOCKED 过时)

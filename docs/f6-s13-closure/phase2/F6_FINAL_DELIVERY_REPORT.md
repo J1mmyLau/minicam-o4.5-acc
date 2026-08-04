@@ -1,9 +1,9 @@
 # F6 Phase 3 — 最终交付报告（问题→Profiling→定位→优化→收益→验证）
 
-**日期**: 2026-08-04（更新：T6 重跑 11/11 PASS、Daily-Omni pilot 服务器链 PASS、P0 修复完成；源码冻结进行中）
+**日期**: 2026-08-04（更新：源码冻结完成 — bdd4550 + REPRODUCIBLE_BINARY=PASS + T6 冻结二进制重跑 11/11 PASS）
 **项目**: llama.cpp-omni-f6 — MiniCPM-o-4_5 全模态（视觉+音频+文本+TTS）omni server，1× Ascend 910C (dual-die)
-**候选源码**: 冻结 commit `bdd4550`（P0 text/media + T9/T11 server 修复，F6DIAG 已移除）；正式候选二进制 SHA 待干净重建后固化
-**链路状态**: 官方输入→模型→文本答案 = **PILOT_PASS（服务器链）**；判分受模型 whisper 编码上限限制（见 §6/§7）
+**候选源码**: 冻结 commit `bdd4550`（P0 text/media + T9/T11 server 修复，F6DIAG 已移除）；候选二进制 SHA 已固化：libomni `c4b16937` / server `db258375`（两次干净重建逐字节一致）
+**链路状态**: 官方输入→模型→文本答案 = **PILOT_PASS（服务器链）**；判分受模型 whisper 编码上限限制（见 §6/§7）；**POST_T11_SOURCE_FREEZE=PASS，POST_T11_FINAL_CANDIDATE=FINAL_INTERNAL**
 
 ---
 
@@ -108,6 +108,7 @@ Cache 让 prefill 提速 2.4×；接口层面修复了"非流式 decode 无文�
 | CANN_T2W_CANDIDATE | STRONG_INTERNAL_PASS | W0 −81.4% |
 | T4_STRICT_CANN_T2W_REVERIFY | PASS（19/19） | T2W-only delta 全负 |
 | T6_FINAL_INTEGRATED_REGRESSION | **11/11 PASS**（re-run #2，binary db258375/c075c535） | S13 120 + Extended 30 + Voice 5 + Disconnect 5 + KV A/B 30（27 valid，3 对按预声明 A_ERR/B_ERR 排除，机制 30/30）+ 3 重启；0 CPU fallback / 0 CANN error |
+| T6 冻结二进制重跑 | **11/11 PASS**（re-run #3，冻结 binary db258375/c4b16937） | S13 120/120 + Extended 30/30 + Voice 5/5 + Disconnect 5/5 + KV A/B 30（valid 28）+ Smoke 5/5 + 3 重启；cpu_fallback=0 / cann_error=0；POST_T11_SOURCE_FREEZE=PASS, FINAL_CANDIDATE=FINAL_INTERNAL |
 | T9 媒体协议 | PASS | text=748/1088 两轮常驻复用；SSE 干净 [DONE] |
 | T13 TTS KV guard 边界 | **PASS** | guard=39 prefill_with_emb_tts，10/10 项，memslot=0/http500=0/崩溃=0 |
 | Daily-Omni pilot（服务器链） | **PASS（6/6）** | 非流式 text ✅ · SSE+[DONE] ✅ · 常驻上下文第2次 ✅（text_len=853）· 0 HTTP500 · 0 crash · 0 stale-cross · F6_REQSTATE 11 周期无错 · server healthy；证据 `daily_omni_pilot/PILOT_REPORT.md` |
@@ -122,8 +123,8 @@ Cache 让 prefill 提速 2.4×；接口层面修复了"非流式 decode 无文�
 - [x] T6 重跑 11/11 结果 — PASS（server db258375 / libomni c075c535）
 - [x] Daily-Omni pilot — 服务器链 6/6 PASS；模型输出受 whisper 上限限制（29.5s→"?"，文档化）
 - [x] P0 三修复（user_text / 身份句 / image+audio 格式）+ F6DIAG 移除 — 源码冻结 commit bdd4550
-- [ ] 干净重建 → 新候选 SHA 固化 → REPRODUCIBLE_BINARY（构建两次比对）
-- [ ] T6 在冻结源码重建二进制上重跑（user_text 修复触及 media_type=1 音频路径）
+- [x] 干净重建 → 新候选 SHA 固化 → REPRODUCIBLE_BINARY（构建两次比对）— PASS：libomni `c4b16937` / server `db258375`（同目录两次干净重建逐字节一致）
+- [x] T6 在冻结源码重建二进制上重跑（user_text 修复触及 media_type=1 音频路径）— PASS：11/11 GATES, ACCEPT=True, binary_sha=db258375
 - [ ] 最终口径更新 — 接口/文本路径解阻塞（READY）；官方 Harness 到达前不宣称 OFFICIAL_BENCHMARK_PASS / COMPETITION_COMPLETE
 
 ---
