@@ -1,0 +1,91 @@
+0.00.685.095 I Omni HTTP server starting...
+F6_EVENT|13678365040933150|OMNI_INIT_HANDLER_ENTER|req=-1|ctx=0x0|tid=0x4acb72fb4e15b84f
+F6_EVENT|13678365041025780|OMNI_INIT_BEGIN|req=-1|ctx=0x0|tid=0x4acb72fb4e15b84f
+0.22.187.971 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.25.456.320 W llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+vision_model_loader: model name:   
+vision_model_loader: description:  image encoder for MiniCPM-V
+vision_model_loader: GGUF version: 3
+vision_model_loader: alignment:    32
+vision_model_loader: n_tensors:    455
+vision_model_loader: n_kv:         20
+
+vision_ctx: vision using CANN0 backend
+load_hparams: model_type:         0
+load_hparams: n_embd:             1152
+load_hparams: n_head:             16
+load_hparams: n_ff:               4304
+load_hparams: n_layer:            27
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- vision hparams ---
+load_hparams: image_size:         448
+load_hparams: patch_size:         14
+load_hparams: minicpmv_version:   100045
+load_hparams: proj_scale_factor:  0
+load_hparams: n_wa_pattern:       0
+load_hparams: insert_layer_id:     0
+
+load_hparams: model size:         1044.36 MiB
+load_hparams: metadata size:      0.16 MiB
+load_tensors: ffn up/down are swapped
+alloc_compute_meta:      CANN0 compute buffer size =   100.30 MiB
+alloc_compute_meta:        CPU compute buffer size =    18.30 MiB
+vision_set_batch_encode: vision batch encode disabled
+F6_EVENT|13678369662988410|OMNI_INIT_END|req=-1|ctx=0xfffe20003a30|tid=0x4acb72fb4e15b84f
+audition_audio_preprocess: Decoded audio - sample_rate=16000, n_samples=96256
+audition_audio_preprocess: Audio not aligned to 100ms (96256 samples = 6016.0ms), padded with silence to 97600 samples (6100ms)
+audition_get_mel_filters: Retrieved mel filters from model: 80 mel bins x 201 fft bins
+audition_audio_preprocess: Using mel filters - n_mel=80, n_fft=201
+audition_audio_preprocess: Generated 1 mel spectrogram chunk(s)
+audition_audio_preprocess: Mel spectrogram ready - n_len=610, n_mel=80, total_size=48800
+build_whisper: Whisper encoder graph built (projector output, pre-pooling)
+audition_audio_batch_encode: Audio input data - n_step=610, n_mel=80, total_elements=48800
+audition_audio_batch_encode: Before incrementing iter: input_frames=610, n_tokens=305, current_iter=0, current_total=0, new_total=305, max_tokens=1500
+audition_audio_batch_encode: KV cache iter incremented to 1 (total_tokens=305, max_tokens=1500)
+audition_audio_batch_encode: Final output shape: [4096, 61]
+audition_audio_batch_encode: Final output: 61 tokens x 4096 dims
+stream_prefill: img_fname:/tmp/f6_t7/prep/frame_0000.jpg
+vision_set_max_slice_nums: max_slice_nums_override set to 1
+stream_prefill: [临时] max_slice_nums=1 for this prefill
+encode_image_with_vision_chunks: overview encoded in    86.13 ms
+encode_image_with_vision_chunks: 1 slice(s) encoded serially in    80.78 ms
+
+encode_image_with_vision_chunks: image encoded in   202.05 ms by vision (2 chunks, 128 total tokens, grid: 1x1)
+omni_image_embed_make_chunks_with_filename: created 2 vision chunks from /tmp/f6_t7/prep/frame_0000.jpg
+stream_prefill: vision_embed has 2 chunks
+stream_prefill: aud_fname:/tmp/f6_t7/prep/short_3s.wav
+audition_audio_preprocess: Decoded audio - sample_rate=16000, n_samples=48000
+audition_get_mel_filters: Retrieved mel filters from model: 80 mel bins x 201 fft bins
+audition_audio_preprocess: Using mel filters - n_mel=80, n_fft=201
+audition_audio_preprocess: Generated 1 mel spectrogram chunk(s)
+audition_audio_preprocess: Mel spectrogram ready - n_len=300, n_mel=80, total_size=24000
+build_whisper: Whisper encoder graph built (projector output, pre-pooling)
+audition_audio_batch_encode: Audio input data - n_step=300, n_mel=80, total_elements=24000
+audition_audio_batch_encode: Before incrementing iter: input_frames=300, n_tokens=150, current_iter=1, current_total=150, new_total=300, max_tokens=1500
+audition_audio_batch_encode: KV cache iter incremented to 2 (total_tokens=300, max_tokens=1500)
+audition_audio_batch_encode: Final output shape: [4096, 30]
+audition_audio_batch_encode: Final output: 30 tokens x 4096 dims
+stream_prefill: audio_embeds->n_pos: 30 ,hidden_size: 4096
+F6_EVENT|13678370362841240|HANDLER_ENTER|req=-1|ctx=0xfffe20003a30|tid=0x5530cc2d24ec6dfe
+F6_REQSTATE|13678370362852910|req=-1|IDLE→VALIDATING|label=handler_enter|OK
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(+0x180a4)[0xffffa6b780a4]
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(ggml_print_backtrace+0x21c)[0xffffa6b7857c]
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(+0x2ae5c)[0xffffa6b8ae5c]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2b4c)[0xffffa7082b4c]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2bb0)[0xffffa7082bb0]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2e94)[0xffffa7082e94]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa3488)[0xffffa7083488]
+build/bin/llama-omni-server(+0x347e4)[0xaaaaac6347e4]
+build/bin/llama-omni-server(+0x3a044)[0xaaaaac63a044]
+build/bin/llama-omni-server(+0x44454)[0xaaaaac644454]
+build/bin/llama-omni-server(_ZN7httplib6Server19write_response_coreERNS_6StreamEbRKNS_7RequestERNS_8ResponseEb+0x11fc)[0xaaaaac66ea4c]
+build/bin/llama-omni-server(_ZN7httplib6Server15process_requestERNS_6StreamERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiSA_ibRbRKSt8functionIFvRNS_7RequestEEEPb+0x12e0)[0xaaaaac690c30]
+build/bin/llama-omni-server(_ZN7httplib6Server24process_and_close_socketEi+0x37c)[0xaaaaac69222c]
+build/bin/llama-omni-server(+0x47d64)[0xaaaaac647d64]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xd29cc)[0xffffa70b29cc]
+/lib/aarch64-linux-gnu/libc.so.6(+0x80398)[0xffffa6e80398]
+/lib/aarch64-linux-gnu/libc.so.6(+0xe9e9c)[0xffffa6ee9e9c]
+terminate called after throwing an instance of 'std::bad_alloc'
+  what():  std::bad_alloc
