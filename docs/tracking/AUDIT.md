@@ -22,7 +22,9 @@ Not two physical cards. Compliant with single-card competition rules.
 
 ---
 
-## 2026-08-03 17:20 | S13_120_BASELINE | PASS — 120/120 valid, 0 fail, 0 timeout, 0 crash, 0 CANN error. p50=17.0s p95=121.6s. 94.2% clean lifecycle. TTS WAV output confirmed (CANN Flow/Vocoder). KV sliding window loop edge case identified with complex mixed-language prompts (3 transient, all resolved).
+## 2026-08-04 01:00 | S13_STRICT_AUDIT | CORRECTION — previous "S13 120/120 PASS" and "ALL GATES CLOSED" retracted. S13=PROVISIONAL. First-attempt 112/120 (93.3%). Lifecycle clean 93.8% (server evidence lost). 8/30 prompts simplified. Runaway generation unresolved (n_predict overwrite + sliding window + no HTTP token cap). Gate closure conditions defined in S13_STRICT_AUDIT_AND_GATE_CORRECTION.md.
+
+## 2026-08-03 17:20 | S13_120_BASELINE | PROVISIONAL — 120 final successful HTTP responses after prompt modification + retries. NOT strict 120/120. See S13_STRICT_AUDIT for correction.
 
 ## 2026-08-03 13:50 | R13_CANONICAL_KV_CACHE_AB | PASS
 

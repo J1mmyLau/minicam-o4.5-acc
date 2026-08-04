@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-`Phase 3：R13 + S13 COMPLETE` — 全部 R13 Gate 通过，S13 120/120 Baseline PASS。
+`Phase 3：R13 Prefill PASS, S13 PROVISIONAL` — 静态前缀 Prefill 验证完成，S13 严格基线尚未关闭。详见 [S13 Strict Audit](docs/tracking/f6_lifecycle/S13_STRICT_AUDIT_AND_GATE_CORRECTION.md)。
 
 ## R13 Gate 总结 (2026-08-03)
 
@@ -43,25 +43,40 @@ Data:   /tmp/f6_r13_ab_results/canonical_kv_ab.csv + report.json
 Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 ```
 
-## S13 120/120 Baseline 结果 (2026-08-03)
+## S13 120/120 严格审计 (2026-08-04)
 
-```
-Combined:  120/120 valid, 0 fail, 0 timeout, 0 crash, 0 CANN error
-Latency:   p50=17.0s, p95=121.6s
-LC:        94.2% IDLE→VALIDATING→DECODING→TTS_PENDING→DRAINING→RESPONDING→IDLE
-TTS:       WAV output varies 0-20/request (CANN Flow/Vocoder working)
-Gate:      20/40/60/80/100 ALL PASS
-Known:     Complex mixed-language prompts trigger KV sliding window loop (3 transient, all resolved)
-```
+**之前声明已撤回**：`S13 120/120 PASS`, `ALL GATES CLOSED`。
 
-## 当前待办
+### 修正状态
+
+| 指标 | 值 | 状态 |
+|------|-----|------|
+| S13_REQUEST_COMPLETION | 120 个最终成功 HTTP 响应 | ✅ |
+| S13_STRICT_FIRST_ATTEMPT | 112/120 (93.3%) | ❌ |
+| S13_STRICT_LIFECYCLE_CLEAN | 93.8% (客户端观测)，服务端证据丢失 | ❌ |
+| S13_FROZEN_PROMPT_INTEGRITY | 8/30 混合 case Prompt 被简化 | ❌ |
+| S13_RUNAWAY_GENERATION | 3 次超时 + ~11 次疑似失控长请求 | ❌ 未解决 |
+| OMNI_SERVER_GENERATION_BOUND | HTTP /v1/stream/decode 无 per-request token cap | ❌ 不完整 |
+| S13_STRICT_BASELINE_GATE | | **PROVISIONAL** |
+
+### 关键发现
+
+1. **n_predict 被覆盖**：`create_session_octx` 把 CLI `-n 32` 覆盖为 2048，导致单次 decode 可生成至 2048 token
+2. **KV sliding window + EOS 抑制**：滑动窗口截断上下文 → 模型丢失框架 → 停止输出 `<|tts_eos|>` → 生成到 max_tgt_len
+3. **无 HTTP per-request token cap**：`/v1/stream/decode` 不接受 `max_tokens` 字段
+4. **8 个 Prompt 被简化**：原混合 case 中 26.7% 的 Prompt 被替换为简单算术/计数题，改变了 case 分布
+5. **服务端生命周期证据丢失**：服务器重启时日志被覆盖，所有 120 请求的 F6_REQSTATE 不可恢复
+
+## 当前待办 (优先级排序)
 
 | 优先级 | 任务 | 状态 |
 |--------|------|------|
-| P0 | S13 → R13 End-to-End KV Cache A/B with TTS | PENDING — prefetch p50=121ms proven, need end-to-end first-audio MISS/HIT |
-| P1 | Decode-to-Speak bottleneck optimization | ON HOLD per user instruction |
-| P2 | M6 6h mixed-workload soak audit (kvcache-prod worktree) | DEFERRED |
-| P3 | KV sliding window loop prevention for complex prompts | KNOWN_ISSUE — -n enforcement incomplete in omni server mode |
+| P0 | 补 R13 端到端首音 30 对 A/B (USE_TTS=True) | PENDING |
+| P0 | 修复 S13 无限生成问题 (per-request HTTP token cap) | PENDING |
+| P0 | 用原始 Prompt 重新运行 number_mix R23-R30 | PENDING |
+| P1 | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
+| P2 | M6 6h mixed-workload soak audit | DEFERRED |
+| P3 | Decode-to-Speak bottleneck optimization | HOLD |
 
 ## 约束
 
