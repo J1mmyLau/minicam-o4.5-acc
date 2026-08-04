@@ -10,9 +10,9 @@ COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
 CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS,
 T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 瓶颈已定位（T2W CPU 设备放置 = 93%），非 LLM Decode→Speak（2.9%）。
-**最终集成候选已冻结 = INTERNAL_PASS**（"KV Cache + HTTP token cap + 生命周期
-+ CANN Flow/Vocoder" 组合，见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)），
-**T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**。
+**最终集成候选已冻结 = FINAL**（"KV Cache + HTTP token cap + 生命周期
++ CANN Flow/Vocoder" 组合，T5 冻结见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)，
+**T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**）。
 下一阶段：**T7 质量/比赛 Gate 已评估** — 官方资产部分到达；Daily-Omni 输入路径经修正协议确认可用，
 但**文本输出路径损坏（SSE 崩溃 + 非流式无文本）→ BLOCKED_BY_CANDIDATE_LIMITATION**；
 seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方结果。
