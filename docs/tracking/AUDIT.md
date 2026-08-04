@@ -391,3 +391,4 @@ Not two physical cards. Compliant with single-card competition rules.
 ## 2026-08-04 | T7 | SSE_CRASH_CONFIRMED — stream:true decode 崩溃服务器 std::bad_alloc in httplib write_response_core，2/2 可复现（媒体+纯文本）；T6 从未测 stream:true
 ## 2026-08-04 | T7 | DECISION — OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION（Daily-Omni 文本输出路径损坏）；seed-tts=PENDING_EXTERNAL_ASSETS（Drive 不可达）；COMPETITION_COMPLETE=NOT_CLAIMED；不伪造
 ## 2026-08-04 | T8 | FINAL_FRAMING — FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环）；OFFICIAL_ACCURACY/BENCHMARK=BLOCKED_BY_CANDIDATE_LIMITATION、COMPETITION_COMPLETE=NOT_CLAIMED；最终口径文档 F6_PHASE3_FINAL_FRAMING.md；不宣称官方 PASS
+## 2026-08-04 | T7 | EVIDENCE_ARCHIVED — t7_evidence/ 归档 srv2(媒体崩溃+输入证明)+srv3(纯文本崩溃) 日志（force-add 越过 *.log ignore）
