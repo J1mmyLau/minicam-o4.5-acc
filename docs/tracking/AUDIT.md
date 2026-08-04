@@ -390,3 +390,4 @@ Not two physical cards. Compliant with single-card competition rules.
 ## 2026-08-04 | T7 | INPUT_PROTOCOL_CORRECTED — 首次 prefill 被 system-prompt init 吞内容（omni.cpp:12906），修正协议=两次 prefill；图像 202ms/128tok/2chunks + 音频 n_pos=30 确认处理
 ## 2026-08-04 | T7 | SSE_CRASH_CONFIRMED — stream:true decode 崩溃服务器 std::bad_alloc in httplib write_response_core，2/2 可复现（媒体+纯文本）；T6 从未测 stream:true
 ## 2026-08-04 | T7 | DECISION — OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION（Daily-Omni 文本输出路径损坏）；seed-tts=PENDING_EXTERNAL_ASSETS（Drive 不可达）；COMPETITION_COMPLETE=NOT_CLAIMED；不伪造
+## 2026-08-04 | T8 | FINAL_FRAMING — FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环）；OFFICIAL_ACCURACY/BENCHMARK=BLOCKED_BY_CANDIDATE_LIMITATION、COMPETITION_COMPLETE=NOT_CLAIMED；最终口径文档 F6_PHASE3_FINAL_FRAMING.md；不宣称官方 PASS
