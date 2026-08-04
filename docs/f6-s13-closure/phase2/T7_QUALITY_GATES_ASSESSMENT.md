@@ -136,5 +136,5 @@ F7-1/F7-2 组合 = 冻结候选无法通过 HTTP 返回可读文本答案，直�
   `COMPETITION_COMPLETE = NOT_CLAIMED`。
 - **不伪造**：任何官方 Gate 未宣称 PASS。
 
-证据：`/tmp/f6_t7/srv2.log`（媒体输入，崩溃 + 输入处理证据）、
-`/tmp/f6_t7/srv3.log`（纯文本输入，崩溃）、`/tmp/f6_t7/test_corrected_protocol.py`。
+证据（已归档）：`t7_evidence/srv2_media_crash.log`（媒体输入，崩溃 + 输入处理证据）、
+`t7_evidence/srv3_text_crash.log`（纯文本输入，崩溃）。
