@@ -11,6 +11,7 @@
 #include "ws_handler.h"
 
 #include <mutex>
+#include <memory>
 #include <thread>
 #include <queue>
 #include <condition_variable>
@@ -544,6 +545,19 @@ int main(int argc, char ** argv) {
                     }
                     _f6_transition_req_state(state.octx, REQ_RESPONDING, round_idx, "drain_complete");
                 }
+
+                // F6 T9: non-TTS decode leaves context_state=ACTIVE and never advances
+                // drain_complete_generation — stream_decode's REUSABLE reset /
+                // drain-complete tracking only happen inside omni_duplex_drain_tts_audio
+                // (use_tts only).  Without this, a persistent use_tts=False session
+                // (e.g. text-only Daily-Omni evaluation) is rejected on the next decode
+                // by the generation-scoped guard (drain_gen < request_gen).  Advance
+                // both here, equivalent to a successful drain of this generation.
+                if (ok && !state.octx->use_tts) {
+                    state.octx->drain_complete_generation.store(
+                        state.octx->request_generation.load(std::memory_order_relaxed));
+                    state.octx->context_state.store(CTX_STATE_REUSABLE);
+                }
             }
             _f6_event("OCTX_UNLOCKED", round_idx, state.octx);
 
@@ -555,9 +569,43 @@ int main(int argc, char ** argv) {
             }
 
             _f6_event("HANDLER_RETURN", round_idx, state.octx);
+
+            // F6 T9: Expose the decoded text transcript in the non-streaming
+            // response (was F7-2: no text field).  stream_decode pushes the
+            // generated text to text_queue under text_mtx unconditionally,
+            // regardless of stream mode (omni.cpp stream_decode duplex loop).
+            // Drain it here and strip the duplex control markers so text-based
+            // quality evaluation (e.g. Daily-Omni answer letters) can consume it.
+            //
+            // F6 T10: gate this drain to use_tts==false only.  The use_tts=true
+            // simplex path (T6 regression) never read text_queue post-decode in the
+            // validated binary; the unconditional drain exposed an unrelated TTS
+            // KV-overflow heap corruption (n_past_tts=4096) as an uncaught exception
+            // → silent HTTP 500 (httplib has no exception_handler).  Gating restores
+            // byte-identical behavior for the TTS path; try/catch keeps the text path
+            // exception-safe (returns empty text instead of failing the request).
+            std::string response_text;
+            if (!state.octx->use_tts) {
+                try {
+                    std::lock_guard<std::mutex> lock(state.octx->text_mtx);
+                    for (const auto & frag : state.octx->text_queue) {
+                        if (frag == "__IS_LISTEN__" || frag == "__END_OF_TURN__") continue;
+                        response_text += frag;
+                    }
+                    state.octx->text_queue.clear();
+                } catch (const std::exception & e) {
+                    LOG_ERR("F6 T10: text_queue drain failed (%s) — returning empty text\n", e.what());
+                    response_text.clear();
+                } catch (...) {
+                    LOG_ERR("F6 T10: text_queue drain failed (unknown exception) — returning empty text\n");
+                    response_text.clear();
+                }
+            }
+
             // F6 S13: Include runtime evidence in response for runaway generation diagnosis
             json resp = {
                 {"success", true},
+                {"text", response_text},
                 {"stop_reason", omni_stop_reason_name(state.octx->stop_reason)},
                 {"stop_reason_code", state.octx->stop_reason},
                 {"generated_token_count", state.octx->generated_token_count},
@@ -582,23 +630,70 @@ int main(int argc, char ** argv) {
         }
 
         // SSE streaming
+        // F6 T9: Fix SSE text streaming (F7-1 crash, std::bad_alloc in the
+        // content-provider callback).
+        // Root cause: the old code created the decode worker thread INSIDE the
+        // provider callback and returned `true` after writing [DONE] WITHOUT
+        // sink.done().  httplib's write_content_chunked keeps re-invoking the
+        // provider while data_available stays true, so a SECOND stream_decode
+        // started on the same omni context → concurrent generation → corrupted
+        // text_queue string → bad_alloc in the callback lambda.
+        // Fix: (a) create the decode worker exactly ONCE per request; (b)
+        // terminate the chunked loop with sink.done(); (c) hold the worker and
+        // per-request args (debug_dir/round_idx are handler locals, and the
+        // provider runs AFTER the handler returns) in a shared_ptr captured by
+        // value so their lifetime outlives the handler frame.
+        struct sse_decode_state {
+            std::thread worker;
+            bool started = false;
+            std::string debug_dir;
+            int round_idx = -1;
+        };
+        auto sse = std::make_shared<sse_decode_state>();
+        sse->debug_dir = debug_dir;
+        sse->round_idx = round_idx;
+
         res.set_chunked_content_provider("text/event-stream",
-            [&](size_t, httplib::DataSink & sink) -> bool {
-                // reset state
-                {
-                    std::lock_guard<std::mutex> lock(state.octx->text_mtx);
-                    state.octx->text_queue.clear();
-                    state.octx->text_done_flag = false;
-                    state.octx->text_streaming = true;
+            [&, sse](size_t, httplib::DataSink & sink) -> bool {
+                if (!sse->started) {
+                    sse->started = true;
+                    // reset per-request text state
+                    {
+                        std::lock_guard<std::mutex> lock(state.octx->text_mtx);
+                        state.octx->text_queue.clear();
+                        state.octx->text_done_flag = false;
+                        state.octx->text_streaming = true;
+                    }
+                    // run decode once, on a dedicated thread (octx_mutex serializes
+                    // against other requests; the provider only reads text_queue
+                    // under text_mtx, so no deadlock)
+                    sse->worker = std::thread([&, sse]() {
+                        std::lock_guard<std::mutex> lock(state.octx_mutex);
+                        bool dec_ok = stream_decode(state.octx, sse->debug_dir, sse->round_idx);
+                        // F6 T9: ensure the polling callback terminates even if
+                        // stream_decode was rejected (an early-return false leaves
+                        // text_done_flag false → the callback would poll forever).
+                        {
+                            std::lock_guard<std::mutex> tl(state.octx->text_mtx);
+                            state.octx->text_done_flag = true;
+                            state.octx->text_streaming = false;
+                            state.octx->text_cv.notify_all();
+                        }
+                        // F6 T9: non-TTS decode leaves context_state=ACTIVE and never
+                        // advances drain_complete_generation (both only happen in
+                        // omni_duplex_drain_tts_audio, which is use_tts only).  Advance
+                        // both so a persistent text-only session can issue repeated SSE
+                        // decodes; holding octx_mutex means the next request observes
+                        // the updated state before we release the lock.
+                        if (dec_ok && !state.octx->use_tts) {
+                            state.octx->drain_complete_generation.store(
+                                state.octx->request_generation.load(std::memory_order_relaxed));
+                            state.octx->context_state.store(CTX_STATE_REUSABLE);
+                        }
+                    });
                 }
 
-                // start decode in background thread
-                std::thread worker([&](std::string dd, int ri) {
-                    std::lock_guard<std::mutex> lock(state.octx_mutex);
-                    (void) stream_decode(state.octx, dd, ri);
-                }, debug_dir, round_idx);
-
-                // poll text queue
+                // poll text queue until generation finishes
                 while (true) {
                     std::unique_lock<std::mutex> lk(state.octx->text_mtx);
                     state.octx->text_cv.wait_for(lk, std::chrono::milliseconds(200), [&]{
@@ -620,7 +715,7 @@ int main(int argc, char ** argv) {
                         }
 
                         if (!server_sent_event(sink, ev)) {
-                            if (worker.joinable()) worker.join();
+                            // client disconnected → cancel decode; the releaser joins
                             return false;
                         }
                         lk.lock();
@@ -629,12 +724,19 @@ int main(int argc, char ** argv) {
                     if (state.octx->text_done_flag) break;
                 }
 
-                if (worker.joinable()) worker.join();
-
                 // send done
                 static const std::string ev_done = "data: [DONE]\n\n";
                 sink.write(ev_done.data(), ev_done.size());
+                sink.done();  // F6 T9: terminate the chunked loop (prevents re-invocation)
                 return true;
+            },
+            [&, sse](bool) {
+                // F6 T9: join the decode worker on success AND on client disconnect.
+                // stream_decode is bounded by request_wall_timeout_ms, so join() won't
+                // hang indefinitely.
+                if (sse->worker.joinable()) {
+                    sse->worker.join();
+                }
             });
     });
 
