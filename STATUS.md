@@ -2,7 +2,11 @@
 
 ## 当前阶段
 
-`Phase 3：S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
+`Phase 3：T1–T8 全部完成。FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环），
+OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION, OFFICIAL_BENCHMARK=BLOCKED,
+COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
+
+（前序阶段）`S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
 CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS,
 T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 瓶颈已定位（T2W CPU 设备放置 = 93%），非 LLM Decode→Speak（2.9%）。
@@ -162,6 +166,7 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 | **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结；freeze 文档 `docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md`（二进制 e77b43c3 + libomni f1d2f86d，HEAD b043257）；INTERNAL_PASS | **DONE** |
 | **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | **DONE — ALL 11 GATES PASS** |
 | **P1** | **T7 质量/比赛 Gate** — 评估完成：输入 CONFIRMED（修正协议），输出 BLOCKED_BY_CANDIDATE_LIMITATION（SSE 崩溃）；seed-tts=PENDING_EXTERNAL_ASSETS | **DONE** |
+| **P1** | **T8 最终口径** — 内部闭环 FINAL，官方 Gate 不宣称（BLOCKED_BY_CANDIDATE_LIMITATION / NOT_CLAIMED）；最终口径文档 F6_PHASE3_FINAL_FRAMING.md | **DONE** |
 | **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | **P2** | M6 6h mixed-workload soak audit | DEFERRED |
 
