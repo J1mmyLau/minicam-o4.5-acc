@@ -1,8 +1,8 @@
 # T6 最终集成回归 — 完成报告
 
-**日期**: 2026-08-04
-**候选**: 最终集成候选（T5 freeze）— KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder
-**二进制**: `llama-omni-server` `e77b43c31d3c575da63a519e956810081f2a5c76bbf9157e01a196f0faab0dd8` + `libomni.so` `f1d2f86dafcf2edaff4ab65cba503e5c58fca42ffd397cabe379f9efb3cf252f` @ HEAD `1f435e6`
+**日期**: 2026-08-04（本文档为 P0a/P0b 重建后当前候选 re-run #2；首轮 run #1 @ e77b43c3 的 KV A/B 为 30/30，见 STATUS.md 历史）
+**候选**: 最终集成候选 — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder + T9 文本输出 + T10/T11 TTS KV 生命周期守卫
+**二进制**: `llama-omni-server` `db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21` + `libomni.so` `c075c535d18d1213b27f1c51b61662b11a18af47b5441f8ea26b78d81e3b84bb` @ HEAD `91797e6`（+ 未提交 T11 生产 diff；正式冻结前 revert test hook 后提交）
 **硬件**: 1× Ascend 910C (dual-die), CANN 9.1.0-beta.1, 单卡
 **结果**: **ACCEPT = True — ALL 11 GATES PASS**
 
@@ -34,7 +34,7 @@
 | **VOICE_SWITCH_ISOLATION** | ✅ | 每请求独立 round 目录 |
 | **DISCONNECT_SURVIVAL** | ✅ | 5/5 断连后服务器存活 |
 | **DISCONNECT_FOLLOWUP** | ✅ | followup req=3500 成功（drain_complete→RESPONDING→IDLE） |
-| **KV_CACHE_AB** | ✅ | 30/30 pairs；MISS 201.7ms → HIT 83.1ms；Δ_p50=119ms；2.43×；loaded=130 |
+| **KV_CACHE_AB** | ✅ | 30 pairs / 27 valid（3 对按预声明 A_ERR/B_ERR 规则排除，机制 30/30）；MISS 203.6ms → HIT 83.6ms；Δ_p50=119.7ms；2.44×；loaded=130 |
 | **RESTART_3_SESSIONS** | ✅ | 3 会话均正常起停 |
 | **CPU_FALLBACK_ZERO** | ✅ | 0 |
 | **CANN_ERROR_ZERO** | ✅ | 0（cann_ok=4） |
@@ -47,30 +47,36 @@
 
 ```
 ok=120  err=0  prompt_modified=0  first_attempt_ok=120
-stop_reason: eos=86  max_tokens=34  wall_timeout=0
-decode_wall p50=5463ms  generated_tokens p50=34
+stop_reason: eos=83  max_tokens=37  wall_timeout=0
+decode_wall p50=5475ms  generated_tokens p50=42
 sliding_window=0  runaway=0
 ```
 
-> **口径说明**：stop_reason 分布（eos=86/max_tokens=34）与 S13 原始基线
+> **口径说明**：stop_reason 分布（eos=83/max_tokens=37）与 S13 原始基线
 > （eos=111/max_tokens=9）不同。两轮均满足 strict_pass（err=0 且 ok=120 且
 > prompt_modified=0）与 runaway_free。差异归因于 LLM 采样随机性 + KV cache
 > 启用后的上下文状态；无失控、无滑动窗口、无 prompt 篡改。此分布差异不影响任何 Gate。
 
 ---
 
-## 4. KV Cache 30 MISS→HIT（Session 2）
+## 4. KV Cache MISS→HIT（Session 2）
 
 ```
-30/30 valid  gate_pass=True
-MISS prefill p50=201.7ms
-HIT  prefill p50=83.1ms
-Δ    p50=119.0ms  speedup=2.43×
+30 pairs / 27 valid  gate_pass=True（脚本阈值 n_valid ≥ 25）
+MISS prefill p50=203.6ms
+HIT  prefill p50=83.6ms
+Δ    p50=119.7ms  speedup=2.44×
 loaded_positions: [130, 130]（与 R13 canonical n_past=130 一致）
 ```
 
 方法：每对 A=清缓存+新上下文（MISS→SAVED）、B=新上下文（HIT），`use_tts=False`
 隔离 LLM prefill delta，与 R13 canonical 口径一致。5 cases × 6 pairs。
+
+**30/27 的 3 对无效配对**（pair 4 C1-R4 / pair 17 C3-R5 / pair 20 C4-R2）均因
+decode POST 客户端 HTTP 异常（`A_ERR`/`B_ERR`，脚本预声明排除规则）判无效；机制层
+（SAVED/HIT/loaded=130）30/30 全部正常，Δ 全为正，**不是缓存污染，不影响 Gate 结论**。
+详细判定链（含 server F6_REQSTATE 逐腿证据）见 `t6_kv_ab_27of30.md`。
+R13 canonical 30/30 严格有效速度结论不受影响。
 
 ---
 
@@ -122,14 +128,14 @@ cpu_fallback=0  cann_error=0  cann_ok=4
 
 ## 8. 结论与状态
 
-- **T6 最终集成回归 = PASS（11/11 Gates，ACCEPT=True）**
+- **T6 最终集成回归 = PASS（11/11 Gates，ACCEPT=True）**（KV A/B 30 对/27 有效、gate_pass；3 对无效原因见 `t6_kv_ab_27of30.md`）
 - `FINAL_INTEGRATED_CANDIDATE = FINAL`（T5 INTERNAL_PASS + T6 回归全过）
 - **未宣称**（外部资产缺失，见 T7）：`OFFICIAL_ACCURACY = PENDING_EXTERNAL_ASSETS`、
   `OFFICIAL_BENCHMARK = PENDING_EXTERNAL_ASSETS`、`COMPETITION_COMPLETE = NOT_CLAIMED`
 
 ### 候选已验证边界（内部回归范围）
 - 单请求 simplex，120 冻结 + 30 扩展 + 5 切音色 + 5 断连 + 3 重启
-- KV cache MISS→HIT prefill 2.43×，无正确性回归
+- KV cache MISS→HIT prefill 2.44×（30 对/27 有效，机制 30/30），无正确性回归
 - CANN T2W 设备放置（环境变量切换），0 CPU fallback
 
 ### 未验证边界（诚实披露，不伪造）

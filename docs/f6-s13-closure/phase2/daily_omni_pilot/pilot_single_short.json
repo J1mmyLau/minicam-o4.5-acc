@@ -1,0 +1,275 @@
+{
+ "items": [
+  {
+   "idx": 0,
+   "video": "G_VTkkb34gw",
+   "type": "AV Event Alignment",
+   "question": "Which audio event occurred simultaneously with the two female police officers engaging in target pra",
+   "correct": "D",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: Which audio event occurred simultaneously with the two female police officers engaging in target practice at the indoor shooting range?\nChoices: ['A. Sharp aerodynamic swoosh', 'B. Foreign-language command phrases', 'C. Numerical countdown sequence', 'D. Sustained gunfire bursts']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 1,
+   "text": "",
+   "text_len": 0,
+   "wall_s": 0.6,
+   "pred": null,
+   "is_correct": false
+  },
+  {
+   "idx": 1,
+   "video": "d6b4OmUFt7I",
+   "type": "Event Sequence",
+   "question": "Which visual-audio pair occurs at the very beginning of the video?",
+   "correct": "B",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: Which visual-audio pair occurs at the very beginning of the video?\nChoices: ['A. Construction site overview -- training program name reference', 'B. Detailed sign graphic -- geographical location mention', 'C. Instructor in PPE -- personal equipment experience anecdote', 'D. Excavator movement -- hands-on training phase description']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "A",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "A",
+   "is_correct": false
+  },
+  {
+   "idx": 2,
+   "video": "G_VTkkb34gw",
+   "type": "Event Sequence",
+   "question": "Which audio events correspond to the indoor shooting range activities shown in the video?",
+   "correct": "B",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: Which audio events correspond to the indoor shooting range activities shown in the video?\nChoices: ['A. Countdown sequence during target practice', 'B. Electronic music overlapping with gunshots', 'C. Hip-hop music with whoosh sounds', 'D. Wind sounds followed by human speech']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "A",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "A",
+   "is_correct": false
+  },
+  {
+   "idx": 3,
+   "video": "G_VTkkb34gw",
+   "type": "Inference",
+   "question": "What is the primary purpose of the white car maneuvering through the water-filled obstacle course wi",
+   "correct": "D",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: What is the primary purpose of the white car maneuvering through the water-filled obstacle course with orange cones?\nChoices: ['A. Testing acceleration performance on wet surfaces', 'B. Conducting routine vehicle safety inspections', 'C. Demonstrating vehicle water resistance capabilities', 'D. Simulating emergency response driving scenarios']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "C",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "C",
+   "is_correct": false
+  },
+  {
+   "idx": 4,
+   "video": "d6b4OmUFt7I",
+   "type": "Reasoning",
+   "question": "What immediate task required Sara to review documents in the office before equipment operation?",
+   "correct": "D",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: What immediate task required Sara to review documents in the office before equipment operation?\nChoices: ['A. To analyze soil composition charts', 'B. To finalize her course payment details', 'C. To prepare safety checklists for machinery', 'D. To complete classroom requirements stated in the audio']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "A",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "A",
+   "is_correct": false
+  },
+  {
+   "idx": 5,
+   "video": "bswbQtOPk6E",
+   "type": "Event Sequence",
+   "question": "What in-game visual appears immediately after the creator discusses Square Enix's sales results?",
+   "correct": "D",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: What in-game visual appears immediately after the creator discusses Square Enix's sales results?\nChoices: ['A. Blonde woman analyzing sales charts', 'B. Character standing on a rocky landscape', 'C. Character engulfed in fiery glow while jumping', 'D. Sacred Peaks Refuge sign appearance']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "B",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "B",
+   "is_correct": false
+  },
+  {
+   "idx": 6,
+   "video": "d6b4OmUFt7I",
+   "type": "Comparative",
+   "question": "Which visual sequences correspond to the audio mentions of 'go on the equipment' versus 'familiar wi",
+   "correct": "A",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: Which visual sequences correspond to the audio mentions of 'go on the equipment' versus 'familiar with the machines'?\nChoices: ['A. First shows an excavator lifting dirt, second shows a dump truck driving through mud', 'B. First shows binder review in office, second shows tractor parked on site', 'C. First shows safety vest demonstration, second shows mountain landscape', 'D. First shows a bulldozer moving earth, second shows a water tank in background']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "A",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "A",
+   "is_correct": true
+  },
+  {
+   "idx": 7,
+   "video": "d6b4OmUFt7I",
+   "type": "Context understanding",
+   "question": "What specific visual elements were present when Sara mentioned 'email Anderson'?",
+   "correct": "B",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: What specific visual elements were present when Sara mentioned 'email Anderson'?\nChoices: ['A. Indoor office with binder and whiteboard', 'B. Dirt field with construction equipment and trees', 'C. Excavator actively lifting dirt', 'D. Yellow bulldozer parked in foreground']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 2,
+   "text": "B",
+   "text_len": 1,
+   "wall_s": 0.4,
+   "pred": "B",
+   "is_correct": true
+  },
+  {
+   "idx": 8,
+   "video": "bswbQtOPk6E",
+   "type": "Context understanding",
+   "question": "What indicates the fiery propulsion is an intentional game feature rather than a contextual anomaly?",
+   "correct": "D",
+   "prompt": "Your task is to accurately answer multiple-choice questions based on the given video. Select the single most accurate answer from the given choices. Your answer should be a capital letter representing your choice: A, B, C, or D. Don't generate any other text.\n\nGiven the video, answer the question below.\nQuestion: What indicates the fiery propulsion is an intentional game feature rather than a contextual anomaly?\nChoices: ['A. Dynamic cape physics during aerial maneuvers', 'B. Tutorial pop-ups about traversal mechanics', 'C. Visible controller vibration feedback', 'D. Recurring chromatic synchronization with abilities']",
+   "init_http": 200,
+   "init": true,
+   "prefill_sys": [
+    200,
+    true
+   ],
+   "prefill_media": [
+    200,
+    true
+   ],
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "ntok": 18,
+   "text": "\n\n\n\n\n\n\n",
+   "text_len": 7,
+   "wall_s": 0.7,
+   "pred": null,
+   "is_correct": false
+  }
+ ],
+ "lifecycle": {
+  "idx": "lifecycle",
+  "decode1": {
+   "http": 200,
+   "success": true,
+   "stop": "eos",
+   "text_len": 0
+  },
+  "decode2": {
+   "http": 200,
+   "success": true,
+   "stop": "max_tokens",
+   "text_len": 853
+  },
+  "persistent_2nd_ok": true,
+  "sse": {
+   "http": 200,
+   "events": 13,
+   "has_done": true,
+   "content_chars": 561,
+   "wall_s": 2.3
+  },
+  "sse_ok": true
+ },
+ "http500": 0,
+ "client_errors": [],
+ "server_alive_end": true,
+ "server_healthy_end": true
+}

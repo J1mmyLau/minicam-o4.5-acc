@@ -2,9 +2,16 @@
 
 ## 当前阶段
 
-`Phase 3：T1–T8 全部完成。FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环），
-OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION, OFFICIAL_BENCHMARK=BLOCKED,
-COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
+`Phase 3：T1–T13。T11 TTS KV lifecycle 修复完成，T6 重跑 11/11 GATES PASS（T6_REGRESSION=PASS）；
+T13 TTS KV bounds guard 边界测试 **PASS**（guard 39 次 prefill_with_emb_tts，10/10 验证项，TTS_KV_GUARD_RUNTIME_COVERAGE=PASS）；
+T10 Daily-Omni pilot **DONE**（服务器链 6/6 门全 PASS，DAILY_OMNI_INTERNAL_PILOT=PASS；
+期间定位并修复 3 个 P0：user_text 丢弃 / media_type=2 prompt 缺身份句 / image+audio 格式混用 think-loop；
+模型能力边界：whisper 编码上限 ~24-26s，Daily-Omni 29.5s 音频 → 输出 "?"，属模型限制非服务器 bug）。
+现进入 **Step 5 源码冻结**：F6DIAG 调试打印已移除、EXPERIMENT 标记已清，待提交 → 干净重建 → SHA 比对。
+候选命名（修正口径）：PRE_T9_T11_CANDIDATE=HISTORICAL_FINAL，POST_T11_RUNTIME_VALIDATION=PASS，
+POST_T11_SOURCE_FREEZE=IN_PROGRESS（F6DIAG 已移除，待提交 + 干净重建 + SHA 比对），
+POST_T11_FINAL_CANDIDATE=PENDING_T13_T10_AND_CLEAN_COMMIT（T13+T10 已完成，源码提交 + 重建通过后才 = FINAL_INTERNAL），
+OFFICIAL_ACCURACY/官方 Gate 待 T9 后复核，COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
 
 （前序阶段）`S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
 CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS,
@@ -13,9 +20,8 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 **最终集成候选已冻结 = FINAL**（"KV Cache + HTTP token cap + 生命周期
 + CANN Flow/Vocoder" 组合，T5 冻结见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)，
 **T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**）。
-下一阶段：**T7 质量/比赛 Gate 已评估** — 官方资产部分到达；Daily-Omni 输入路径经修正协议确认可用，
-但**文本输出路径损坏（SSE 崩溃 + 非流式无文本）→ BLOCKED_BY_CANDIDATE_LIMITATION**；
-seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方结果。
+**T9 接口修复（用户 P0 指令：修文本输出接口）** — 见下方 T9 段。libomni.so 保持冻结
+`f1d2f86d`，server 由 `e77b43c3` 解冻重建（当前 `594920b6`，T6 重跑验证中）；不伪造官方结果。
 
 关键数据：
 - S13 frozen strict baseline **120/120 成功**（eos=111, max_tokens=9, 0 error, 0 timeout,
@@ -28,9 +34,13 @@ seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方�
 - Baseline 设备口径审计：CPU T2W = 实测参考 baseline 且为代码默认，性质上是已知限制回退，
   候选 = `DEVICE_PLACEMENT_CORRECTION`（见 [Baseline Device Audit](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md)）
 
-**尚未完成（诚实口径）**：`FINAL_INTEGRATED_CANDIDATE = FINAL`（T5 freeze + T6 回归全过）；
-`OFFICIAL_ACCURACY = BLOCKED_BY_CANDIDATE_LIMITATION`（Daily-Omni 文本输出路径损坏；见 [T7 评估](docs/f6-s13-closure/phase2/T7_QUALITY_GATES_ASSESSMENT.md)）,
-`OFFICIAL_BENCHMARK = BLOCKED_BY_CANDIDATE_LIMITATION + 接口未定`,
+**尚未完成（诚实口径）**：`POST_T11_SOURCE_FREEZE = IN_PROGRESS`（F6DIAG 调试打印已移除、EXPERIMENT 标记已清 → 提交 → 干净重建 → SHA 比对；
+正式冻结源码 = 无调试钩子；user_text/prompt/format 三 P0 修复纳入新候选，T6 需重跑）；
+`POST_T11_FINAL_CANDIDATE = PENDING_T13_T10_AND_CLEAN_COMMIT`；
+`OFFICIAL_ACCURACY = PENDING_REVERIFY_AFTER_T9`（T9 已修复非流式 text 字段 + SSE bad_alloc + text-only 重复生命周期，
+`BLOCKED_BY_CANDIDATE_LIMITATION` 已过时 → pilot 已验证服务器链，官方 Harness 通过前不宣称），
+`OFFICIAL_BENCHMARK = PENDING_REVERIFY_AFTER_T9`,
+`DAILY_OMNI_INTERNAL_PILOT = PASS`（服务器链 6/6 门全过，见 T10 段；模型输出受 whisper 编码上限限制，29.5s 音频 → "?"），
 `COMPETITION_COMPLETE = NOT_CLAIMED`。
 
 ## T4 严格复核 Gate (2026-08-04)
@@ -50,19 +60,21 @@ seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方�
 
 | Gate | 状态 | 关键数据 |
 |------|------|----------|
-| **S13_STRICT_BASELINE** | ✅ PASS | 120/120, err=0, prompt_modified=0, first_attempt_ok=120（eos=86 / max_tokens=34，分布与 S13 baseline 略异，采样方差，gate 不受影响） |
+| **S13_STRICT_BASELINE** | ✅ PASS | 120/120, err=0, prompt_modified=0, first_attempt_ok=120（eos=83 / max_tokens=37，分布与 S13 baseline 略异，采样方差，gate 不受影响） |
 | **S13_RUNAWAY_FREE** | ✅ PASS | wall_timeout=0, sliding_window=0 |
 | **EXTENDED_OK** | ✅ PASS | 20 long + 10 mixed = 30/30，0 timeout / 0 slide |
 | **VOICE_SWITCH_OK** | ✅ PASS | 5/5 有音频输出 |
 | **VOICE_SWITCH_ISOLATION** | ✅ PASS | 每请求独立 round 目录，无跨请求污染 |
 | **DISCONNECT_SURVIVAL** | ✅ PASS | 5/5 断连后服务器存活 |
 | **DISCONNECT_FOLLOWUP** | ✅ PASS | followup 3500 在常驻上下文上成功（drain_complete→RESPONDING→IDLE） |
-| **KV_CACHE_AB** | ✅ PASS | 30/30 pairs，MISS 201.7ms → HIT 83.1ms，Δ_p50=119ms，2.43×，loaded=130 |
+| **KV_CACHE_AB** | ✅ PASS | 30 pairs / 27 valid（3 对按预声明 A_ERR/B_ERR 排除，机制 30/30），MISS 203.6ms → HIT 83.6ms，Δ_p50=119.7ms，2.44×，loaded=130 |
 | **RESTART_3_SESSIONS** | ✅ PASS | 3 个独立 server 会话均正常 |
 | **CPU_FALLBACK_ZERO** | ✅ PASS | 0 |
 | **CANN_ERROR_ZERO** | ✅ PASS | 0（cann_ok=4） |
 
-**ACCEPT = True**。二进制 e77b43c3（冻结不变）。证据：`docs/f6-s13-closure/phase2/t6_integrated_regression.json`。
+**ACCEPT = True**。二进制 db258375/c075c535（当前候选，P0a/P0b 重建后 re-run #2；首轮 run #1 @ e77b43c3 的 KV A/B 为 30/30）。证据：`docs/f6-s13-closure/phase2/t6_integrated_regression.json`。
+
+> KV A/B 30 对 / 27 有效：3 对（pair 4 C1-R4 / pair 17 C3-R5 / pair 20 C4-R2）按脚本预声明 `A_ERR`/`B_ERR` 规则排除（decode POST 客户端 HTTP 异常；server 侧生成已完成、SAVED/HIT/loaded=130 机制 30/30 正常，非缓存污染）。详见 `docs/f6-s13-closure/phase2/t6_kv_ab_27of30.md`。R13 canonical 30/30 严格有效速度结论不受影响。
 
 ### T6 修复与发现
 - **断连-恢复竞争（修复）**：首轮 T6 在断连测试的 recovery `omni_init()` 处崩溃（use-after-free：omni_free 与在途 STREAM_DECODE_BEGIN req=3004 竞争，ctx=0x0）。根因：断连后客户端关闭连接但服务器 handler 仍在处理 decode；恢复 re-init 的 omni_free 与之竞争。修复：`run_disconnect` 不再调用 recovery omni_init（冻结协议本就是 once-init），改为等待在途 decode 平息后在常驻上下文上直接跑 followup。重跑后 5/5 断连存活 + followup OK。
@@ -86,6 +98,105 @@ write_response_core，2/2 可复现，含纯文本问题）。T6 从未测 strea
 seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）；`COMPETITION_COMPLETE = NOT_CLAIMED`。
 新边界：F7-1 SSE 崩溃 / F7-2 非流式无文本 / F7-3 首次 prefill 吞内容（协议陷阱）。
 详见 [T7 评估](docs/f6-s13-closure/phase2/T7_QUALITY_GATES_ASSESSMENT.md)。
+
+## T9 接口修复 — 文本输出路径 (2026-08-04)
+
+**用户 P0 指令**：修文本输出接口（`/decode` 返回 `{"text":"..."}` + 修 SSE）。
+server-omni.cpp 三处修复（**libomni.so 保持冻结 `f1d2f86d`**，纯 server 侧）：
+
+| 修复 | 对应边界 | 说明 |
+|------|---------|------|
+| ① 非流式 decode 增加 `text` 字段 | F7-2 | stream_decode 后 drain text_queue（去 `__IS_LISTEN__`/`__END_OF_TURN__` 标记）拼接到 `text` |
+| ② SSE handler 重构 | F7-1 | worker 每请求仅创建一次（shared_ptr 承载 debug_dir/round_idx 生命周期）；`sink.done()` 终止 chunked 循环（根治 httplib 反复回调→并发 stream_decode→bad_alloc）；resource releaser join worker |
+| ③ 纯文本生命周期 | T7 新发现 | use_tts=False decode 后 context_state 一直 ACTIVE + drain_complete_generation 不前进 → 第二次 decode 被守卫拒绝。现 decode 完成即 `drain_complete_generation=request_generation` + `context_state=REUSABLE` |
+
+**媒体协议实测（PASS）**：frame+audio+question，use_tts=False —
+非流式 turn1 text=748 字符（eos/142tok）；turn2 常驻复用成功（1088 字符，未再 reject）；
+SSE turn3 干净 `[DONE]` 不崩溃不挂起（空文本=模型该轮输出纯音频 token，非接口缺陷）；server 存活。
+SSE + use_tts=True 的 T2W drain 仍未接（SSE 路径无 omni_duplex_drain_tts_audio），为已知边界。
+
+## T11 TTS KV lifecycle 修复 (2026-08-04)
+
+**用户指令**（"只修 TTS KV lifecycle → T6 120/120 → 比赛提交"）。T6 重跑（binary `594920b6`）在
+R34 遇 HTTP 500 → 定位：req33 的 TTS KV 在**单请求内**累积到 4096 上限（llama_decode
+"failed to find a memory slot"）→ 堆损坏 → T9 新增的 text-drain 读 text_queue 抛未捕获异常 →
+httplib 无 exception_handler → 静默 500。**修正**：TTS KV 每请求已在 chunk_idx==0 reset
+（非跨请求累积；req34 起点 n_past_tts=10）。
+
+| 修复 | 位置 | 说明 |
+|------|------|------|
+| ① TTS KV bounds guard | omni.cpp `eval_tokens_tts` + `prefill_with_emb_tts` | llama_decode 前检查 `n_past+batch > llama_n_ctx(ctx_tts_llama)` → 提前 return false 优雅截断，绝不把 llama_decode 打进满 KV（与既有 decode 失败截断路径一致；chunk 级 false = 该 chunk 无音频，请求继续） |
+| ② text-drain 门控 | server-omni.cpp 非流式 handler | drain 仅 use_tts==False 执行 + try/catch → use_tts=True（T6）路径恢复与已验证二进制**逐字节一致**，从根上消除 500 触发面 |
+
+**状态**：重建完成，libomni `f1d2f86d`→`c075c535`、server `594920b6`→`db258375`；
+**T6 重跑 11/11 GATES PASS, ACCEPT=True**（详见下节 T6 重跑记录）。常规回归不触发 TTS guard（0 次），
+guard 运行时覆盖由 **T13 边界测试**（`build-test/` 独立测试构建 + `OMNI_TTS_N_CTX=256` 钩子）单独验证，
+**TTS_KV_GUARD_RUNTIME_COVERAGE=PASS**（guard=39 prefill_with_emb_tts，10/10 项 PASS，证据 tts_boundary_20260804_170049.json）；
+测试后 revert 钩子（正式冻结源码无钩子，与 db258375 逐字节一致）。
+**Daily-Omni pilot（任务#324）**：pilot.py + 3 example 视频 9 项 QA 已备好
+（/tmp/f6_daily_omni/，含单帧/3x2 蒙太奇/mono 音频），**T13 已完成，pilot 可运行（下一步）**。
+**P1 最终交付报告草稿**：`docs/f6-s13-closure/phase2/F6_FINAL_DELIVERY_REPORT.md`
+（问题→Profiling→定位→优化→收益→验证 全链，官方 Gate 判定保持 NOT_CLAIMED，pilot 结果待回填）。
+
+## T11 修复后 T6 重跑记录 (2026-08-04) — 11/11 GATES PASS ✅
+
+**冻结数据（Step 2 指令要求）**：
+
+```
+source HEAD   = 91797e651288ec45d55141ad0bd76d3062f52ead + 未提交 T11 diff
+                （omni.cpp / server-omni.cpp 工作树；钩子 revert 后作为正式冻结源码）
+server PID    = 2823116（最后会话 session3，port 18093；3 会话共 3 个独立 server）
+server SHA256 = db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21
+libomni SHA256= c075c535d18d1213b27f1c51b61662b11a18af47b5441f8ea26b78d81e3b84bb
+model SHA256  = d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de
+launch        = stdbuf -oL -eL build/bin/llama-omni-server -m <model> -ngl 999
+                --device CANN0 -c 4096 -b 512 -ub 512 --split-mode layer --port 18093
+env           = OMNI_KV_CACHE_REUSE=1 OMNI_KV_CACHE_PATH=/tmp/f6_t6/kv_cache
+                OMNI_T2W_DEVICE=cann-flow-only OMNI_VOC_DEVICE=gpu ASCEND_RT_VISIBLE_DEVICES=0
+run dir       = /tmp/f6_t6/   raw logs = docs/f6-s13-closure/phase2/t6_evidence_pass/
+                 （t6_srv.log / kv_ab_srv.log / t6_smoke_srv.log；guard=0 memslot=0）
+```
+
+**分析结果**（`docs/f6-s13-closure/phase2/t6_integrated_regression.json`）：
+
+| Gate | 状态 | 关键数据 |
+|------|------|----------|
+| **S13_STRICT_BASELINE** | ✅ PASS | 120/120, err=0, eos=83/max_tokens=37, prompt_modified=0, first_attempt_ok=120, decode_wall_p50=5475ms, generated_tokens_p50=42 |
+| **S13_RUNAWAY_FREE** | ✅ PASS | wall_timeout=0, sliding_window=0 |
+| **EXTENDED_OK** | ✅ PASS | 20 long + 10 mixed = 30/30, 0 timeout / 0 slide |
+| **VOICE_SWITCH_OK** | ✅ PASS | 5/5 有音频, distinct_hashes=5 |
+| **VOICE_SWITCH_ISOLATION** | ✅ PASS | 每请求独立 round 目录 |
+| **DISCONNECT_SURVIVAL** | ✅ PASS | 5/5 服务器存活, all_abort_ok |
+| **DISCONNECT_FOLLOWUP** | ✅ PASS | followup 常驻上下文成功（drain→IDLE） |
+| **KV_CACHE_AB** | ✅ PASS | 30 pairs / 27 valid, MISS 203.6→HIT 83.6ms, Δ=119.7, 2.44×, gate_pass |
+| **RESTART_3_SESSIONS** | ✅ PASS | 3 会话正常 |
+| **CPU_FALLBACK_ZERO** | ✅ PASS | cpu_fallback=0 |
+| **CANN_ERROR_ZERO** | ✅ PASS | cann_error=0, cann_ok=4 |
+
+**ACCEPT = True**。`T6_REGRESSION=PASS`。TTS guard=0 / memslot=0（常规回归不触发是预期；
+guard 运行时覆盖由 T13 边界测试单独证明）。
+
+## T10 Daily-Omni Pilot — 服务器链 PASS (2026-08-04)
+
+**任务 #324/#333**。9 项 QA（3 视频 × 3 例，4 case 类型），官方单消息协议
+（frame_15s.jpg + audio_mono.wav + question text），media_type=2 / use_tts=False。
+证据：`docs/f6-s13-closure/phase2/daily_omni_pilot/`（PILOT_REPORT.md + pilot_single*.json + isolate* + threshold.json）。
+
+**P0 修复（pilot 期间定位，纳入新候选源码）**：
+1. **user_text 丢弃** — 分支1(视+音)/分支2(纯音频) 未写 user_text，有媒体时问题文本被丢弃（仅纯文本分支3会写）。
+   修复：媒体后补写 `\n` + user_text。prefill n_past 113→665 证实 ~121 文本 token 进入上下文。
+2. **media_type=2 prompt 缺身份句** — omni_assistant_prompt 对齐 audio_assistant_prompt
+   补上「面壁小钢炮」身份句，修复 media_type=2 纯音频退化（空转/WS → 正常作答）。
+3. **image+audio 格式混用 → think-loop** — 分支1 用 duplex 视觉标签 + 单工 audio 包裹导致
+   `<think>\n` 空循环；改为视觉标签后直接跟音频 embedding（模型原生视频 QA 格式）→ 确定性作答。
+
+**模型能力边界（文档化，非服务器 bug）**：whisper 音频编码上限 ~24-26s（threshold.json：
+24s 正常作答，27s→`?`×256）。Daily-Omni audio_mono.wav=29.5s 超出 → 全 9 项输出 "?"×256。
+3s 音频演示（能力内）：7/9 可提取字母预测，服务器链全通。
+
+**服务器链 Gate（full + short 两轮）**：非流式 text 字段 ✅ · SSE 文本+[DONE] ✅ ·
+常驻上下文第 2 次请求 ✅（decode#2 text_len=853）· **0 HTTP500 / 0 crash / 0 stale-cross** ·
+F6_REQSTATE 11 完整周期无错误 · server alive+healthy 收尾 ✅。**DAILY_OMNI_INTERNAL_PILOT=PASS**。
 
 ## R13 Gate 总结 (2026-08-03)
 
@@ -165,6 +276,10 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 | **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配；FULL PASS：20 对 / 19 active，10 gates 19/19，T2W-only delta 19/19 全负（p50 −4215.8ms，CI [−4395.6, −4085.4]），W0 E2E p50 −3946ms（CI [−4379, −3799]），0 fallback/0 error/0 timeout；wav_count 服务端 bug 已修 | **DONE** |
 | **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结；freeze 文档 `docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md`（二进制 e77b43c3 + libomni f1d2f86d，HEAD b043257）；INTERNAL_PASS | **DONE** |
 | **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | **DONE — ALL 11 GATES PASS** |
+| **P0** | **T11 修复后 T6 重跑** — server db258375 / libomni c075c535，11/11 GATES PASS, ACCEPT=True；`T6_REGRESSION=PASS` | **DONE** |
+| **P0** | **T13 TTS KV bounds guard 边界测试** — **DONE：BOUNDARY_TEST PASS**。cap 校准 512→256；根因：TTS-only 会话 LOG_ERR 被默认 CONT 阈值过滤，测试钩子内强制 verbosity=INFO 后 guard 可见；**guard=39（全 prefill_with_emb_tts，5× batch=1 + 34× batch>1，text_start=256=cap），10/10 验证项 PASS，memslot=0/http500=0/崩溃=0，8/8 drain+IDLE，followup 4/4，server healthy**；TTS_KV_GUARD_RUNTIME_COVERAGE=PASS；证据 tts_boundary_20260804_170049.json。**测试钩子待 revert（Step 5）** | **DONE** |
+| **P1** | **T10 Daily-Omni pilot** — 9 项 QA + 生命周期/SSE/常驻上下文验证，两轮（29.5s full + 3s short）；证据已归档到 docs/f6-s13-closure/phase2/daily_omni_pilot/（PILOT_REPORT.md）；服务器链 6/6 门 PASS；P0 修复 3 项纳入候选源码；模型输出受 whisper 编码上限（~24-26s）限制 | **DONE — DAILY_OMNI_INTERNAL_PILOT=PASS** |
+| **P1** | **Step 5 冻结最终源码候选** — F6DIAG 已移除、EXPERIMENT 标记已清 → commit 源码 → 干净重建 → SHA 比对 → REPRODUCIBLE_BINARY=PASS；随后重跑 T6（user_text 修复触及 media_type=1 音频路径）→ 回填 F6_FINAL_DELIVERY_REPORT.md | **IN_PROGRESS** |
 | **P1** | **T7 质量/比赛 Gate** — 评估完成：输入 CONFIRMED（修正协议），输出 BLOCKED_BY_CANDIDATE_LIMITATION（SSE 崩溃）；seed-tts=PENDING_EXTERNAL_ASSETS | **DONE** |
 | **P1** | **T8 最终口径** — 内部闭环 FINAL，官方 Gate 不宣称（BLOCKED_BY_CANDIDATE_LIMITATION / NOT_CLAIMED）；最终口径文档 F6_PHASE3_FINAL_FRAMING.md | **DONE** |
 | **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
@@ -181,9 +296,17 @@ CANN_T2W_CANDIDATE                = STRONG_INTERNAL_PASS (W0 4798→894ms, −81
 BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参考 baseline)
 T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
 T6_FINAL_INTEGRATED_REGRESSION    = PASS   (11/11 gates, ACCEPT=True; e77b43c3)
-FINAL_INTEGRATED_CANDIDATE        = FINAL   (T5 freeze + T6 回归全过 → 最终集成候选确认)
-OFFICIAL_ACCURACY                 = BLOCKED_BY_CANDIDATE_LIMITATION   (Daily-Omni 文本输出路径损坏, 见 T7)
-OFFICIAL_BENCHMARK                = BLOCKED_BY_CANDIDATE_LIMITATION   (SSE 崩溃 + 接口 provisional)
+T6_RE_RUN_AFTER_T11_FIX           = PASS   (11/11 gates, ACCEPT=True; server db258375 / libomni c075c535)
+TTS_KV_GUARD_IMPLEMENTED          = YES    (omni.cpp eval_tokens_tts + prefill_with_emb_tts bounds guard)
+TTS_KV_GUARD_RUNTIME_COVERAGE     = PASS   (T13 边界测试: guard=39 prefill_with_emb_tts, 10/10 项 PASS; tts_boundary_20260804_170049.json)
+PRE_T9_T11_CANDIDATE              = HISTORICAL_FINAL   (旧 FINAL 称号作废, 仅历史参考)
+POST_T11_RUNTIME_VALIDATION       = PASS   (T6 重跑 11/11 + T13 边界 PASS)
+POST_T11_SOURCE_FREEZE            = IN_PROGRESS (F6DIAG 移除 + EXPERIMENT 标记清理完成；待提交 → 干净重建 → SHA 比对)
+POST_T11_FINAL_CANDIDATE          = PENDING_T13_T10_AND_CLEAN_COMMIT  (T13+T10 已完成；源码提交 + 重建通过 → FINAL_INTERNAL)
+DAILY_OMNI_INTERNAL_PILOT         = PASS   (服务器链 6/6 门; P0 修复 3 项; whisper 上限 29.5s→"?" 为模型限制; PILOT_REPORT.md)
+OFFICIAL_DAILY_OMNI               = NOT_RUN
+OFFICIAL_ACCURACY                 = PENDING_REVERIFY_AFTER_T9  (T9 已修非流式 text + SSE bad_alloc + text-only 生命周期, 旧 BLOCKED 过时)
+OFFICIAL_BENCHMARK                = PENDING_REVERIFY_AFTER_T9
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
 

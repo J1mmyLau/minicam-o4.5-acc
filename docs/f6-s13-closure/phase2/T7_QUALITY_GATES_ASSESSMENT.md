@@ -138,3 +138,23 @@ F7-1/F7-2 组合 = 冻结候选无法通过 HTTP 返回可读文本答案，直�
 
 证据（已归档）：`t7_evidence/srv2_media_crash.log`（媒体输入，崩溃 + 输入处理证据）、
 `t7_evidence/srv3_text_crash.log`（纯文本输入，崩溃）。
+
+---
+
+## 附录 T9 — 接口修复（2026-08-04，用户 P0 指令）
+
+**F7-1 / F7-2 已修复**（server-omni.cpp，libomni.so 保持冻结 `f1d2f86d`）：
+
+- **F7-2（非流式无 text）**：stream_decode 后 drain text_queue（去控制标记）→ 响应新增 `text` 字段。
+- **F7-1（SSE 崩溃）**：根因确认 = provider 回调内创建 decode worker + 写 `[DONE]` 后
+  `return true` 未 `sink.done()` → httplib `while(data_available)` 反复回调 → 第二次并发
+  `stream_decode` → text_queue 字符串损坏 → `std::bad_alloc`（addr2line：回调 lambda +
+  `_M_construct<char*>`）。修复 = worker 每请求一次 + `sink.done()` 终止循环 +
+  resource releaser join。
+- **T7 新边界**：use_tts=False 常驻会话第二次 decode 被 `drain_gen < request_gen` 守卫拒绝
+  （drain_complete_generation 仅由 T2W drain 前进）。修复 = 非 TTS decode 完成后
+  `drain_complete_generation=request_generation` + `context_state=REUSABLE`。
+
+**媒体协议实测（PASS）**：非流式 text=748/1088 字符（两轮常驻复用），SSE 干净 `[DONE]`
+不崩溃。**T6 重跑验证中**（frozen discipline）。SSE + use_tts=True 的 T2W drain 未接入
+（SSE 路径无 omni_duplex_drain_tts_audio）→ 仍为已知边界。

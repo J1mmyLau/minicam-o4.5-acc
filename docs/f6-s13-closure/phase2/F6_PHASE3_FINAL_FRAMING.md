@@ -43,10 +43,10 @@ Daily-Omni 准确率等官方质量 Gate 在本候选上无法评测（BLOCKED_B
 | CANN_T2W_CANDIDATE | **STRONG_INTERNAL_PASS**（W0 4798→894ms, −81.4%） |
 | BASELINE_DEVICE_PLACEMENT_AUDIT | **PASS** |
 | T4_STRICT_CANN_T2W_REVERIFY | **PASS**（19/19, T2W-only delta 全负） |
-| T6_FINAL_INTEGRATED_REGRESSION | **PASS（11/11）**：S13 120/120、Extended 30/30、Voice 5/5+隔离、Disconnect 5/5+followup、KV A/B 30/30 (Δ119ms, 2.43×)、3 重启、0 CPU fallback、0 CANN error |
+| T6_FINAL_INTEGRATED_REGRESSION | **PASS（11/11）**：S13 120/120、Extended 30/30、Voice 5/5+隔离、Disconnect 5/5+followup、KV A/B 30 对/27 valid（3 对按预声明 A_ERR/B_ERR 排除，机制 30/30，Δ119.7ms, 2.44×）、3 重启、0 CPU fallback、0 CANN error |
 | **FINAL_INTEGRATED_CANDIDATE** | **FINAL** |
-| OFFICIAL_ACCURACY | **BLOCKED_BY_CANDIDATE_LIMITATION**（Daily-Omni 文本输出路径损坏） |
-| OFFICIAL_BENCHMARK | **BLOCKED_BY_CANDIDATE_LIMITATION**（SSE 崩溃）+ 接口 provisional |
+| OFFICIAL_ACCURACY | **PENDING_REVERIFY_AFTER_T9**（T9 已修复非流式 text 字段 + SSE 崩溃；BLOCKED_BY_CANDIDATE_LIMITATION 已过时 → 待 Daily-Omni pilot 复核） |
+| OFFICIAL_BENCHMARK | **PENDING_REVERIFY_AFTER_T9**（T9 修复后待官方 Harness 复核）+ 接口 provisional |
 | COMPETITION_COMPLETE | **NOT_CLAIMED** |
 
 ---
@@ -55,7 +55,7 @@ Daily-Omni 准确率等官方质量 Gate 在本候选上无法评测（BLOCKED_B
 
 ### 已验证（内部回归范围）
 - 单请求 simplex；120 冻结 + 30 扩展 + 5 切音色 + 5 断连 + 3 重启
-- KV cache MISS→HIT prefill 2.43×，无正确性回归
+- KV cache MISS→HIT prefill 2.44×（30 对/27 valid，机制 30/30），无正确性回归
 - CANN T2W 设备放置（环境变量切换），0 CPU fallback / 0 CANN error
 - 用户图像/音频/文本输入经**修正协议**（两次 prefill）确认可用
 
@@ -92,3 +92,16 @@ Daily-Omni 准确率等官方质量 Gate 在本候选上无法评测（BLOCKED_B
 | T6 证据 JSON | `docs/f6-s13-closure/phase2/t6_integrated_regression.json` |
 | T7 质量 Gate 评估 | `docs/f6-s13-closure/phase2/T7_QUALITY_GATES_ASSESSMENT.md` |
 | 任务状态 | `docs/tracking/TASKS.md` / `docs/tracking/AUDIT.md` / `STATUS.md` |
+
+---
+
+## 附录 T9 — 接口修复（2026-08-04，用户 P0 指令）
+
+T8 之后按用户 P0 指令解冻 server 修复文本输出接口。**libomni.so 保持冻结 `f1d2f86d`**
+（核心 omni 库未动），server 由 `e77b43c3` → `594920b6`（三处修复见
+[T7 附录](T7_QUALITY_GATES_ASSESSMENT.md#附录-t9--接口修复2026-08-04用户-p0-指令)）。
+
+**媒体协议实测（PASS）**：frame+audio+question 输入 → 非流式 `text` 字段 748/1088 字符
+（两轮常驻复用，未再 reject）；SSE 干净 `[DONE]` 不崩溃不挂起（F7-1 根治）。
+**T6 重跑验证中**（frozen discipline）。此修复不改变 T8 的内部优化结论；官方 Gate 判定
+仍遵循诚实口径（官方 harness/接口未定前不宣称 OFFICIAL_BENCHMARK_PASS / COMPETITION_COMPLETE）。

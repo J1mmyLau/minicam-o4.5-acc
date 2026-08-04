@@ -1,7 +1,7 @@
 {
  "meta": {
   "run": "T6_FULL",
-  "binary_sha": "e77b43c31d3c575da63a519e956810081f2a5c76bbf9157e01a196f0faab0dd8",
+  "binary_sha": "db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21",
   "port": 18093
  },
  "sessions": {
@@ -10,15 +10,15 @@
     "n": 120,
     "ok": 120,
     "errs": 0,
-    "eos": 86,
-    "max_tokens": 34,
+    "eos": 83,
+    "max_tokens": 37,
     "wall_timeout": 0,
     "sliding_window": 0,
     "prompt_modified": 0,
     "strict_pass": true,
     "runaway_free": true,
-    "decode_wall_p50": 5463.265180587769,
-    "generated_tokens_p50": 34,
+    "decode_wall_p50": 5475.36563873291,
+    "generated_tokens_p50": 42,
     "first_attempt_ok": 120,
     "errors": []
    },
@@ -48,11 +48,11 @@
     "audios_distinct": true,
     "distinct_hashes": 5,
     "wav0_shas": [
-     "b228d936ce9f4bf5",
-     "fb35f2fb3e11e669",
-     "41a4da52de16cd1d",
-     "ba342206f55e0598",
-     "3369fac4da11b49b"
+     "dca707cad998833b",
+     "b52782feea69eb6a",
+     "220a69af4a206a52",
+     "7a3c0e16fa657fa6",
+     "a5372b3aa5b13c6f"
     ],
     "errors": []
    },
@@ -94,12 +94,12 @@
   "session2": {
    "kv_cache": {
     "n_pairs": 30,
-    "n_valid": 30,
+    "n_valid": 27,
     "gate_pass": true,
-    "miss_prefill_p50": 201.7,
-    "hit_prefill_p50": 83.1,
-    "delta_p50": 119.0,
-    "speedup_p50": 2.43,
+    "miss_prefill_p50": 203.6,
+    "hit_prefill_p50": 83.6,
+    "delta_p50": 119.7,
+    "speedup_p50": 2.44,
     "loaded_positions_range": [
      130,
      130
@@ -137,7 +137,7 @@
   "DISCONNECT_SURVIVAL": true,
   "DISCONNECT_FOLLOWUP": true,
   "KV_CACHE_AB": true,
-  "RESTART_3_SESSIONS": 2696037,
+  "RESTART_3_SESSIONS": 2892779,
   "CPU_FALLBACK_ZERO": true,
   "CANN_ERROR_ZERO": true
  },

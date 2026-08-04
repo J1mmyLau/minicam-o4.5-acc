@@ -155,6 +155,8 @@ OFFICIAL_BENCHMARK_PASS
 
 > 官方 Gate（OFFICIAL_BENCHMARK_PASS / COMPETITION_COMPLETE）仅在官方 Harness 与结果未定时一律不宣称。
 
+> **入口落地**：本指南集位于 llama 仓库 `docs/vllm-migration/`。队友接手时，需在 **vLLM 项目 README 或交接页**加入口链接（`docs/vllm-migration/README.md`），保证 vLLM 侧可直接访问。
+
 ---
 
 ## 10. 文档索引（7 个文件）
