@@ -71,12 +71,32 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 
 | 优先级 | 任务 | 状态 |
 |--------|------|------|
+| P0 | ~~修复 S13 无限生成问题 (per-request HTTP token cap)~~ | ✅ DONE (e159b3ee) |
 | P0 | 补 R13 端到端首音 30 对 A/B (USE_TTS=True) | PENDING |
-| P0 | 修复 S13 无限生成问题 (per-request HTTP token cap) | PENDING |
-| P0 | 用原始 Prompt 重新运行 number_mix R23-R30 | PENDING |
+| P0 | 用原始 Prompt 重新运行 number_mix R23-R30 (targeted regression) | IN PROGRESS |
+| P0 | Full strict S13 120 re-run with frozen prompts | PENDING |
 | P1 | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | P2 | M6 6h mixed-workload soak audit | DEFERRED |
 | P3 | Decode-to-Speak bottleneck optimization | HOLD |
+
+## Step 2-5 代码修改摘要 (2026-08-04)
+
+**Binary**: `e159b3ee418cc8079e9dbb1f219bf98ed7e2eb4eb25a05ad9ccd21a143e188c9`
+
+### 修改的文件
+
+| 文件 | 变更 |
+|------|------|
+| `tools/omni/omni.h` | +`OmniStopReason` 枚举 (EOS/MAX_TOKENS/WALL_TIMEOUT/CLIENT_DISCONNECT/ERROR), +`omni_stop_reason_name()`, +per-request fields (stop_reason, generated_token_count, request_sliding_window_count, eos_detected, cli_n_predict, request_max_tokens, request_wall_timeout_ms, request_start_wall_ns) |
+| `tools/omni/omni.cpp` | stream_decode: entry reset counters, save cli_n_predict, wall-time check before each token generation, eos_detected tracking, stop_reason determination after loop, sliding window delta computation |
+| `tools/server/server-omni.cpp` | `/v1/stream/decode`: parse `max_tokens` + `wall_timeout_ms`, set per-request limits on octx, include runtime evidence in non-streaming response |
+| `tools/server/ws_handler.cpp` | `create_session_octx`: save/restore `n_predict` around WS default (2048) to prevent cross-contamination of HTTP simplex sessions |
+
+### Token cap semantics (per user spec)
+- CLI `-n` = server default (saved as `cli_n_predict` at first decode)
+- HTTP `max_tokens` = per-request cap (0 = use n_predict)
+- effective = `max_tokens > 0 ? max_tokens : n_predict`
+- `create_session_octx` no longer silently overwrites CLI `-n` → 2048 (save/restore pattern) |
 
 ## 约束
 

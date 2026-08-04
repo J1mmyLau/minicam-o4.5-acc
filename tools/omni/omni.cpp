@@ -13657,6 +13657,17 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                             break;
                         }
                     }
+                    // F6 S13: Check global token budget at per-token granularity.
+                    // The outer for-loop condition (il < max_tgt_len) only checks
+                    // between chunks. If the model enters a "think loop" generating
+                    // many non-TTS tokens (filtered, not counted in jl), the inner
+                    // while loop can run unbounded. This check ensures the global
+                    // budget is enforced at EACH token.
+                    if (il + total_tokens_generated >= max_tgt_len) {
+                        print_with_timestamp("LLM: max_tgt_len=%d reached mid-chunk (il=%d, chunk_gen=%d)\n",
+                                            max_tgt_len, il, total_tokens_generated);
+                        break;
+                    }
                     // F6 S9: D1 — first autoregressive decode step
                     if (!llm_first_decode_step_logged) {
                         llm_first_decode_step_logged = true;
