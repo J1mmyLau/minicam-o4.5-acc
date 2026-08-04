@@ -1,0 +1,22 @@
+# F6 S13 Closure — SHA256 Manifest
+# Generated: 2026-08-04T09:52:36Z
+# Binary + model + raw data + scripts
+
+## Binary
+e159b3ee418cc8079e9dbb1f219bf98ed7e2eb4eb25a05ad9ccd21a143e188c9  build/bin/llama-omni-server
+
+## Model
+d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de  /workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-F16.gguf
+
+## Raw Data (step7)
+033be96c4003b43bc76e6922631f7c86309f6f9e5f417548067974170bf04e8b  docs/f6-s13-closure/raw-data/step7/s13_step7_final.json
+792a8c8d74afc8f2d3f501366fa1802077a1c584b4ba81d745a834b7c0d2f685  docs/f6-s13-closure/raw-data/step7/s13_step7_server.log
+
+## Raw Data (step8)
+992e963aa2187dac9c377d28b0361e4c70bd28dea511169fac1c99cd33b469de  docs/f6-s13-closure/raw-data/step8/step8_r13_e2e_first_audio_ab_v6.json
+485fb65ec7c43c2ea8ba2fc9fd067a34f703e7dc6f6b2d061bc1aa7e807355ae  docs/f6-s13-closure/raw-data/step8/s13_step8_server.log
+
+## Analysis Scripts
+57ba9485d9932798165a3828bfae9b900af4b4af2cd3b2c8c5a6a629f8fc16f9  docs/f6-s13-closure/scripts/f6_s13_step6_regression.py
+0c57cfcb238f2a9afe6f55de472093a45af8ff849ce7c21ecd4e82581a6f4b88  docs/f6-s13-closure/scripts/f6_s13_step7_strict_baseline.py
+1131ae7fba346d98bfd6c6ed70ad186388d70a886d9ab17e86bdc0499cf01f09  docs/f6-s13-closure/scripts/f6_s13_step8_r13_e2e_first_audio_ab.py
