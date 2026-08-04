@@ -171,8 +171,8 @@ KV Cache: RECOMMEND_OPT_IN (OMNI_KV_CACHE_REUSE=1), 2772x prefill reduction, -60
 |----|------|------|
 | T1 | DONE | 统一状态文档 — S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120；新 Gate=PENDING |
 | T2 | DONE | baseline 设备口径审计 — CPU T2W=默认回退+实测参考 baseline；候选=DEVICE_PLACEMENT_CORRECTION |
-| T3 | PENDING | 严格事件关联 — request_id/generation_id 埋点，禁止日志顺序对齐 |
-| T4 | PENDING | CANN T2W 严格复核 — ≥16 对，request-id 绑定，0 错配/缺失/超时 |
+| T3 | DONE | 严格事件关联 — 埋点实现并提交 (510a9f0): decode-start 打印 round_idx/gen/reqidx；W0/wav 行打印 req/gen；decode 响应回显 round_idx/generation_id/wav_count/decode_to_first_audio_ms；E2EStageTiming::decode_to_first_audio_ms()。smoke 验证通过：value-bound 证据全渠道一致 |
+| T4 | **DONE** | CANN T2W 严格复核 — FULL PASS：20 对 / 19 active / 1 NoSpeech；10 correlation gates 19/19（echo/single_w0/gen_match/wav_req_bind/reqidx_e2e_bind/wav_count/d2fa_cross/d2fa_e2e_audio/audio_valid/stale_cross）；0 fallback / 0 error / 0 timeout；RSS+HBM 单调；**T2W-only delta 19/19 全负**（p50 −4215.8ms, CI95 [−4395.6,−4085.4]，排除 LLM 随机 preamble），W0 E2E p50 −3946ms (CI [−4379,−3799])；修复服务端 wav_count 跨轮累计 bug（is_final 不再提前 last_round_idx）；NoSpeech 分类改用 e2e_audio JSON 缺失（talker_token_count 不可靠：round 302 说话却报 0）；证据 `docs/f6-s13-closure/phase2/t4_strict_cann_t2w.json` |
 | T5 | PENDING | 最终集成候选 — KV+token cap+生命周期+CANN Flow/Voc 组合冻结 |
 | T6 | PENDING | 最终集成回归 — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 |
 | T7 | PENDING | 质量/比赛 Gate — 外部资产缺失 → PENDING_EXTERNAL_ASSETS（不伪造） |

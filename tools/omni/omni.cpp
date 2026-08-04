@@ -11677,8 +11677,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     
                     // 🔧 [单工模式] 在 is_final 后检查是否需要更新目录
                     // simplex_round_idx 已经在 TTS 线程中递增
+                    // F6 T4 FIX: 不再提前更新 last_round_idx —— 若提前更新，下一轮
+                    // 的 dequeue 轮次切换 (11375) 看到 last_round_idx == effective 将
+                    // 不会触发，wav_count 也不会复位，导致响应中的 wav_count 跨轮累积。
+                    // 目录仍然提前创建；last_round_idx 由下一轮 dequeue 的轮次切换更新，
+                    // 那里会顺带复位 wav_count（per-round 语义）。
                     if (!ctx_omni->duplex_mode && ctx_omni->simplex_round_idx != last_round_idx) {
-                        last_round_idx = ctx_omni->simplex_round_idx;
                         tts_wav_output_dir = get_wav_output_dir();
                         print_with_timestamp("T2W线程: 轮次结束后更新输出目录为 %s\n", tts_wav_output_dir.c_str());
                         // 确保目录存在
