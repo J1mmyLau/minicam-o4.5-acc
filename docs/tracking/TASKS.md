@@ -153,3 +153,14 @@ KV Cache: RECOMMEND_OPT_IN (OMNI_KV_CACHE_REUSE=1), 2772x prefill reduction, -60
 | F6_INSTRUMENTATION_OVERHEAD | **NOT_RUN** | Blocked by A9 |
 | F6_BASELINE_120 | **NOT_STARTED** | Blocked by A7 + A9 |
 | F6-3-L7+ | **PENDING** | Autonomous optimization mission (L7-L31) |
+
+## Phase 2：Decode→Speak Bottleneck 分析（6 步指令，全部完成 ✅）
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| P2-S1 | DONE | Phase 1 冻结（closure doc + raw data + scripts + SHA manifest, git clean） |
+| P2-S2 | DONE | Latency budget — decode→speak=142ms(2.9%), T2W CPU=4490ms(93%) (f9a6241) |
+| P2-S3 | DONE | Decode→Speak 内部分解 — 12 类未插桩 → DEFER (06f261a) |
+| P2-S4 | DONE | MTP reachability audit — MTP_NOT_REACHABLE (1916743) |
+| P2-S5 | DONE | Amdahl ranking — T2W CANN move #1 OPTIMIZE_FIRST (7c0aa56) |
+| P2-S6 | DONE | CANN T2W A/B — W0 4798→894ms (−81.4%), 32/32, CI95 [−4220,−3732] (271265b) |

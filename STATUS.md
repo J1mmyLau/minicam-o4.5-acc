@@ -2,7 +2,11 @@
 
 ## 当前阶段
 
-`Phase 3：R13 Prefill PASS, S13 PROVISIONAL` — 静态前缀 Prefill 验证完成，S13 严格基线尚未关闭。详见 [S13 Strict Audit](docs/tracking/f6_lifecycle/S13_STRICT_AUDIT_AND_GATE_CORRECTION.md)。
+`Phase 3：R13 Prefill PASS, S13 PROVISIONAL, Phase 2 Bottleneck 分析 COMPLETE` —
+静态前缀 Prefill 验证完成，S13 严格基线尚未关闭（详见 [S13 Strict Audit](docs/tracking/f6_lifecycle/S13_STRICT_AUDIT_AND_GATE_CORRECTION.md)）。
+**Phase 2（6 步指令）已全部完成**：decode→speak 仅占 W0 的 2.9%（142ms），T2W CPU
+inference 占 93%（4490ms）；第一候选实验（CANN T2W/VOC 设备迁移）把 W0 p50 从 4798ms
+降至 **894ms（−81.4%）**。见 [Step 6 报告](docs/F6_PHASE2_STEP6_CANN_T2W_AB.md)。
 
 ## R13 Gate 总结 (2026-08-03)
 
@@ -77,7 +81,7 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 | P0 | Full strict S13 120 re-run with frozen prompts | PENDING |
 | P1 | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | P2 | M6 6h mixed-workload soak audit | DEFERRED |
-| P3 | Decode-to-Speak bottleneck optimization | HOLD |
+| P3 | Decode-to-Speak bottleneck optimization | ✅ Phase 2 完成 (6 步) — 首音 4.83s→0.89s (CANN T2W 迁移) |
 
 ## Step 2-5 代码修改摘要 (2026-08-04)
 
@@ -111,7 +115,22 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 ## Git
 
 ```
-HEAD:    ec6dbc7 fix(f6-phase3): R13 per-generation active accounting
+HEAD:    271265b docs(f6-phase2): Step 6 CANN T2W A/B — W0 4798→894ms (−81.4%)
 Branch:  perf/f6-decode-to-speak
 Worktree: /workspace/llama.cpp-omni-f6
 ```
+
+## Phase 2 完成记录 (2026-08-04, 6 步指令)
+
+| 步 | 交付物 | Commit |
+|----|--------|--------|
+| 1 | Phase 1 冻结（closure + SHA manifest） | 1f08d18（先前） |
+| 2 | Latency budget — decode→speak=142ms(2.9%), T2W=93% | f9a6241 |
+| 3 | Decode→Speak 内部分解 — 12 类未插桩 → DEFER | 06f261a |
+| 4 | MTP audit — MTP_NOT_REACHABLE_WITH_CURRENT_MODEL | 1916743 |
+| 5 | Amdahl ranking — T2W CANN move = OPTIMIZE_FIRST | 7c0aa56 |
+| 6 | CANN T2W A/B — W0 4798→894ms (−81.4%), 32/32, CI95 [−4220,−3732] | 271265b |
+
+核心结论：首音延迟的瓶颈是 **T2W CPU inference（93%）**，非 LLM Decode→Speak（2.9%）。
+CANN 设备迁移（纯环境变量，零代码改动）实现 5.0× request→first-audio。约束全满足
+（CHUNK_SIZE=25 / B6b / MTP 均未改动）。

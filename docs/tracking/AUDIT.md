@@ -364,3 +364,9 @@ Not two physical cards. Compliant with single-card competition rules.
 ## 2026-08-03 07:26 | R12_EXTENDED_REGRESSION | COMPLETE — 19/19 core PASS (20 sequential, 2 reconnect, 2 rebuild); 3 fault injection correctly returned HTTP 500 (no hang). All 6 "FAIL" items are expected behavior (timeout→error).
 ## 2026-08-03 07:50 | R12_STATIC_PREFIX | COMPLETE — 29/30 valid pairs, 30/30 B-HIT (100%), 62 tokens reused, 0 stale/cross writes, 240× prefill speedup (9100ms→38ms). Used working CLI binary (build/bin/llama-omni-cli) with Q4_K_M, -ngl 0. FP16+NPU not feasible (CLI crash in T2W init with new build — pre-existing issue).
 ## 2026-08-03 07:50 | R12_FINAL | ALL GATES PASS — lifecycle fix complete, polling overhead measured, serialization documented, extended regression validated, KV cache correctness confirmed. R12 closeout ready.
+
+## 2026-08-04 10:25 | PHASE2_STEP2_LATENCY_BUDGET | COMMIT f9a6241 — decode→speak=142ms(2.9%), T2W CPU inf=4490ms(93.0%) of W0 4830ms; saved step2_latency_budget.json
+## 2026-08-04 10:26 | PHASE2_STEP3_BREAKDOWN | COMMIT 06f261a — speak path decomposed; 12 internal decode categories NOT instrumented → DEFER per Amdahl
+## 2026-08-04 10:26 | PHASE2_STEP4_MTP_AUDIT | COMMIT 1916743 — MTP_NOT_REACHABLE_WITH_CURRENT_MODEL (no head tensors, no runtime); REJECT_BY_SCOPE
+## 2026-08-04 10:27 | PHASE2_STEP5_AMDAHL | COMMIT 7c0aa56 — T2W CANN move = OPTIMIZE_FIRST (93% bucket); all decode-side candidates ≤2.9%
+## 2026-08-04 10:30 | PHASE2_STEP6_CANN_T2W_AB | COMMIT 271265b — W0 p50 4798→894ms (−81.4%); 32/32 matched pairs; CI95 [−4220,−3732] excludes 0; T2W inf ~20×; RTF 4.19→0.26–0.33; 32/32 wavs valid 16-bit PCM @24 kHz; vocoder CANN GPU, 0 CPU fallback. PHASE 2 COMPLETE.
