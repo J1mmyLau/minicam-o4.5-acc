@@ -1436,21 +1436,6 @@ static bool is_chunk_end_token(struct omni_context * ctx, llama_token token) {
            type == OmniTokenType::CHUNK_TTS_EOS;
 }
 
-// 获取 token 类型名称（用于日志）
-static const char * get_token_type_name(OmniTokenType type) {
-    switch (type) {
-        case OmniTokenType::NORMAL:        return "NORMAL";
-        case OmniTokenType::SPEAK:         return "SPEAK";
-        case OmniTokenType::LISTEN:        return "LISTEN";
-        case OmniTokenType::CHUNK_EOS:     return "CHUNK_EOS";
-        case OmniTokenType::CHUNK_TTS_EOS: return "CHUNK_TTS_EOS";
-        case OmniTokenType::TURN_EOS:      return "TURN_EOS";
-        case OmniTokenType::TTS_EOS:       return "TTS_EOS";
-        case OmniTokenType::EOS:           return "EOS";
-        default:                           return "UNKNOWN";
-    }
-}
-
 //
 // omni structure
 //
@@ -3513,7 +3498,19 @@ static bool eval_tokens_tts(struct omni_context* ctx_omni, common_params* params
             batch.pos[j] = *n_past_tts + j;
         }
         fflush(stdout);
-        
+
+        // F6: TTS KV bounds guard — never call llama_decode into a full TTS KV cache.
+        // When n_past + batch > n_ctx, llama_decode raises "failed to find a memory slot"
+        // (observed at tts_n_past_accumulated=4096) which can corrupt heap state. Returning
+        // false here truncates generation gracefully (generation loop breaks on
+        // sample_tts_token==0), identical to the pre-existing decode_ret!=0 path.
+        const uint32_t tts_n_ctx = llama_n_ctx(ctx_omni->ctx_tts_llama);
+        if ((uint32_t)(*n_past_tts) + (uint32_t)n_eval > tts_n_ctx) {
+            LOG_ERR("%s : TTS KV cache full: n_past %d + batch %d > n_ctx %u, stopping generation (truncated)\n",
+                    __func__, *n_past_tts, n_eval, tts_n_ctx);
+            return false;
+        }
+
         // Enable embeddings output for TTS model (needed for head_code logits calculation)
         llama_set_embeddings(ctx_omni->ctx_tts_llama, true);
         fflush(stdout);
@@ -3602,7 +3599,20 @@ bool prefill_with_emb_tts(struct omni_context* ctx_omni, common_params* params, 
         for (int j = 0; j < n_eval; j++) {
             batch.pos[j] = text_start_pos + i + j;  // Fix: use text_start_pos + i + j instead of *n_past_tts + j
         }
-        
+
+        // F6: TTS KV bounds guard — same rationale as eval_tokens_tts. text_start_pos is the
+        // chunk's prefill base (n_past at entry); if this batch would land past n_ctx, skip the
+        // chunk's audio entirely rather than call llama_decode into a full KV cache. The caller
+        // (generate_audio_tokens_local_simplex) treats a false return as "chunk produced no
+        // audio" and the request continues — graceful truncation, no client-visible error.
+        const uint32_t tts_n_ctx = llama_n_ctx(ctx_omni->ctx_tts_llama);
+        if ((uint32_t)(text_start_pos + i + n_eval) > tts_n_ctx) {
+            LOG_ERR("%s : TTS KV cache full: text_start %d + offset %d + batch %d > n_ctx %u, skipping chunk (truncated)\n",
+                    __func__, text_start_pos, i, n_eval, tts_n_ctx);
+            llama_set_embeddings(ctx_omni->ctx_tts_llama, false);
+            return false;
+        }
+
         // Enable embeddings output for TTS model (needed for head_code logits calculation)
         llama_set_embeddings(ctx_omni->ctx_tts_llama, true);
 
@@ -5318,8 +5328,10 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         ctx_omni->audio_assistant_prompt = "<|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。你是由面壁智能开发的人工智能助手：面壁小钢炮。<|im_end|>\n<|im_start|>user\n";
         
         // Omni 模式（非双工）：与 Audio 模式类似，末尾也添加 <|im_start|>user\n
+        // [F6 P0] 对齐 audio 模式：补上助手身份句。已通过 Daily-Omni pilot 验证——
+        // 修复 media_type=2 音频退化（原输出空转/WS，补身份句后输出正常作答）。
         ctx_omni->omni_voice_clone_prompt = "<|im_start|>system\n模仿音频样本的音色并生成新的内容。\n<|audio_start|>";
-        ctx_omni->omni_assistant_prompt = "<|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。<|im_end|>\n<|im_start|>user\n";
+        ctx_omni->omni_assistant_prompt = "<|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。你是由面壁智能开发的人工智能助手：面壁小钢炮。<|im_end|>\n<|im_start|>user\n";
     }
 
     llama_model * model = nullptr;
@@ -5392,7 +5404,7 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         // 如果 TTS 模型需要更小的上下文窗口，可以在这里调整
         // 例如：tts_ctx_params.n_ctx = std::min(params->n_ctx, 2048); // 限制 TTS 上下文大小
         tts_ctx_params.n_ctx = params->n_ctx;  // 暂时使用相同的 n_ctx，后续可以根据需要调整
-        
+
         llama_context * ctx_tts_llama = llama_new_context_with_model(tts_model, tts_ctx_params);
         if (ctx_tts_llama == NULL) {
             LOG_ERR("%s: error: failed to create the TTS llama_context\n", __func__);
@@ -6728,15 +6740,21 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                     
                     // 音频部分
                     if (has_audio) {
-                        if (!ctx_omni->duplex_mode) {
-                            // 单工格式：<|audio_start|> + audio + <|audio_end|>
-                            eval_string(ctx_omni, params, "<|audio_start|>", params->n_batch, &ctx_omni->n_past, false);
-                        }
+                        // [F6 P0] 视觉+音频路径不再用 <|audio_start|>/<|audio_end|> 包裹音频。
+                        // 模型原生训练格式（duplex/video QA）中，媒体后的音频 embedding 直接紧跟
+                        // <unit>/<image> 序列，不加 audio_start/end。此前两种格式混用
+                        // （image/slice 用 duplex 标签 + 音频用单工包裹）导致模型 think-loop。
+                        // 已通过 Daily-Omni pilot 验证：image+audio 从空转 think-loop 变为确定性作答。
                         prefill_with_emb(ctx_omni, params, embeds->audio_embed.data(), n_audio_tokens,
                                         params->n_batch, &ctx_omni->n_past);
-                        if (!ctx_omni->duplex_mode) {
-                            eval_string(ctx_omni, params, "<|audio_end|>", params->n_batch, &ctx_omni->n_past, false);
-                        }
+                    }
+
+                    // 🔧 [F6 P0] 媒体+文本同传：官方单消息格式（media + question text 同时送达）。
+                    // 此前仅子分支3（纯文本）会写入 user_text；有媒体时问题文本被丢弃，
+                    // 模型只看到媒体 token，无法作答（输出 "?"×256）。在媒体之后补写文本。
+                    if (!embeds->user_text.empty()) {
+                        eval_string(ctx_omni, params, "\n", params->n_batch, &ctx_omni->n_past, false);
+                        eval_string(ctx_omni, params, embeds->user_text.c_str(), params->n_batch, &ctx_omni->n_past, false);
                     }
                 }
                 // ========== 子分支2：处理只有音频嵌入的数据（纯音频模式） ==========
@@ -6760,6 +6778,12 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                     // 单工格式需要 <|audio_end|>
                     if (!ctx_omni->duplex_mode) {
                         eval_string(ctx_omni, params, "<|audio_end|>", params->n_batch, &ctx_omni->n_past, false);
+                    }
+
+                    // 🔧 [F6 P0] 音频+文本同传：与子分支1同理，音频后补写用户文本。
+                    if (!embeds->user_text.empty()) {
+                        eval_string(ctx_omni, params, "\n", params->n_batch, &ctx_omni->n_past, false);
+                        eval_string(ctx_omni, params, embeds->user_text.c_str(), params->n_batch, &ctx_omni->n_past, false);
                     }
                 }
                 // 子分支3：纯文本输入（turn-based chat 文本对话）
@@ -13688,7 +13712,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                     // 使用新函数获取token文本、hidden state和token ID
                     tmp = llama_loop_with_hidden_and_token(ctx_omni, ctx_omni->params, ctx_omni->ctx_sampler, ctx_omni->n_past, hidden_states, sampled_token);
                 }
-                
+
                 total_tokens_generated++;
                 
                 // 🔧 [过滤逻辑] 只收集有效的 TTS token
