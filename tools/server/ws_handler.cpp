@@ -527,6 +527,10 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
 
     // Build params for omni_init
     auto & p = params;
+    // F6 S13: Save/restore n_predict to prevent WS default (2048) from
+    // contaminating HTTP simplex sessions that share the same params pointer.
+    // WS sessions set n_predict per-turn via update_session_config anyway.
+    int saved_n_predict = p.n_predict;
     p.n_predict = 2048;
     ensure_omni_model_paths(p);
 
@@ -537,6 +541,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
         apply_session_config(p, shared_octx, init);
         LOG_INF("create_session_octx: reused shared octx, duplex=%d, output_dir=%s\n",
                 duplex_mode, output_dir.c_str());
+        p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
         return shared_octx;
     }
 
@@ -550,6 +555,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
                                      model, ctx, output_dir);
     if (!octx) {
         LOG_ERR("create_session_octx: omni_init failed\n");
+        p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
         return nullptr;
     }
 
@@ -565,6 +571,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
 
     LOG_INF("create_session_octx: session octx created, duplex=%d, output_dir=%s\n",
             duplex_mode, output_dir.c_str());
+    p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
     return octx;
 }
 
