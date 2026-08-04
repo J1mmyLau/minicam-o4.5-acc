@@ -10923,8 +10923,9 @@ void t2w_thread_func_python(struct omni_context * ctx_omni, common_params *param
                             ? std::chrono::duration_cast<std::chrono::milliseconds>(
                                 wav_complete_time - ctx_omni->request_start_time).count()
                             : 0;
-                        print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio)\n",
-                            (long long)elapsed_ms, (long long)req_elapsed);
+                        print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio) | req=%d gen=%u\n",
+                            (long long)elapsed_ms, (long long)req_elapsed,
+                            received_round_idx, ctx_omni->e2e_stage.capture_generation());
                     }
 
                     float rtf = (float)(inference_time_ms / 1000.0) / audio_duration;
@@ -11588,11 +11589,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                                 ? std::chrono::duration_cast<std::chrono::milliseconds>(
                                     wav_complete_time - ctx_omni->request_start_time).count()
                                 : 0;
-                            print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio)\n",
-                                (long long)elapsed_ms, (long long)req_elapsed);
+                            print_with_timestamp("🎉 首响时间 (First Audio Response): %lldms (decode_to_first_audio) | %lldms (request_to_first_audio) | req=%d gen=%u\n",
+                                (long long)elapsed_ms, (long long)req_elapsed,
+                                effective_round_idx, ctx_omni->e2e_stage.t2w_thread_generation);
                         }
-                        print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms\n",
-                                            ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms);
+                        print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms | req=%d gen=%u\n",
+                                            ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms,
+                                            effective_round_idx, ctx_omni->e2e_stage.t2w_thread_generation);
                         wav_idx++;
                         // P7.3: track WAV count for drain verification
                         ctx_omni->t2w_thread_info->wav_count.fetch_add(1, std::memory_order_relaxed);
@@ -13329,13 +13332,15 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     if (ctx_omni->cli_n_predict == 0) {
         ctx_omni->cli_n_predict = ctx_omni->params->n_predict;
     }
-    // 🔧 [诊断] 打印 stream_decode 开始时的关键状态 (F6 S13: +n_predict evidence)
+    // 🔧 [诊断] 打印 stream_decode 开始时的关键状态 (F6 S13: +n_predict evidence; F6 T3: +round_idx/gen/reqidx correlation)
     print_with_timestamp("📍 stream_decode 开始: n_past=%d, n_keep=%d, n_ctx=%d, duplex_mode=%d, "
-                         "cli_n_predict=%d, request_max_tokens=%d, wall_timeout_ms=%d\n",
+                         "cli_n_predict=%d, request_max_tokens=%d, wall_timeout_ms=%d, round_idx=%d, gen=%u, reqidx=%d\n",
                          ctx_omni->n_past, ctx_omni->n_keep, ctx_omni->params->n_ctx,
                          ctx_omni->duplex_mode,
                          ctx_omni->cli_n_predict, ctx_omni->request_max_tokens,
-                         ctx_omni->request_wall_timeout_ms);
+                         ctx_omni->request_wall_timeout_ms, round_idx,
+                         ctx_omni->e2e_stage.capture_generation(),
+                         ctx_omni->e2e_stage.request_index);
 
     // 🔧 [unit 记账] decode_start_cache_len 不在这里取值！
     // 这里的 n_past 还是 prefill 之前的值；stream_decode 内部其实是
