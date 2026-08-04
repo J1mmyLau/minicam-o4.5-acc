@@ -6076,9 +6076,10 @@ static int t2w_get_drain_timeout_ms(size_t pending_count, bool worker_active) {
         adaptive_ms += 60000;
     }
 
-    // Clamp to [1000, 180000]
+    // Clamp to [1000, 900000] — raised from 180000 for high-token-count
+    // requests (256 tokens → ~70+ T2W tasks × ~4.3s/WAV ≈ 300s drain).
     if (adaptive_ms < 1000)  adaptive_ms = 1000;
-    if (adaptive_ms > 180000) adaptive_ms = 180000;
+    if (adaptive_ms > 900000) adaptive_ms = 900000;
 
     const char * env = getenv("OMNI_T2W_DRAIN_TIMEOUT_MS");
     if (env) {
@@ -6091,7 +6092,7 @@ static int t2w_get_drain_timeout_ms(size_t pending_count, bool worker_active) {
         } else if (adaptive_ms < env_val) {
             adaptive_ms = env_val;
         }
-        if (adaptive_ms > 180000)  adaptive_ms = 180000;
+        if (adaptive_ms > 900000)  adaptive_ms = 900000;
     }
 
     return adaptive_ms;
@@ -6420,23 +6421,24 @@ void omni_free(struct omni_context * ctx_omni) {
     }
  
     if (ctx_omni->use_tts) {
-        tts_thread_running = false; // Signal the thread to stop
-        if (ctx_omni->tts_thread.joinable()) {
-            ctx_omni->tts_thread_info->cv.notify_all(); // Wake up the thread if it's waiting
-            ctx_omni->tts_thread.join(); // Wait for the thread to finish
-        }
+        // F6 S13 fix: Stop T2W BEFORE TTS.  The T2W worker consumes TTS output;
+        // joining TTS first starves the T2W worker and causes omni_free to hang.
+        // Also skip the redundant T2W drain — the handler already drained via
+        // omni_duplex_drain_tts_audio().  A second drain resets is_final_processed
+        // and can deadlock if the T2W worker is waiting on TTS input.
 
-        // P7.3: T2W Drain Protocol — same as omni_prepare_for_reuse
-        if (ctx_omni->t2w_thread_info) {
-            t2w_drain_signal_and_wait(ctx_omni);
-            t2w_drain_classify_terminal(ctx_omni);
-        }
-
-        // Stop T2W thread
+        // Stop T2W thread first
         t2w_thread_running = false; // Signal the thread to stop
         if (ctx_omni->t2w_thread.joinable()) {
             ctx_omni->t2w_thread_info->cv.notify_all(); // Wake up the thread if it's waiting
             ctx_omni->t2w_thread.join(); // Wait for the thread to finish
+        }
+
+        // TTS thread after T2W — T2W no longer depends on it
+        tts_thread_running = false; // Signal the thread to stop
+        if (ctx_omni->tts_thread.joinable()) {
+            ctx_omni->tts_thread_info->cv.notify_all(); // Wake up the thread if it's waiting
+            ctx_omni->tts_thread.join(); // Wait for the thread to finish
         }
     }
     

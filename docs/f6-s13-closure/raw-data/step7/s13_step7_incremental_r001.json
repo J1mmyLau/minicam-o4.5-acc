@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "step": "Step 7: S13 120 STRICT",
+    "progress": "1/120",
+    "timestamp": "2026-08-04T06:12:39.145722"
+  },
+  "all_results": [
+    {
+      "case_id": "short_cn-R01",
+      "category": "short_cn",
+      "round": 0,
+      "audio": "0000.wav",
+      "prompt": "你好，请介绍一下你自己",
+      "prompt_sha256": "a96efae33857c47ef09659ff25c147d2b3a1e1d6a304fae129ba829908daa5ff",
+      "max_tokens": 256,
+      "wall_timeout_ms": 300000,
+      "init_wall_s": 6.650274753570557,
+      "prefill_wall_ms": 104.71057891845703,
+      "decode_wall_ms": 5420.38369178772,
+      "success": true,
+      "stop_reason": "eos",
+      "stop_reason_code": 0,
+      "generated_token_count": 1,
+      "eos_detected": true,
+      "sliding_window_count": 0,
+      "cli_n_predict": 256,
+      "request_max_tokens": 256,
+      "effective_max_tokens": 256,
+      "log_bytes_before": 29378,
+      "log_bytes_after": 32441,
+      "log_grew": 3063,
+      "request_order": 1
+    }
+  ]
+}
