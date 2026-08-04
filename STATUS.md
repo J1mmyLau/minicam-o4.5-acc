@@ -150,7 +150,7 @@ COMPETITION_COMPLETE              = NOT_CLAIMED
 ## Git
 
 ```
-HEAD:    271265b docs(f6-phase2): Step 6 CANN T2W A/B — W0 4798→894ms (−81.4%)
+HEAD:    d95acea docs(f6-phase2): T1 status unify + T2 baseline device audit
 Branch:  perf/f6-decode-to-speak
 Worktree: /workspace/llama.cpp-omni-f6
 ```
