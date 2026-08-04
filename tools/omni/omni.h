@@ -613,6 +613,13 @@ struct E2EStageTiming {
         return (ts - t0_ns) / 1'000'000;
     }
 
+    // decode_loop_begin -> client_first_audio (ms), or -1 if either stage not recorded
+    int64_t decode_to_first_audio_ms() const {
+        int64_t t0 = timestamps_ns[STAGE_decode_loop_begin].load(std::memory_order_acquire);
+        if (t0 <= 0) return -1;
+        return elapsed_ms(STAGE_client_first_audio, t0);
+    }
+
     // Get t0 reference (request_received timestamp in ns)
     int64_t t0_ns() const {
         return timestamps_ns[STAGE_request_received].load(std::memory_order_acquire);

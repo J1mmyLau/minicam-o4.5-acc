@@ -568,6 +568,13 @@ int main(int argc, char ** argv) {
                 {"effective_max_tokens", state.octx->request_max_tokens > 0
                     ? state.octx->request_max_tokens
                     : state.octx->cli_n_predict},
+                // F6 T3: request-level correlation evidence (client binds send->decode->T2W->W0 by round_idx)
+                {"round_idx", round_idx},
+                {"generation_id", state.octx->e2e_stage.capture_generation()},
+                {"wav_count", state.octx->t2w_thread_info
+                    ? state.octx->t2w_thread_info->wav_count.load(std::memory_order_relaxed)
+                    : -1},
+                {"decode_to_first_audio_ms", state.octx->e2e_stage.decode_to_first_audio_ms()},
             };
             res_ok(res, resp);
             _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "response_sent");
