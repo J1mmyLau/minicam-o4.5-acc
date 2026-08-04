@@ -13313,10 +13313,27 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     g_e2e_flow_end_ns.store(0, std::memory_order_relaxed);
     g_e2e_vocoder_start_ns.store(0, std::memory_order_relaxed);
     g_e2e_vocoder_end_ns.store(0, std::memory_order_relaxed);
-    
-    // 🔧 [诊断] 打印 stream_decode 开始时的关键状态
-    print_with_timestamp("📍 stream_decode 开始: n_past=%d, n_keep=%d, n_ctx=%d, duplex_mode=%d\n",
-                         ctx_omni->n_past, ctx_omni->n_keep, ctx_omni->params->n_ctx, ctx_omni->duplex_mode);
+
+    // F6 S13: Per-request runtime evidence — reset counters
+    ctx_omni->generated_token_count = 0;
+    ctx_omni->request_sliding_window_count = 0;
+    ctx_omni->eos_detected = false;
+    ctx_omni->stop_reason = OMNI_STOP_ERROR;  // default: will be overwritten on clean exit
+    ctx_omni->request_start_wall_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    // Snapshot sliding event counter for per-request delta
+    int sliding_event_count_before = ctx_omni->sliding_event_count;
+    // Save CLI -n on first call (before any overwrite by create_session_octx)
+    if (ctx_omni->cli_n_predict == 0) {
+        ctx_omni->cli_n_predict = ctx_omni->params->n_predict;
+    }
+    // 🔧 [诊断] 打印 stream_decode 开始时的关键状态 (F6 S13: +n_predict evidence)
+    print_with_timestamp("📍 stream_decode 开始: n_past=%d, n_keep=%d, n_ctx=%d, duplex_mode=%d, "
+                         "cli_n_predict=%d, request_max_tokens=%d, wall_timeout_ms=%d\n",
+                         ctx_omni->n_past, ctx_omni->n_keep, ctx_omni->params->n_ctx,
+                         ctx_omni->duplex_mode,
+                         ctx_omni->cli_n_predict, ctx_omni->request_max_tokens,
+                         ctx_omni->request_wall_timeout_ms);
 
     // 🔧 [unit 记账] decode_start_cache_len 不在这里取值！
     // 这里的 n_past 还是 prefill 之前的值；stream_decode 内部其实是
@@ -13527,9 +13544,14 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     }
     LOG_INF("<user>%s\n", ctx_omni->params->prompt.c_str());
     LOG_INF("<assistant>");
-    const int max_tgt_len = ctx_omni->params->n_predict < 0 ? ctx_omni->params->n_ctx : ctx_omni->params->n_predict;
-    print_with_timestamp("LLM decode: max_tgt_len = %d, n_predict = %d, n_ctx = %d\n", 
-                         max_tgt_len, ctx_omni->params->n_predict, ctx_omni->params->n_ctx);
+    const int max_tgt_len = ctx_omni->request_max_tokens > 0
+        ? ctx_omni->request_max_tokens
+        : (ctx_omni->params->n_predict < 0 ? ctx_omni->params->n_ctx : ctx_omni->params->n_predict);
+    print_with_timestamp("LLM decode: max_tgt_len = %d, request_max_tokens = %d, "
+                         "n_predict = %d, cli_n_predict = %d, n_ctx = %d, wall_timeout_ms = %d\n",
+                         max_tgt_len, ctx_omni->request_max_tokens,
+                         ctx_omni->params->n_predict, ctx_omni->cli_n_predict,
+                         ctx_omni->params->n_ctx, ctx_omni->request_wall_timeout_ms);
     // LLM chunk size: 每chunk推送给TTS的LLM tokens数量
     // 原始Python: generate_chunk_size=10
     // 注意：step_size影响TTS条件长度，可能影响音质
@@ -13562,6 +13584,8 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     bool local_is_end_of_turn = false;
     // 🔧 [P0-打断检测] 双工模式下记录当前 chunk 生成的 token 数
     int current_chunk_tokens = 0;
+    // F6 S13: request-level token counter (il is loop-scoped, this survives for diagnostics)
+    int total_generated_this_request = 0;
     for (int il = 0; il < max_tgt_len; ) {
         // 🔧 [P0-打断检测] 外层循环也检测 break_event
         if (ctx_omni->break_event.load()) {
@@ -13617,6 +13641,22 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
 
                 llama_token sampled_token = 0;
                 {
+                    // F6 S13: Per-request wall-time safety check.
+                    // Runs before each token generation to enforce a hard time limit.
+                    if (ctx_omni->request_wall_timeout_ms > 0) {
+                        int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+                        int64_t elapsed_ms = (now_ns - ctx_omni->request_start_wall_ns) / 1000000;
+                        if (elapsed_ms > ctx_omni->request_wall_timeout_ms) {
+                            print_with_timestamp("⏰ WALL_TIMEOUT: elapsed=%lldms > limit=%dms, "
+                                                "stopping decode (generated=%d tokens, il=%d)\n",
+                                                (long long)elapsed_ms, ctx_omni->request_wall_timeout_ms,
+                                                total_tokens_generated, il);
+                            ctx_omni->stop_reason = OMNI_STOP_WALL_TIMEOUT;
+                            llm_finish = true;
+                            break;
+                        }
+                    }
                     // F6 S9: D1 — first autoregressive decode step
                     if (!llm_first_decode_step_logged) {
                         llm_first_decode_step_logged = true;
@@ -13731,6 +13771,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 }
                 
                 if (is_end_token(ctx_omni, sampled_token)){
+                    ctx_omni->eos_detected = true;
                     llm_finish = true;
                     
                     // 🔧 [与 Python 对齐] 设置 llm_generation_done 标志
@@ -13824,6 +13865,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         }
         // 🔧 使用总生成的 token 数量更新 il（用于和 max_tgt_len 比较）
         il += total_tokens_generated;
+        total_generated_this_request += total_tokens_generated;
         
         // 🔧 [统一处理] 移除响应中的所有特殊结束 token
         // 注意: <|speak|> 不是结束 token，而是开始说话的标记，应该被移除但不截断后面内容
@@ -13945,6 +13987,32 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         if (llm_finish) break;
     }
     fflush(stdout);
+
+    // F6 S13: Determine stop_reason after decode loop exit.
+    // Priority: WALL_TIMEOUT (set mid-loop) > EOS (natural) > BREAK > MAX_TOKENS.
+    if (ctx_omni->stop_reason != OMNI_STOP_WALL_TIMEOUT) {
+        if (ctx_omni->eos_detected) {
+            ctx_omni->stop_reason = OMNI_STOP_EOS;
+        } else if (ctx_omni->break_event.load()) {
+            ctx_omni->stop_reason = OMNI_STOP_CLIENT_DISCONNECT;
+        } else if (!llm_finish) {
+            // Loop exited because il >= max_tgt_len without EOS
+            ctx_omni->stop_reason = OMNI_STOP_MAX_TOKENS;
+        } else {
+            ctx_omni->stop_reason = OMNI_STOP_EOS;  // llm_finish=true without eos_detected (edge case)
+        }
+    }
+    // Compute per-request sliding window delta
+    ctx_omni->request_sliding_window_count = ctx_omni->sliding_event_count - sliding_event_count_before;
+    // Save total generated tokens for this request
+    ctx_omni->generated_token_count = total_generated_this_request;
+    print_with_timestamp("F6 S13: decode complete — stop_reason=%s(%d), generated=%d tokens, "
+                         "eos=%d, slide_window_delta=%d (total=%d)\n",
+                         omni_stop_reason_name(ctx_omni->stop_reason), ctx_omni->stop_reason,
+                         ctx_omni->generated_token_count,
+                         ctx_omni->eos_detected ? 1 : 0,
+                         ctx_omni->request_sliding_window_count,
+                         ctx_omni->sliding_event_count);
 
     // F6 A6: Push final LLMOut with llm_finish=true if the loop exited
     // without an EOS token (max_tgt_len reached).  The TTS thread needs

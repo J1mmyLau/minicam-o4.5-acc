@@ -1098,7 +1098,52 @@ struct omni_context {
     llama_token tts_bos_token_id = -1;           // <|tts_bos|>: TTS 开始（用于双工强制继续说话）
     llama_token special_token_unit_end = -1;     // </unit>: unit 结束标记（双工 chunk 边界）
     llama_token special_token_tts_pad = -1;      // <|tts_pad|>: TTS 填充（双工模式下禁止采样）
+
+    // ========================================================================
+    // F6 S13: Per-request runtime evidence for runaway generation diagnosis.
+    // These fields are reset at the start of each stream_decode() call and
+    // populated during the decode loop.  The HTTP handler reads them after
+    // decode completes to include diagnostic fields in the response.
+    // ========================================================================
+
+    // Stop reason: why the decode loop exited this request
+    int stop_reason = 0;   // 0=EOS, 1=MAX_TOKENS, 2=WALL_TIMEOUT, 3=CLIENT_DISCONNECT, 4=ERROR
+
+    // Token accounting
+    int generated_token_count = 0;         // Total LLM tokens generated this request (includes filtered)
+    int request_sliding_window_count = 0;  // KV sliding window events during this request
+    bool eos_detected = false;             // True if EOS/<|tts_eos|> was sampled during decode
+
+    // Per-request limits (set by HTTP handler before stream_decode)
+    int cli_n_predict = 0;           // CLI -n at omni_init time (saved before any overwrite)
+    int request_max_tokens = 0;      // Per-request token cap (0 = use n_predict)
+    int request_wall_timeout_ms = 0; // Per-request wall-time safety (0 = no limit)
+
+    // Wall-time request start (set by stream_decode entry)
+    int64_t request_start_wall_ns = 0;
 };
+
+// ========================================================================
+// F6 S13: Stop reason codes for per-request decode diagnostics.
+// ========================================================================
+enum OmniStopReason {
+    OMNI_STOP_EOS              = 0,  // Natural end: <|tts_eos|>, </s>, or is_end_token()
+    OMNI_STOP_MAX_TOKENS       = 1,  // Reached max_tokens limit (n_predict or request_max_tokens)
+    OMNI_STOP_WALL_TIMEOUT     = 2,  // Wall-time safety limit exceeded
+    OMNI_STOP_CLIENT_DISCONNECT = 3, // Client disconnected mid-request
+    OMNI_STOP_ERROR            = 4,  // Error during generation (nullptr, etc.)
+};
+
+static inline const char * omni_stop_reason_name(int reason) {
+    switch (reason) {
+        case OMNI_STOP_EOS:              return "eos";
+        case OMNI_STOP_MAX_TOKENS:       return "max_tokens";
+        case OMNI_STOP_WALL_TIMEOUT:     return "wall_timeout";
+        case OMNI_STOP_CLIENT_DISCONNECT: return "client_disconnect";
+        case OMNI_STOP_ERROR:            return "error";
+        default:                          return "unknown";
+    }
+}
 
 //
 // omni embed

@@ -413,6 +413,21 @@ int main(int argc, char ** argv) {
         bool stream = data.value("stream", true);
         int round_idx = data.value("round_idx", -1);
 
+        // F6 S13: Per-request token cap and wall-time safety.
+        // Effective max_tokens = min(request_max_tokens, server hard cap).
+        // If max_tokens not provided: effective = server default (CLI -n or n_predict).
+        // If wall_timeout_ms not provided: 0 = no limit.
+        int request_max_tokens = 0;
+        int request_wall_timeout_ms = 0;
+        if (data.contains("max_tokens") && data.at("max_tokens").is_number()) {
+            request_max_tokens = data.at("max_tokens").get<int>();
+            if (request_max_tokens < 0) request_max_tokens = 0;  // negative → use server default
+        }
+        if (data.contains("wall_timeout_ms") && data.at("wall_timeout_ms").is_number()) {
+            request_wall_timeout_ms = data.at("wall_timeout_ms").get<int>();
+            if (request_wall_timeout_ms < 0) request_wall_timeout_ms = 0;
+        }
+
         // length_penalty
         if (data.contains("length_penalty") && data.at("length_penalty").is_number()) {
             float lp = data.at("length_penalty").get<float>();
@@ -485,6 +500,12 @@ int main(int argc, char ** argv) {
                 }
 
                 _f6_transition_req_state(state.octx, REQ_DECODING, round_idx, "stream_decode_begin");
+
+                // F6 S13: Set per-request limits on octx before decode.
+                // These are read by stream_decode() for token cap and wall-time safety.
+                state.octx->request_max_tokens = request_max_tokens;
+                state.octx->request_wall_timeout_ms = request_wall_timeout_ms;
+
                 ok = stream_decode(state.octx, debug_dir, round_idx);
 
                 _f6_event("STREAM_DECODE_END", round_idx, state.octx);
@@ -534,7 +555,21 @@ int main(int argc, char ** argv) {
             }
 
             _f6_event("HANDLER_RETURN", round_idx, state.octx);
-            res_ok(res, {{"success", true}});
+            // F6 S13: Include runtime evidence in response for runaway generation diagnosis
+            json resp = {
+                {"success", true},
+                {"stop_reason", omni_stop_reason_name(state.octx->stop_reason)},
+                {"stop_reason_code", state.octx->stop_reason},
+                {"generated_token_count", state.octx->generated_token_count},
+                {"eos_detected", state.octx->eos_detected},
+                {"sliding_window_count", state.octx->request_sliding_window_count},
+                {"cli_n_predict", state.octx->cli_n_predict},
+                {"request_max_tokens", request_max_tokens},
+                {"effective_max_tokens", state.octx->request_max_tokens > 0
+                    ? state.octx->request_max_tokens
+                    : state.octx->cli_n_predict},
+            };
+            res_ok(res, resp);
             _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "response_sent");
             return;
         }
