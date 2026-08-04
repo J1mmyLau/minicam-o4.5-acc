@@ -3,10 +3,11 @@
 ## 当前阶段
 
 `Phase 3：S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
-Phase 2 Bottleneck 分析 COMPLETE, CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS` —
-瓶颈已定位（T2W CPU 设备放置 = 93%），非 LLM Decode→Speak（2.9%）。下一阶段：
-**FINAL_INTEGRATED_CANDIDATE=PENDING**（冻结 "KV Cache + HTTP token cap + 生命周期
-+ CANN Flow/Vocoder" 组合），随后 OFFICIAL_ACCURACY=PENDING / OFFICIAL_BENCHMARK=PENDING。
+CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS` —
+瓶颈已定位（T2W CPU 设备放置 = 93%），非 LLM Decode→Speak（2.9%）。
+**T5 最终集成候选已冻结 = INTERNAL_PASS**（"KV Cache + HTTP token cap + 生命周期
++ CANN Flow/Vocoder" 组合，见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)）。
+下一阶段：**T6 最终集成回归**，随后 OFFICIAL_ACCURACY=PENDING / OFFICIAL_BENCHMARK=PENDING。
 
 关键数据：
 - S13 frozen strict baseline **120/120 成功**（eos=111, max_tokens=9, 0 error, 0 timeout,
@@ -14,10 +15,12 @@ Phase 2 Bottleneck 分析 COMPLETE, CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS` —
 - R13 静态前缀 Prefill **PASS**（30/30，prefill 2.4×：206→85ms p50）
 - Phase 2 瓶颈定位 **PASS**：decode→speak=142ms(2.9%)，T2W CPU=4490ms(93%)
 - CANN T2W 候选 **STRONG_INTERNAL_PASS**：W0 p50 4798→894ms（−81.4%），32/32，CI95 [−4220,−3732]
+- **T4 严格复核 FULL PASS**：20 对/19 active，10 gates 19/19，T2W-only delta 19/19 全负
+  （p50 −4215.8ms，CI95 [−4395.6,−4085.4]），W0 E2E p50 −3946ms（CI95 [−4379,−3799]）
 - Baseline 设备口径审计：CPU T2W = 实测参考 baseline 且为代码默认，性质上是已知限制回退，
   候选 = `DEVICE_PLACEMENT_CORRECTION`（见 [Baseline Device Audit](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md)）
 
-**尚未完成（诚实口径）**：`FINAL_INTEGRATED_CANDIDATE = PENDING`,
+**尚未完成（诚实口径）**：`FINAL_INTEGRATED_CANDIDATE = INTERNAL_PASS`（冻结完成，待 T6 回归）；
 `OFFICIAL_ACCURACY = PENDING`, `OFFICIAL_BENCHMARK = PENDING`,
 `COMPETITION_COMPLETE = NOT_CLAIMED`。
 
@@ -110,8 +113,8 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 |--------|------|------|
 | **P0** | **T3 严格事件关联** — 埋点实现并提交 510a9f0（decode-start 打 round_idx/gen/reqidx；W0/wav 行 req/gen；响应回显）；smoke 验证通过：value-bound 证据（log/e2e-JSON/pipeline-CSV/响应回显）全渠道一致 | **DONE** |
 | **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配；FULL PASS：20 对 / 19 active，10 gates 19/19，T2W-only delta 19/19 全负（p50 −4215.8ms，CI [−4395.6, −4085.4]），W0 E2E p50 −3946ms（CI [−4379, −3799]），0 fallback/0 error/0 timeout；wav_count 服务端 bug 已修 | **DONE** |
-| **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结 | PENDING |
-| **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | PENDING |
+| **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结；freeze 文档 `docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md`（二进制 e77b43c3 + libomni f1d2f86d，HEAD b043257）；INTERNAL_PASS | **DONE** |
+| **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | IN_PROGRESS |
 | **P1** | **T7 质量/比赛 Gate** — 外部资产缺失项记为 PENDING_EXTERNAL_ASSETS（不伪造） | PENDING |
 | **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | **P2** | M6 6h mixed-workload soak audit | DEFERRED |
@@ -126,7 +129,7 @@ PHASE2_BOTTLENECK_ANALYSIS        = PASS   (decode→speak=2.9%, T2W CPU=93%)
 CANN_T2W_CANDIDATE                = STRONG_INTERNAL_PASS (W0 4798→894ms, −81.4%)
 BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参考 baseline)
 T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
-FINAL_INTEGRATED_CANDIDATE        = PENDING
+FINAL_INTEGRATED_CANDIDATE        = INTERNAL_PASS (T5 freeze; 待 T6 回归 → FINAL)
 OFFICIAL_ACCURACY                 = PENDING
 OFFICIAL_BENCHMARK                = PENDING
 COMPETITION_COMPLETE              = NOT_CLAIMED
