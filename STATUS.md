@@ -149,11 +149,11 @@ guard 运行时覆盖由 **T13 边界测试**（`build-test/` 独立测试构建
 **冻结数据（Step 2 指令要求）**：
 
 ```
-source HEAD   = 91797e651288ec45d55141ad0bd76d3062f52ead + 未提交 T11 diff
-                （omni.cpp / server-omni.cpp 工作树；钩子 revert 后作为正式冻结源码）
-server PID    = 2823116（最后会话 session3，port 18093；3 会话共 3 个独立 server）
-server SHA256 = db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21
-libomni SHA256= c075c535d18d1213b27f1c51b61662b11a18af47b5441f8ea26b78d81e3b84bb
+CANDIDATE_SOURCE_COMMIT = bdd4550（实际比赛候选源码，P0 媒体输入 + T9/T11 server 修复，F6DIAG 移除）
+EVIDENCE_DOCS_COMMIT   = adb9bb6（后续补充 T6 冻结二进制证据 + 状态文档）——交接时分开标注，不笼统写 HEAD=adb9bb6
+source HEAD 已更新（冻结完成，工作树 clean）
+server SHA256 = db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21（冻结二进制）
+libomni SHA256= c4b169376bced6bc3107cfda2f77abf35a634c1e146eed313a193e99e3739ea1（冻结二进制）
 model SHA256  = d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de
 launch        = stdbuf -oL -eL build/bin/llama-omni-server -m <model> -ngl 999
                 --device CANN0 -c 4096 -b 512 -ub 512 --split-mode layer --port 18093

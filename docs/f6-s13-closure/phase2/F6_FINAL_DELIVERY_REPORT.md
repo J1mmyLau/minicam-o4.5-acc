@@ -108,7 +108,8 @@ Cache 让 prefill 提速 2.4×；接口层面修复了"非流式 decode 无文�
 | CANN_T2W_CANDIDATE | STRONG_INTERNAL_PASS | W0 −81.4% |
 | T4_STRICT_CANN_T2W_REVERIFY | PASS（19/19） | T2W-only delta 全负 |
 | T6_FINAL_INTEGRATED_REGRESSION | **11/11 PASS**（re-run #2，binary db258375/c075c535） | S13 120 + Extended 30 + Voice 5 + Disconnect 5 + KV A/B 30（27 valid，3 对按预声明 A_ERR/B_ERR 排除，机制 30/30）+ 3 重启；0 CPU fallback / 0 CANN error |
-| T6 冻结二进制重跑 | **11/11 PASS**（re-run #3，冻结 binary db258375/c4b16937） | S13 120/120 + Extended 30/30 + Voice 5/5 + Disconnect 5/5 + KV A/B 30（valid 28）+ Smoke 5/5 + 3 重启；cpu_fallback=0 / cann_error=0；POST_T11_SOURCE_FREEZE=PASS, FINAL_CANDIDATE=FINAL_INTERNAL |
+| T6 冻结二进制重跑 | **11/11 PASS**（re-run #3，冻结 binary db258375/c4b16937，meta.binary_sha=db258375） | S13 120/120 + Extended 30/30 + Voice 5/5 + Disconnect 5/5 + **KV A/B 30（valid 28；2 对 C2-R2/C5-R3 按预声明 A_ERR 排除，机制 30/30；MISS 202.8→HIT 82.0ms Δ121.2 2.47×）** + Smoke 5/5 + 3 重启；cpu_fallback=0 / cann_error=0；POST_T11_SOURCE_FREEZE=PASS, FINAL_CANDIDATE=FINAL_INTERNAL |
+| R13 canonical vs 冻结 T6 KV 结论 | **两条独立结论** | R13 canonical = 30/30 strict matched pairs（正式机制证明，MISS 206→85ms 2.4×）；Frozen-binary T6 集成 KV check = 28/30 valid（集成回归重复确认，MISS 202.8→82.0ms 2.47×）。方法同源、结论一致，独立归档，不混同 |
 | T9 媒体协议 | PASS | text=748/1088 两轮常驻复用；SSE 干净 [DONE] |
 | T13 TTS KV guard 边界 | **PASS** | guard=39 prefill_with_emb_tts，10/10 项，memslot=0/http500=0/崩溃=0 |
 | Daily-Omni pilot（服务器链） | **PASS（6/6）** | 非流式 text ✅ · SSE+[DONE] ✅ · 常驻上下文第2次 ✅（text_len=853）· 0 HTTP500 · 0 crash · 0 stale-cross · F6_REQSTATE 11 周期无错 · server healthy；证据 `daily_omni_pilot/PILOT_REPORT.md` |

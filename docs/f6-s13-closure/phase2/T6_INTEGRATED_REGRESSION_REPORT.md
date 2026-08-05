@@ -34,7 +34,7 @@
 | **VOICE_SWITCH_ISOLATION** | ✅ | 每请求独立 round 目录 |
 | **DISCONNECT_SURVIVAL** | ✅ | 5/5 断连后服务器存活 |
 | **DISCONNECT_FOLLOWUP** | ✅ | followup req=3500 成功（drain_complete→RESPONDING→IDLE） |
-| **KV_CACHE_AB** | ✅ | 30 pairs / 27 valid（3 对按预声明 A_ERR/B_ERR 规则排除，机制 30/30）；MISS 203.6ms → HIT 83.6ms；Δ_p50=119.7ms；2.44×；loaded=130 |
+| **KV_CACHE_AB** | ✅ | 30 pairs / 28 valid（2 对按预声明 A_ERR 规则排除，机制 30/30）；MISS 202.8ms → HIT 82.0ms；Δ_p50=121.2ms；2.47×；loaded=130 |
 | **RESTART_3_SESSIONS** | ✅ | 3 会话均正常起停 |
 | **CPU_FALLBACK_ZERO** | ✅ | 0 |
 | **CANN_ERROR_ZERO** | ✅ | 0（cann_ok=4） |
@@ -47,36 +47,44 @@
 
 ```
 ok=120  err=0  prompt_modified=0  first_attempt_ok=120
-stop_reason: eos=83  max_tokens=37  wall_timeout=0
-decode_wall p50=5475ms  generated_tokens p50=42
+stop_reason: eos=81  max_tokens=39  wall_timeout=0
+decode_wall p50=5437ms  generated_tokens p50=35
 sliding_window=0  runaway=0
 ```
 
-> **口径说明**：stop_reason 分布（eos=83/max_tokens=37）与 S13 原始基线
+> **口径说明**：stop_reason 分布（eos=81/max_tokens=39）与 S13 原始基线
 > （eos=111/max_tokens=9）不同。两轮均满足 strict_pass（err=0 且 ok=120 且
 > prompt_modified=0）与 runaway_free。差异归因于 LLM 采样随机性 + KV cache
 > 启用后的上下文状态；无失控、无滑动窗口、无 prompt 篡改。此分布差异不影响任何 Gate。
+> （括号内数据为冻结二进制 re-run #3；re-run #2 为 eos=83/max_tokens=37, p50=5475ms/42 tokens）
 
 ---
 
 ## 4. KV Cache MISS→HIT（Session 2）
 
+**冻结二进制 re-run #3 结果**（本文档主口径）：
 ```
-30 pairs / 27 valid  gate_pass=True（脚本阈值 n_valid ≥ 25）
-MISS prefill p50=203.6ms
-HIT  prefill p50=83.6ms
-Δ    p50=119.7ms  speedup=2.44×
+30 pairs / 28 valid  gate_pass=True（脚本阈值 n_valid ≥ 25）
+MISS prefill p50=202.8ms
+HIT  prefill p50=82.0ms
+Δ    p50=121.2ms  speedup=2.47×
 loaded_positions: [130, 130]（与 R13 canonical n_past=130 一致）
 ```
 
 方法：每对 A=清缓存+新上下文（MISS→SAVED）、B=新上下文（HIT），`use_tts=False`
 隔离 LLM prefill delta，与 R13 canonical 口径一致。5 cases × 6 pairs。
 
-**30/27 的 3 对无效配对**（pair 4 C1-R4 / pair 17 C3-R5 / pair 20 C4-R2）均因
-decode POST 客户端 HTTP 异常（`A_ERR`/`B_ERR`，脚本预声明排除规则）判无效；机制层
-（SAVED/HIT/loaded=130）30/30 全部正常，Δ 全为正，**不是缓存污染，不影响 Gate 结论**。
-详细判定链（含 server F6_REQSTATE 逐腿证据）见 `t6_kv_ab_27of30.md`。
-R13 canonical 30/30 严格有效速度结论不受影响。
+**30/28 的 2 对无效配对**（pair 08 C2-R2 / pair 27 C5-R3）均因 decode POST 客户端
+HTTP 异常（`A_ERR`，脚本预声明排除规则）判无效；机制层（SAVED/HIT/loaded=130）
+30/30 全部正常，Δ 全为正，**不是缓存污染，不影响 Gate 结论**。排除记录见
+`t6_integrated_regression.json` + 本轮完整运行日志（`FROZEN_BINARY_RE_RUN` AUDIT 条目）。
+（re-run #2 @ 91797e6+未提交 diff 为 27 valid / 3 对排除，详细判定链见 `t6_kv_ab_27of30.md`。）
+
+**两条独立结论（不混同）**：
+- **R13 canonical KV validation**：30/30 strict matched pairs，正式机制证明
+  （MISS 206→85ms p50，2.4×）——见 `f6-s13-step8-r13-e2e-complete` 归档。
+- **Frozen-binary T6 integration KV check**：28/30 valid，集成回归中的重复确认
+  （MISS 202.8→82.0ms，2.47×）——本文档。两者方法同源、结论一致，独立归档。
 
 ---
 
@@ -120,26 +128,34 @@ followup: DRAINING→RESPONDING (drain_complete OK) → RESPONDING→IDLE (respo
 ```
 cpu_fallback=0  cann_error=0  cann_ok=4
 0 panic / SIGSEGV / assertion（三份会话日志）
-181 round 输出目录，10,591 个 wav
-本轮 0 次无音频 drain stall（首轮 142 请求中出现 6 次，有界自恢复，非崩溃）
+0 无音频 drain stall（本轮）
+（首轮 run #1 曾出现 6 次有界自恢复 drain stall，非崩溃，已在 T6 头版报告归档）
 ```
+
+> **说明**：本轮为冻结二进制重跑，请求数较 run #1 少（frozen 120 中 eos=81/
+> max_tokens=39，TTS drain 正常完成），未复现 drain stall。
 
 ---
 
 ## 8. 结论与状态
 
-- **T6 最终集成回归 = PASS（11/11 Gates，ACCEPT=True）**（KV A/B 30 对/27 有效、gate_pass；3 对无效原因见 `t6_kv_ab_27of30.md`）
-- `FINAL_INTEGRATED_CANDIDATE = FINAL`（T5 INTERNAL_PASS + T6 回归全过）
-- **未宣称**（外部资产缺失，见 T7）：`OFFICIAL_ACCURACY = PENDING_EXTERNAL_ASSETS`、
-  `OFFICIAL_BENCHMARK = PENDING_EXTERNAL_ASSETS`、`COMPETITION_COMPLETE = NOT_CLAIMED`
+- **T6 最终集成回归 = PASS（11/11 Gates，ACCEPT=True）** — 冻结二进制 re-run #3
+  （meta.binary_sha=`db258375`，冻结源码 `bdd4550` 重建，REPRODUCIBLE_BINARY=PASS）。
+  KV A/B 30 对/28 有效、gate_pass；2 对（C2-R2 / C5-R3，A_ERR）排除原因见 §4。
+- `POST_T11_SOURCE_FREEZE = PASS`，`POST_T11_FINAL_CANDIDATE = FINAL_INTERNAL`，
+  `REPRODUCIBLE_BINARY = PASS`
+- **候选源码** `bdd4550`（实际比赛候选），**证据/文档** `adb9bb6`（T6 证据 + 状态文档）——交接时分开标注
+- **未宣称**（官方 Harness 通过前不宣称，见 T7）：`OFFICIAL_ACCURACY = PENDING_REVERIFY_AFTER_T9`、
+  `OFFICIAL_BENCHMARK = PENDING_REVERIFY_AFTER_T9`、`OFFICIAL_DAILY_OMNI = NOT_RUN`、
+  `COMPETITION_COMPLETE = NOT_CLAIMED`
 
 ### 候选已验证边界（内部回归范围）
 - 单请求 simplex，120 冻结 + 30 扩展 + 5 切音色 + 5 断连 + 3 重启
-- KV cache MISS→HIT prefill 2.44×（30 对/27 有效，机制 30/30），无正确性回归
+- KV cache MISS→HIT prefill 2.47×（30 对/28 有效，机制 30/30），无正确性回归
 - CANN T2W 设备放置（环境变量切换），0 CPU fallback
 
 ### 未验证边界（诚实披露，不伪造）
-- 官方比赛 Harness / 官方质量评分（外部资产缺失）
+- 官方比赛 Harness / 官方质量评分 / 官方完整数据集计分（外部资产缺失）
 - 双工（duplex）模式、并发多请求
 - 其他模型/量化档位
 - 多卡场景
