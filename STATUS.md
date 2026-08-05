@@ -53,13 +53,15 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 
 **状态**：`FINAL_INTERNAL=PASS`，`T6_FROZEN_BINARY_REGRESSION=PASS`（db258375/c4b16937 11/11），
 `DAILY_OMNI_INTERNAL_PILOT=PASS`，`REPRODUCIBLE_BINARY=PASS`，`COMPETITION_COMPLETE=NOT_CLAIMED`。
+**当前阶段：OFFICIAL_GATE_WAITING** —— 比赛收口文档与 vLLM 迁移文档已完成，不再扩写；等官方 Starter Kit/Harness 到达后直接执行。
 官方 Gate（OFFICIAL_DAILY_OMNI / OFFICIAL_TTS_SEED / OFFICIAL_VIDEO_MME / 官方提交包核验）= **NOT_RUN / BLOCKED_BY_OFFICIAL_STARTER_KIT**
-（starter kit 45 项 0/45 confirmed，`METRIC_CONTRACT` 全部 provisional）。门状态仪表盘：`docs/competition-submission/OFFICIAL_GATE_STATUS.md`。
+（starter kit 45 项 0/45 confirmed，`METRIC_CONTRACT` 全部 provisional）。门状态仪表盘：`docs/competition-submission/OFFICIAL_GATE_STATUS.md`；
+就绪度核查：`docs/competition-submission/OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条 Gate 首命令 + PENDING_FIX P1–P4）。
 
 **冻结纪律（收口阶段适用）**：冻结源码 bdd4550 **不得修改**。只允许新增/修正：benchmark 脚本 / Demo 适配脚本 / 统计脚本 / 提交目录 / 复现文档 / 官方结果文档。
 
 **已交付**（2026-08-05）：
-- `docs/competition-submission/`（10 份：需求矩阵 / 门状态 / Benchmark 执行计划 / Demo 验证计划 / chunk RTF 测量规范 / 性能报告模板 / 复现审计 / 最终提交清单 / Demo 用户指南 / Demo 录像脚本）
+- `docs/competition-submission/`（11 份：需求矩阵 / 门状态 / **官方 Gate 就绪度报告** / Benchmark 执行计划 / Demo 验证计划 / chunk RTF 测量规范 / 性能报告模板 / 复现审计 / 最终提交清单 / Demo 用户指南 / Demo 录像脚本）
 - `submission/`（30 文件提交包骨架：env_check / build / start_server / health_check / demo_smoke / run_performance / analyze_chunk_rtf / run_daily_omni|tts_seed|video_mme stub 等，脚本全部 `set -Eeuo pipefail`，含 VERSION_MANIFEST 与 config/server.env 冻结 env）
 - `docs/vllm-migration/` 比赛约束层（新增 `VLLM_METRIC_MEASUREMENT_SPEC.md` + 7 份对齐：主指南 §2.5 赛事优先级 / 组件映射 13→17 字段 / 执行计划重排 V0–V12 / 风险 +R26–R40 / 交接包准入优先 / 实验模板 +5 / README）
 - chunk RTF 测量链路已可用（冻结二进制日志行 `T2W线程: … RTF=…` 可离线解析，无需改源码）

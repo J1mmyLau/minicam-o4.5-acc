@@ -94,6 +94,10 @@ server_pid / binary_sha / model_sha   # 环境指纹，防旧进程/旧版本污
 
 ## 5. 统计口径
 
+> **INTERNAL_VALIDATION_POLICY（内部统计规范，非 OFFICIAL_REQUIREMENT）**
+> 本节样本下限（≥30 有效 chunk）、排除率 ≤5%、分桶与有效判定均为内部自洽规范，用于防止误判与保证可复核。
+> 官方样本数、排除规则、聚合方式与评分权重**一律以官方 Starter Kit 为准**；Starter Kit 到达后逐项对照更新，未到达前任何数字不宣称 OFFICIAL。
+
 | 项 | 规定 |
 |---|---|
 | 样本下限 | 结论性数字（尤其排名指标）≥ 30 个有效 chunk；分析性 ≥ 10 |

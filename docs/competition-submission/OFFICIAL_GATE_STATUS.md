@@ -1,7 +1,9 @@
 # 官方 Gate 状态（比赛收口 Dashboard）
 
 > 唯一权威状态页。每次官方 Gate 判定变化时更新本文件 + AUDIT.md。
-> 候选冻结口径（2026-08-05）：source `bdd4550` / docs `adb9bb6`+`d5cc978`+`f26323f` /
+> **当前阶段：OFFICIAL_GATE_WAITING** —— 文档/提交包/就绪度已收口，等官方 Starter Kit/Harness 到达后直接执行。
+> 就绪度核查见 `OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条首命令 + PENDING_FIX）。
+> 候选冻结口径（2026-08-05）：source `bdd4550` / docs `adb9bb6`+`d5cc978`+`f26323f`（基线）+ `7a3f11e`+`37dc598`+`379e2e6`（收口）/
 > server `db258375…` / libomni `c4b16937…` / model `d1e69845…`。
 
 ---
