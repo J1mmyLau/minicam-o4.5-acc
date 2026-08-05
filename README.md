@@ -5,23 +5,27 @@
 
 ## 项目背景
 
-本项目来自全模态大模型在昇腾算力平台上的部署优化比赛。
+本项目来自全模态大模型在昇腾算力平台上的部署优化比赛，对应 **llama.cpp-omni 子赛道**。
 
-与只生成文本的语言模型不同，MiniCPM-o 4.5 不仅需要理解文本，还要处理图像、音频等多模态输入，
-并在同一条请求链路中继续完成语音生成。一次完整交互会经过主语言模型、Talker、Token2Wav、Flow
-和 Vocoder 等多个阶段。
+比赛要求参赛方案在统一昇腾环境中完成模型部署，并依次通过五道关卡：
 
-这意味着，模型能够在 NPU 上成功加载，只是部署工作的第一步。真正影响用户体验的，是以下问题：
+```text
+框架与环境可运行
+        ↓
+三项 Benchmark 精度降幅 ≤ 2 个百分点（准入条件）
+        ↓
+官方 Demo 端到端稳定可用（准入条件）
+        ↓
+每个 audio chunk 的 RTF（排名依据）
+        ↓
+主办方在官方环境中重新复现
+```
 
-- 从用户请求到第一段语音需要等待多久；
-- Flow 和 Vocoder 是否真正运行在 CANN NPU 上；
-- 多轮请求后模型状态和 KV Cache 是否能够正确释放；
-- 文本、语音和流式输出能否在同一个服务中稳定工作；
-- 性能优化是否能够在不破坏精度和 Demo 可用性的前提下复现。
+**精度和 Demo 可用性属于准入条件。只有通过这两项检查后，优化版本才会进入性能评测。**
+仅能运行 Benchmark、但无法正常接入官方 Demo 的方案，不满足本赛道的准入要求。
 
-项目最初版本虽然能够完成推理，但语音生成链路中的部分计算仍运行在 CPU，服务器生命周期、
-TTS KV Cache 和流式接口也存在稳定性问题。我们的工作并不是单独优化某一个算子，而是从完整
-请求链路出发，对设备放置、缓存复用、线程生命周期、流式输出和异常恢复进行系统性分析和修正。
+目前仓库已完成内部冻结候选、二进制复现、稳定性回归和比赛工具链准备工作。
+官方 Starter Kit、Benchmark Harness 和 Demo 资产尚未到位。
 
 ## 为什么 MiniCPM-o 4.5 的部署更复杂
 
@@ -33,9 +37,9 @@ MiniCPM-o 4.5 的服务链路则长得多：
 
 > Multimodal Input → Main LLM → Talker → Flow → Vocoder → Streaming Audio
 
-其中既包含 Transformer Decode，也包含语音 Token 生成、条件 Flow 和 Vocoder。
-不同模块可能使用不同的运行时、缓存和设备后端。一处模块仍在 CPU，或者一次 Host/NPU 同步
-位于关键路径，都可能直接拉长首音时间。
+一次完整交互会经过主语言模型的文本推理、Talker 的语音 token 生成、Flow 的条件 mel 转换
+和 Vocoder 的波形合成。不同模块可能使用不同的运行时、缓存和设备后端。一处模块仍在 CPU，
+或者一次 Host/NPU 同步位于关键路径，都可能直接拉长首音时间。
 
 因此本项目采用的核心方法不是单纯观察 NPU 利用率，而是：
 
@@ -45,24 +49,12 @@ MiniCPM-o 4.5 的服务链路则长得多：
 4. 使用连续请求和故障注入验证服务生命周期；
 5. 冻结源码和二进制后重新回归全部 Gate。
 
-## 比赛目标
-
-本仓库对应比赛中的 `llama.cpp-omni` 优化方向，目标是在单卡 Ascend 910C 上完成
-MiniCPM-o 4.5 的稳定部署，并围绕流式语音链路降低逐音频块处理时间。
-
-正式比赛验收还包括 Daily-Omni 准确率、TTS-Seed 指标、Video-MME 指标、官方 Demo 可用性、
-官方 per-audio-chunk RTF，以及相对框架官方 Baseline 的精度变化。
-
-当前仓库已经完成内部冻结候选、二进制复现、稳定性回归和比赛工具链准备。官方 Starter Kit、
-Benchmark Harness 和 Demo 资产尚未到位，因此：
-
-- `FINAL_INTERNAL = PASS`
-- `OFFICIAL_GATES = BLOCKED_BY_OFFICIAL_STARTER_KIT`
-- `COMPETITION_COMPLETE = NOT_CLAIMED`
-
 ## 我们做了什么
 
-围绕 Decode-to-Speak 关键路径，项目主要完成了以下工作：
+项目最初版本虽然能够完成推理，但语音生成链路中的部分计算仍运行在 CPU，服务器生命周期、
+TTS KV Cache 和流式接口也存在稳定性问题。
+
+围绕 Decode-to-Speak 关键路径，完成了以下工作：
 
 - 通过 profiling 确认 T2W（Flow + Vocoder）在 CPU 上运行，占首音延迟的 93%，是 Amdahl 第一瓶颈；
 - 将 Flow 和 Vocoder 从 CPU 路径迁移到 CANN NPU，保持零源码修改，仅通过环境变量切换后端；
@@ -71,17 +63,18 @@ Benchmark Harness 和 Demo 资产尚未到位，因此：
   context 失效问题；
 - 修正 Token2Wav generation 的 active accounting 和 drain 判定条件，消除跨请求 polling 竞争；
 - 为 TTS KV Cache 增加边界保护，单请求内 cap prefill 上限，避免长请求导致上下文越界；
-- 补齐非流式文本输出字段、SSE crash 修复（worker-once + sink.done guard）和多模态 prefill
-  协议修正（media_type=2 场景下的 user_text 和 think-loop 格式）；
+- 补齐非流式文本输出字段、SSE crash 修复和多模态 prefill 协议修正 —— 这些不是简单的接口修补，
+  而是在为官方 Demo Gate 准备稳定的端到端链路；
 - 通过连续请求、断连恢复、故障注入和冻结二进制回归（T6, 11/11 PASS）验证稳定性；
-- 建立从源码、二进制、配置到实验结果的完整证据索引（16 项，含 RAW_PERSISTED 和 REPORT_ONLY）。
+- 建立从源码、二进制、配置到实验结果的完整证据索引。
 
 我们还做了一项负实验（B6b：调低 TTS chunk 阈值试图更早触发 TTS），CI 跨 0，被明确 **REJECT**。
 
-## 核心内部结果
+## 内部结果
 
-> 以下数字全部来自内部 A/B 实验，不等同于官方 per-chunk RTF 或完整端到端指标。
-> 完整实验口径和原始数据见 [`docs/F6_OPTIMIZATION_AND_RESULTS.md`](docs/F6_OPTIMIZATION_AND_RESULTS.md)。
+> 以下数字全部来自内部 A/B 实验。**它们不是官方 per-chunk RTF**，不是完整请求 E2E 指标，
+> 不是 vLLM-Omni 的结果。llama.cpp-omni 子赛道的正式性能排名指标是——也只​是——每个 audio chunk
+> 的 RTF。TTFT 和 TTFP 是 vLLM-Omni 子赛道的指标，不适用于本仓库。
 
 ### 首段语音延迟（Request-to-first-WAV）
 
@@ -97,11 +90,10 @@ Benchmark Harness 和 Demo 资产尚未到位，因此：
 | CI95 (bootstrap, 10k resamples) | — | [−4,220, −3,732] ms | 不含 0 |
 | 样本 | 32 strict matched pairs | 32 strict matched pairs | 同 binary / 硬件 / 模型 / prompt |
 
-32 对实验覆盖了短文本、长文本、带图片、带音频四种典型场景，每种场景的降幅均在 −79% 到
-−83% 之间，没有出现 CPU fallback，WAV 输出（16-bit PCM @24kHz）逐 bit 校验无损。
+32 对实验覆盖了短文本、长文本、带图片、带音频四种典型场景，降幅均在 −79% 到 −83% 之间，
+没有 CPU fallback，WAV 输出（16-bit PCM @24kHz）逐 bit 校验无损。
 
-这里的 "Request-to-first-WAV" 指 HTTP 请求到首个 WAV 文件 mtime 的 wall-clock 时间。
-它是项目内部的首音指标——不是官方 per-chunk RTF，不是完整请求 E2E 指标，不是 vLLM-Omni 的实验结果。
+"Request-to-first-WAV" 指 HTTP 请求到首个 WAV 文件 mtime 的 wall-clock 时间。
 标签：`HISTORICAL_INTERNAL_RESULT`。
 
 证据: [`docs/F6_PHASE2_STEP6_CANN_T2W_AB.md`](docs/F6_PHASE2_STEP6_CANN_T2W_AB.md) +
@@ -122,11 +114,8 @@ prefill 阶段也要重新计算一遍，p50 耗时约 206ms。
 | 降低 | 121 ms / 58.7% |
 | 加速比 | 2.4× |
 
-30 组 strict matched pairs 全部通过 KV 完整性校验（0 次 NOT_REUSABLE）。在冻结 binary 的
-T6 回归中进一步确认了 28/30 有效（2 对被 A_ERR 排除，文档已记录）。该功能通过
-`OMNI_KV_CACHE_REUSE=1` 按需开启（默认关闭）。
-
-这是内部 Prefill 阶段结果，不等同于官方音频 chunk RTF。标签：`INTERNAL_PREFILL_STAGE_RESULT`。
+30 组 strict matched pairs 全部通过 KV 完整性校验。该功能通过 `OMNI_KV_CACHE_REUSE=1`
+按需开启（默认关闭）。标签：`INTERNAL_PREFILL_STAGE_RESULT`。
 
 证据: [`docs/tracking/f6_lifecycle/R13_CANONICAL_STATIC_PREFIX_AB_FINAL.md`](docs/tracking/f6_lifecycle/R13_CANONICAL_STATIC_PREFIX_AB_FINAL.md)
 
@@ -152,19 +141,75 @@ flowchart LR
 最终输出处理仍由 Host CPU 完成。因此 `-ngl 999` 不应被理解为整个服务完全没有 CPU 参与。
 CANN 设备放置的源码级审计见 [`docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md`](docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md)。
 
+## Demo 准入要求
+
+`llama.cpp-omni` 优化版本必须能够接入官方 [MiniCPM-o-Demo](https://github.com/OpenBMB/MiniCPM-o-Demo)，
+完成稳定的端到端运行。主办方将检查：
+
+- 模型服务能否正常启动
+- Demo 能否连接推理服务
+- 文本、音频和视频输入能否正常处理
+- 模型输出是否完整
+- 流式语音输出是否连续
+- 是否存在明显卡顿、中断或异常退出
+- 是否能够完成官方指定的完整交互流程
+- 连续运行过程中是否保持稳定
+
+**仅能运行 Benchmark、但无法正常接入官方 Demo 的方案，不满足准入条件。**
+
+我们已经在代码层面为 Demo Gate 做了准备——非流式文本输出、SSE 稳定性、多模态 prefill 协议修正、
+Persistent Server 生命周期、连续请求和断连恢复——这些都是 Demo 端到端可用的前置条件。
+
+Demo Gate 检查表（D1–D12）见 [`submission/demo/DEMO_GATE_CHECKLIST.md`](submission/demo/DEMO_GATE_CHECKLIST.md)。
+当前官方 Demo 资产未到位，全部 D1–D12 标记 `NOT_RUN`。
+
+## 官方 Gate 状态
+
+按正式测评流程排列：
+
+| Gate | 赛事要求 | 当前状态 |
+|------|---------|---------|
+| G1 Framework & Environment | 在官方昇腾环境部署 llama.cpp-omni | `INTERNAL_PASS`（内部环境通过，官方环境待验证） |
+| G2 Daily-Omni Accuracy | 精度降幅 ≤ 2pp vs 官方 baseline | `NOT_RUN` |
+| G3 TTS-Seed Accuracy | 精度降幅 ≤ 2pp vs 官方 baseline | `NOT_RUN` |
+| G4 Video-MME Accuracy | 精度降幅 ≤ 2pp vs 官方 baseline | `NOT_RUN` |
+| G5 Official Demo | 接入 MiniCPM-o-Demo，端到端稳定交互 | `NOT_RUN` |
+| G6 Per-chunk RTF | 每 audio chunk RTF（统一硬件/环境/模型/数据/脚本） | `NOT_RUN` |
+| G7 Engineering Reproduction | 主办方在官方环境重新部署并复现 | `PARTIAL_READY`（工具链已备，G2-G6 需先通过） |
+| G8 Final Package Review | 按要求提交全部材料 | `NOT_READY` |
+
+完整 Gate 矩阵: [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md)
+
+```
+FINAL_INTERNAL                       = PASS
+REPRODUCIBLE_BINARY                   = PASS
+
+OFFICIAL_DAILY_OMNI                  = NOT_RUN
+OFFICIAL_TTS_SEED                     = NOT_RUN
+OFFICIAL_VIDEO_MME                    = NOT_RUN
+OFFICIAL_DEMO_GATE                    = NOT_RUN
+OFFICIAL_CHUNK_RTF                    = NOT_RUN
+
+OFFICIAL_GATES                       = BLOCKED_BY_OFFICIAL_STARTER_KIT
+F6_OFFICIAL_SUBMISSION_PACKAGE        = NOT_READY
+COMPETITION_COMPLETE                  = NOT_CLAIMED
+```
+
+**最终比赛成绩以主办方在官方硬件、镜像、Starter Kit 和测试脚本中重新部署并复现得到的结果为准。**
+
 ## 完成的优化
 
 | 优化项 | 解决的问题 | 方案 | 文档 |
 |--------|-----------|------|------|
 | CANN T2W 迁移 | Flow+Vocoder 在 CPU，占首音延迟 93% | env-only 设备切换，零代码修改 | [link](docs/F6_PHASE2_STEP6_CANN_T2W_AB.md) |
-| Static Prefix KV Cache | 每次请求重复 prefill 固定前缀（206ms） | 首次 save → 后续 load，跳过 prefill | [link](docs/tracking/f6_lifecycle/R13_CANONICAL_STATIC_PREFIX_AB_FINAL.md) |
-| 持久服务生命周期 | drain timeout 导致 context 失效，多轮请求不可用 | 修复 drain / timeout / ctx validity | [link](docs/tracking/F6_C6_PROFILE_LIFECYCLE_STATE_MACHINE.md) |
-| Per-generation active 计数 | 跨请求 polling 竞争导致 drain 误判 | 改为 per-generation 粒度的 active 标记 | [link](docs/tracking/) |
-| TTS KV bounds guard | 单请求内 n_past 可能触及 n_ctx 上限 | prefill 阶段 cap at 256 | [link](docs/tracking/) |
-| 非流式 text 输出 | 非流式响应缺少 text 字段 | 补齐 text 到非流式响应 | [link](docs/tracking/) |
-| SSE crash 修复 | worker 退出后 sink.done → bad_alloc | worker-once + sink.done guard | [link](docs/tracking/) |
-| 多模态 prefill 协议 | media_type=2 场景 user_text 丢失、think-loop 格式错误 | 修正 prompt 身份与格式 | [link](docs/f6-s13-closure/) |
-| T6 集成回归 | 需确认冻结 binary 下所有 Gate | 11/11 PASS, 0 cpu_fallback, 0 cann_error | [link](docs/f6-s13-closure/phase2/T6_INTEGRATED_REGRESSION_REPORT.md) |
+| Static Prefix KV Cache | 每次请求重复 prefill 固定前缀（206ms） | 首次 save → 后续 load | [link](docs/tracking/f6_lifecycle/R13_CANONICAL_STATIC_PREFIX_AB_FINAL.md) |
+| 持久服务生命周期 | drain timeout 导致 context 失效 | 修复 drain / timeout / ctx validity | [link](docs/tracking/F6_C6_PROFILE_LIFECYCLE_STATE_MACHINE.md) |
+| Per-generation active 计数 | 跨请求 polling 竞争 | per-generation 粒度 active 标记 | [link](docs/tracking/) |
+| TTS KV bounds guard | n_past 触及 n_ctx 上限 | prefill 阶段 cap at 256 | [link](docs/tracking/) |
+| 非流式 text 输出 | 非流式响应缺 text 字段 | 补齐 text 字段 | [link](docs/tracking/) |
+| SSE crash 修复 | worker 退出后 bad_alloc | worker-once + sink.done guard | [link](docs/tracking/) |
+| 多模态 prefill 协议 | media_type=2 user_text / think-loop 格式 | 修正 prompt 身份与格式 | [link](docs/f6-s13-closure/) |
+| T6 集成回归 | 确认冻结 binary 下所有 Gate | 11/11 PASS, 0 cpu_fallback, 0 cann_error | [link](docs/f6-s13-closure/phase2/T6_INTEGRATED_REGRESSION_REPORT.md) |
 
 ## 快速开始
 
@@ -190,9 +235,12 @@ curl -s "http://127.0.0.1:18093/health"
 详细步骤见 [`docs/F6_QUICKSTART.md`](docs/F6_QUICKSTART.md)，完整复现流程见
 [`docs/F6_REPRODUCTION_GUIDE.md`](docs/F6_REPRODUCTION_GUIDE.md)。
 
-## 文档导航
+Demo 前端克隆（官方资产到位后）:
+```bash
+git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git third_party/MiniCPM-o-Demo
+```
 
-按阅读需求组织：
+## 文档导航
 
 | 你想做什么 | 推荐文档 |
 |-----------|---------|
@@ -202,9 +250,11 @@ curl -s "http://127.0.0.1:18093/health"
 | 了解实验方法论和工程原则 | [`docs/F6_METHODOLOGY.md`](docs/F6_METHODOLOGY.md) |
 | 从头复现所有实验 | [`docs/F6_REPRODUCTION_GUIDE.md`](docs/F6_REPRODUCTION_GUIDE.md) |
 | 核对每一项结论的证据 | [`docs/F6_EVIDENCE_INDEX.md`](docs/F6_EVIDENCE_INDEX.md) |
+| 查看比赛 Gate 和准入条件 | [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md) |
+| 审查 Demo Gate 检查表 | [`submission/demo/DEMO_GATE_CHECKLIST.md`](submission/demo/DEMO_GATE_CHECKLIST.md) |
+| 核对提交材料覆盖度 | [`docs/competition-submission/SUBMISSION_CHECKLIST.md`](docs/competition-submission/SUBMISSION_CHECKLIST.md) |
 | 查看比赛状态和已知限制 | [`docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md`](docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md) |
 | 审查 CANN 设备放置源码 | [`docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md`](docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md) |
-| 了解提交工具链 | [`docs/competition-submission/`](docs/competition-submission/) |
 | 查阅 vLLM-Omni 迁移方案 | [`docs/vllm-migration/`](docs/vllm-migration/) |
 
 ## 版本与 Tag
@@ -212,40 +262,28 @@ curl -s "http://127.0.0.1:18093/health"
 | Tag | 说明 |
 |-----|------|
 | `f6-candidate-source-bdd4550`（→ `80c30cd`） | 冻结候选源码。与原始 `bdd4550` 源码完全一致，仅移除了 git history 中误提交的 msprof 大文件（>100MB，超出 GitHub 限制）。 |
-| `f6-handoff-ba958a2`（→ `ba958a2`） | 当前交接 HEAD，含完整文档、审计、提交工具链和本 README。 |
-| `f6-handoff-5df2add`（→ `5df2add`） | 前一版交接 tag（README 重写前）。 |
-
-`main` 分支指向 `ba958a2`（最新交接 HEAD），`perf/f6-decode-to-speak` 指向 `5df2add`（文档版 HEAD）。
+| `f6-handoff-3ebfa0f`（→ `3ebfa0f`） | 上一版交接 HEAD（双语 README）。 |
+| `f6-handoff-5df2add`（→ `5df2add`） | 文档版 HEAD（README 重写前）。 |
 
 ## 已知限制
 
 ### 官方评测 —— 全部待运行
 
-Daily-Omni 准确率、TTS-Seed 指标、Video-MME 指标、Demo 验收和 per-chunk RTF 这五项
-官方评测目前都未运行，原因是比赛官方 Starter Kit 尚未到达。我们内部的 Daily-Omni pilot
-只跑了 6/6 server 端 gates（功能连通性），不是全量准确率评测。
+G2–G6 五项官方评测目前都未运行，原因是比赛官方 Starter Kit 尚未到达。
 
 ### CANN 设备放置 —— 静态已确认，运行时待测
 
-源码层面已完成 CANN backend 设备放置的完整审计：哪些 op 支持 CANN、offload 触发条件
-（`ne[1] >= 32`）、scheduler 如何分配 weight tensor、sync/copy 调用点。这些静态分析
-全部 **PASS**。
-
-但 CANN profiler timeline、backend 分配日志和 per-chunk 的 CPU/NPU 逐段耗时分解尚未测量。
-因此 `MAIN_LLM_RUNTIME_PLACEMENT = PARTIAL`，`CPU_PER_CHUNK_CRITICAL_PATH`、
-`GRAPH_SPLIT_RUNTIME_COUNT`、`STREAM_SYNC_RUNTIME_COST` 和 `D2H_COST` 四项标记为
-`NOT_MEASURED` 或 `TO_MEASURED`。
-
-另外 Ascend 910C 上 `caps.async = false`（CANN backend 不支持通用异步计算流水线），
-Flash Attention 扩展实现仅覆盖 F16 dtype。
+源码层面已完成 CANN backend 设备放置的完整审计，静态分析全部 **PASS**。
+但 CANN profiler timeline、backend 分配日志和 per-chunk CPU/NPU 耗时分解尚未测量。
+`MAIN_LLM_RUNTIME_PLACEMENT = PARTIAL`，`CPU_PER_CHUNK_CRITICAL_PATH` 等四项
+标记为 `NOT_MEASURED` 或 `TO_MEASURED`。
 
 完整分析见 [`docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md`](docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md)。
 
 ## 不包含的内容
 
-模型权重（MiniCPM-o-4_5-F16.gguf, ~16 GB）、编译产物（build/）、音频 profiling 数据、
-Demo 视频和官方 Benchmark 结果均不在本仓库中。模型 SHA256 验证方式见
-[`docs/F6_QUICKSTART.md`](docs/F6_QUICKSTART.md)。
+模型权重（MiniCPM-o-4_5-F16.gguf, ~16 GB）、编译产物、音频 profiling 数据、
+Demo 视频和官方 Benchmark 结果均不在本仓库中。
 
 ## 上游与许可证
 
