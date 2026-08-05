@@ -1,10 +1,14 @@
 # 官方 Gate 状态（比赛收口 Dashboard）
 
 > 唯一权威状态页。每次官方 Gate 判定变化时更新本文件 + AUDIT.md。
-> **当前阶段：OFFICIAL_GATE_WAITING** —— 文档/提交包/就绪度已收口，等官方 Starter Kit/Harness 到达后直接执行。
-> 就绪度核查见 `OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条首命令 + PENDING_FIX）。
-> 候选冻结口径（2026-08-05）：source `bdd4550` / docs `adb9bb6`+`d5cc978`+`f26323f`（基线）+ `7a3f11e`+`37dc598`+`379e2e6`（收口）/
+> **当前阶段：OFFICIAL_GATE_WAITING（工具链已就绪）** —— 文档/提交包/就绪度已收口，等官方 Starter Kit/Harness 到达后直接执行。
+> 就绪度核查见 `OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条首命令）；工具链自检见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`。
+> **工具链就绪状态**：DRY_RUN_SUPPORT=PASS / BASELINE_CANDIDATE_SYMMETRY=PASS / CHUNK_AUDIO_VALIDATION=PASS /
+> PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / **OFFICIAL_ASSET_VERSION_MATCH=PENDING_STARTER_KIT** /
+> **OFFICIAL_GATE_TOOLING_READINESS=PASS** / OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT / COMPETITION_COMPLETE=NOT_CLAIMED。
+> 候选冻结口径（2026-08-05）：source `bdd4550` / docs `adb9bb6`+`d5cc978`+`f26323f`（基线）+ `7a3f11e`+`37dc598`+`379e2e6`+`b527dce`+`c328d1b`（收口）/
 > server `db258375…` / libomni `c4b16937…` / model `d1e69845…`。
+> **资产版本标签**：当前 commit/SHA 仅作 **CURRENT_LOCAL_ASSET_SNAPSHOT**；`OFFICIAL_ASSET_VERSION_MATCH` 在官方 starter kit 核对前一律 PENDING_STARTER_KIT，不得写成 CONFIRMED。
 
 ---
 

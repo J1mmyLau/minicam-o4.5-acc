@@ -41,27 +41,38 @@ T2W drain: complete (wav_count=12, notify=1 poll=0 fast=0 gen=1)
 ## 2. 统一记录 schema（chunk_rtf_raw.csv 列）
 
 ```
-run_id, request_id, chunk_index, is_first_chunk, is_final_chunk,
+run_id, request_id, generation, chunk_index, is_first_chunk, is_final_chunk,
 chunk_compute_begin_ns, chunk_compute_end_ns, chunk_compute_ms,
 sample_count, sample_rate, audio_duration_ms, chunk_rtf,
-valid_audio, error, server_pid, binary_sha, model_sha
+valid_audio, exclusion_reason, error, server_pid, binary_sha, model_sha
 ```
 
 | 列 | 来源 | 口径 |
 |---|---|---|
 | run_id | 脚本生成 | run_yyyymmdd_hhmmss |
 | request_id | 日志 `req=` | 服务端请求 id |
-| chunk_index | wav 文件名解析 | 0-based |
+| generation | 日志 `gen=` | 同请求第几代（is_final_chunk 按 (req, gen) 求 max） |
+| chunk_index | wav 文件名解析（`wav_{req*1000+cidx}`，取 %1000） | 0-based |
 | is_first_chunk | chunk_index==0 | — |
-| is_final_chunk | 该 wav 后紧跟 drain complete | — |
+| is_final_chunk | 该 (req, gen) 的最大 chunk_index | — |
 | chunk_compute_ms | 日志 `inference` | **RTF 计算基础** |
 | audio_duration_ms | 日志 `X.XXs audio` ×1000 | **RTF 计算基础**（亦可用 wave 模块核对） |
 | chunk_rtf | `chunk_compute_ms / audio_duration_ms` | 与日志打印 RTF 交叉核对 |
 | chunk_compute_begin_ns / end_ns | 日志墙钟时间戳推导 | **近似值，仅时间线分析，不作 RTF 依据**；无法精确获得时填 NULL |
 | sample_count / sample_rate | wav 头（或 duration×24000） | 24000 Hz（验证后填） |
-| valid_audio | wav 头有效 + duration>0 + 无 NaN/Inf | — |
-| error | HTTP 失败 / 无音频 / 解析失败 | 非空即无效 |
+| valid_audio | 逐项判定（见下，INTERNAL_VALIDATION_POLICY） | 全部校验通过才为 true |
+| exclusion_reason | `\|` 连接的排除原因枚举 | 见排除原因表 |
+| error | = exclusion_reason（兼容旧列） | 非空即无效 |
 | server_pid / binary_sha / model_sha | run 时采集 | 溯源 |
+
+**排除原因枚举**（valid_audio=false 时至少一个）：
+
+```
+EMPTY_PAYLOAD / ZERO_SAMPLES / INVALID_SAMPLE_RATE / DECODE_FAILURE / NAN_INF /
+MISSING_REQUEST_ID / MISSING_CHUNK_INDEX / INVALID_TIMESTAMP / DUPLICATE_CHUNK / TRUNCATED_CHUNK
+```
+
+判定逻辑见 `submission/scripts/analyze_chunk_rtf.py::validate_chunk`（PCM/WAV 存在时用 `wave` 模块跨查；缺失不判失败）。统计输出含 total/valid/invalid 数 + 排除率 + 各排除原因计数。**排除规则/样本下限均为 INTERNAL_VALIDATION_POLICY，非 OFFICIAL_REQUIREMENT。**
 
 ## 3. 统计输出（chunk_rtf_summary.json）
 
@@ -75,10 +86,12 @@ invalid/excluded count + exclusion reasons（逐条）
 ## 4. 执行管线（不改推理路径）
 
 1. `submission/scripts/start_server.sh` 启动（标准冻结 env）。
-2. `submission/scripts/run_performance.sh` 驱动 N 个 TTS 请求，落服务器日志。
-3. `submission/scripts/analyze_chunk_rtf.py <srv.log> <run_id>`
-   → `submission/performance/chunk_rtf_raw.csv` + `chunk_rtf_summary.json`。
-4. 交叉核对：对若干 wav 用 `wave` 模块核对 sample_count/sample_rate/duration，确认日志 `X.XXs` 与真实头一致。
+2. `submission/scripts/run_performance.sh <mode> --dry-run` 预检（MODE=baseline|candidate，同 runner/数据/seed/warmup/count/统计）。
+3. `submission/scripts/run_performance.sh <mode>` 驱动 N 个 TTS 请求，落服务器日志；输出隔离到 `${OUTPUT_ROOT}/<run_id>/<mode>/`。
+4. `submission/scripts/analyze_chunk_rtf.py <srv.log> <run_id> --warmup <W> --mode <mode>`
+   → `<mode>/out/chunk_rtf_raw.csv` + `chunk_rtf_summary.json`（含 total/valid/invalid + 排除率 + 各排除原因计数）。
+5. `submission/scripts/check_baseline_candidate_symmetry.py <run_dir>` 比对两 MODE 的 dataset SHA / case count / request IDs / sampling config / model / prompt / 统计代码 SHA，任一不一致退出非零。
+6. 交叉核对：对若干 wav 用 `wave` 模块核对 sample_count/sample_rate/duration，确认日志 `X.XXs` 与真实头一致。
 
 ## 5. 纪律
 

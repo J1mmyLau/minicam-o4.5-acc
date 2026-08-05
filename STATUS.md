@@ -53,10 +53,16 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 
 **状态**：`FINAL_INTERNAL=PASS`，`T6_FROZEN_BINARY_REGRESSION=PASS`（db258375/c4b16937 11/11），
 `DAILY_OMNI_INTERNAL_PILOT=PASS`，`REPRODUCIBLE_BINARY=PASS`，`COMPETITION_COMPLETE=NOT_CLAIMED`。
-**当前阶段：OFFICIAL_GATE_WAITING** —— 比赛收口文档与 vLLM 迁移文档已完成，不再扩写；等官方 Starter Kit/Harness 到达后直接执行。
+**当前阶段：OFFICIAL_GATE_WAITING（工具链已就绪）** —— 比赛收口文档与 vLLM 迁移文档已完成，不再扩写；等官方 Starter Kit/Harness 到达后直接执行。
 官方 Gate（OFFICIAL_DAILY_OMNI / OFFICIAL_TTS_SEED / OFFICIAL_VIDEO_MME / 官方提交包核验）= **NOT_RUN / BLOCKED_BY_OFFICIAL_STARTER_KIT**
 （starter kit 45 项 0/45 confirmed，`METRIC_CONTRACT` 全部 provisional）。门状态仪表盘：`docs/competition-submission/OFFICIAL_GATE_STATUS.md`；
-就绪度核查：`docs/competition-submission/OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条 Gate 首命令 + PENDING_FIX P1–P4）。
+就绪度核查：`docs/competition-submission/OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条 Gate 首命令）；
+工具链自检：`docs/competition-submission/OFFICIAL_GATE_TOOLING_SELFTEST.md`（**14/14 PASS**）。
+**工具链就绪状态（2026-08-05 收口）**：`OFFICIAL_GATE_TOOLING_READINESS=PASS` /
+`DRY_RUN_SUPPORT=PASS` / `BASELINE_CANDIDATE_SYMMETRY=PASS` / `CHUNK_AUDIO_VALIDATION=PASS` /
+`PRIVATE_PATH_AUDIT=PASS` / `LOCAL_ASSET_MANIFEST=PASS` / **`OFFICIAL_ASSET_VERSION_MATCH=PENDING_STARTER_KIT`** /
+`OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT` / `COMPETITION_COMPLETE=NOT_CLAIMED`。
+> 资产版本口径：当前 commit/SHA 只称 **CURRENT_LOCAL_ASSET_SNAPSHOT**；官方 starter kit 核对前不得称 OFFICIAL_ASSET_VERSION_CONFIRMED。
 
 **冻结纪律（收口阶段适用）**：冻结源码 bdd4550 **不得修改**。只允许新增/修正：benchmark 脚本 / Demo 适配脚本 / 统计脚本 / 提交目录 / 复现文档 / 官方结果文档。
 
@@ -65,8 +71,9 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 - `submission/`（30 文件提交包骨架：env_check / build / start_server / health_check / demo_smoke / run_performance / analyze_chunk_rtf / run_daily_omni|tts_seed|video_mme stub 等，脚本全部 `set -Eeuo pipefail`，含 VERSION_MANIFEST 与 config/server.env 冻结 env）
 - `docs/vllm-migration/` 比赛约束层（新增 `VLLM_METRIC_MEASUREMENT_SPEC.md` + 7 份对齐：主指南 §2.5 赛事优先级 / 组件映射 13→17 字段 / 执行计划重排 V0–V12 / 风险 +R26–R40 / 交接包准入优先 / 实验模板 +5 / README）
 - chunk RTF 测量链路已可用（冻结二进制日志行 `T2W线程: … RTF=…` 可离线解析，无需改源码）
+- **提交工具链收口（2026-08-05，P0/P1 四修复）**：`run_performance.sh` 支持 `MODE=baseline|candidate` + 输出隔离 `${OUTPUT_ROOT}/<run_id>/<mode>/` + `manifest.json`；`valid_audio` 真实判定（10 排除原因枚举，删除恒 true 桩）+ `check_baseline_candidate_symmetry.py` 对称性检查；4 份 Gate 脚本显式 `--dry-run`（返回码 0/2/3/4）；私有默认路径清除（MODEL_PATH 必填无默认、DATA_ROOT/DEMO_DIR/OUTPUT_ROOT/OFFICIAL_HARNESS_ROOT 从 REPO_ROOT 派生）。新增 `submission/tests/`（单测 21 例 + 对称性 fixtures + 私有路径审计 + `run_selftest.sh`）。离线自检 **14/14 PASS**。
 
-**下一步（按资产可用性）**：①官方 Starter Kit/Harness 到达 → 跑官方三项 Benchmark；②官方权重/归一化公布 → 回填 PERFORMANCE_REPORT 官方口径；③官方 Demo 接入 → 跑 D1–D12 并录 Demo 视频；④提交包核验（clean-env 复现 / SHA 一致 / 无 /tmp 依赖）。
+**下一步（按资产可用性）**：①官方 Starter Kit/Harness 到达 → 先 `--dry-run` 预检（rc=0）→ 跑官方三项 Benchmark（先 baseline 后 candidate，同 RUN_ID）；②官方权重/归一化公布 → 回填 PERFORMANCE_REPORT 官方口径；③官方 Demo 接入 → 跑 D1–D12 并录 Demo 视频；④提交包核验（clean-env 复现 / SHA 一致 / 无 /tmp 依赖）。
 
 ## T4 严格复核 Gate (2026-08-04)
 
@@ -375,14 +382,14 @@ COMPETITION_COMPLETE              = NOT_CLAIMED
 ## Git
 
 ```
-HEAD:    b527dce docs(competition): official gate readiness report — 7-item check + asset manifests + OFFICIAL_GATE_WAITING
+HEAD:    chore(competition): close official gate tooling readiness gaps   # 工具链收口提交（待提交）
 Branch:  perf/f6-decode-to-speak
 Worktree: /workspace/llama.cpp-omni-f6
 
 LLAMA_CANDIDATE_SOURCE_COMMIT = bdd4550     # 真正参加 llama 子赛道的冻结源码（不得修改）
 COMPETITION_DOCS_COMMIT       = 7a3f11e
 VLLM_MIGRATION_DOCS_COMMIT    = 37dc598
-FINAL_TRACKING_HEAD           = b527dce     # 就绪度报告后推进（原固定值 379e2e6 → b527dce）
+FINAL_TRACKING_HEAD           = c328d1b     # 就绪度报告后推进（379e2e6 → b527dce → c328d1b；工具链收口提交在其后）
 EVIDENCE_DOCS_COMMIT          = f26323f     # 冻结证据基线
 ```
 Server SHA256:  db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21

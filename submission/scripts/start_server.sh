@@ -10,10 +10,10 @@ if [ -f /usr/local/Ascend/cann/set_env.sh ]; then
   source /usr/local/Ascend/cann/set_env.sh
 fi
 
-# run_id + 目录
+# run_id + 目录（默认 ${OUTPUT_ROOT}/<run_id>，绝不用 /tmp）
 TAG="${TAG:-perf}"
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)_${TAG}"
-RUN_DIR="${RUN_DIR:-${REPO_ROOT}/results/${RUN_ID}}"
+RUN_DIR="${RUN_DIR:-${OUTPUT_ROOT}/${RUN_ID}}"
 mkdir -p "${RUN_DIR}/kv_cache"
 
 # KV cache 默认落在 run 目录（避免 /tmp 依赖）；已有则用配置值
@@ -21,6 +21,7 @@ export OMNI_KV_CACHE_PATH="${OMNI_KV_CACHE_PATH:-${RUN_DIR}/kv_cache}"
 
 SERVER_BIN="${SERVER_BIN:-${REPO_ROOT}/build/bin/llama-omni-server}"
 [ -f "${SERVER_BIN}" ] || { echo "[FAIL] ${SERVER_BIN} 不存在，先 build.sh" >&2; exit 1; }
+[ -n "${MODEL_PATH:-}" ] || { echo "[FAIL] MODEL_PATH 未设置（必须显式指定模型路径；无私有默认值）" >&2; exit 1; }
 [ -f "${MODEL_PATH}" ] || { echo "[FAIL] MODEL_PATH=${MODEL_PATH} 不存在" >&2; exit 1; }
 
 # 端口冲突检查

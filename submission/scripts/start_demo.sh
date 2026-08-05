@@ -4,7 +4,9 @@
 set -Eeuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEMO_DIR="${DEMO_DIR:-/workspace/MiniCPM-o-Demo}"
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/submission/config/server.env"
+# DEMO_DIR 来自 server.env（默认 ${REPO_ROOT}/third_party/MiniCPM-o-Demo，无私有绝对路径）
 
 # 1) 环境检查
 bash "${REPO_ROOT}/submission/environment/env_check.sh"

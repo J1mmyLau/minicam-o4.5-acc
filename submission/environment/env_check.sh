@@ -29,12 +29,13 @@ else
 fi
 
 say "== 3. 模型文件 =="
-MODEL_PATH="${MODEL_PATH:-/workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-F16.gguf}"
-if [ -f "${MODEL_PATH}" ]; then
+if [ -n "${MODEL_PATH:-}" ] && [ -f "${MODEL_PATH}" ]; then
   ok "MODEL_PATH=${MODEL_PATH}"
   echo "     model SHA256: $(sha256sum "${MODEL_PATH}" | cut -d' ' -f1)"
+elif [ -n "${MODEL_PATH:-}" ]; then
+  fail "MODEL_PATH=${MODEL_PATH} 不存在（通过 MODEL_PATH 显式指定）"
 else
-  fail "模型不存在: ${MODEL_PATH}（通过 MODEL_PATH 覆盖）"
+  fail "MODEL_PATH 未设置（必须显式指定模型路径；无私有默认值）"
 fi
 
 say "== 4. 冻结二进制 =="
