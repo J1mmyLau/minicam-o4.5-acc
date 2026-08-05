@@ -122,3 +122,50 @@ The name `f6-official-submission-<version>.tar.gz` is reserved for a package tha
 - [ ] All baseline/candidate symmetry checks PASS
 
 Until all items are checked, this package is named `f6-competition-handoff-*`.
+
+---
+
+## Git Push Security Audit (2026-08-05)
+
+> **Target**: `git@github.com:Phoenix3334/minicpmo45-ascend-private.git`
+> **Push blocked**: No GitHub network connectivity from air-gapped CANN environment.
+> **All audit steps that run locally**: COMPLETE.
+
+### Audit Results
+
+| Step | Check | Result |
+|------|-------|--------|
+| 1 | Repo state | PASS — branch perf/f6-decode-to-speak, HEAD 33ccda1, worktree clean |
+| 2 | GitHub auth | BLOCKED_BY_NETWORK — no external connectivity from CANN sandbox |
+| 3a | git history secrets scan | PASS — 0 real secrets; all hits are technical terms in documentation (token/key in TTS/NLP context) |
+| 3b | rg working tree secrets | PASS — 0 password/secret/token[:=]"value" patterns, 0 AWS keys, 0 GitHub tokens |
+| 3c | Private key files | PASS — idea-arch.key is a ZIP/JPEG diagram file, not a crypto key |
+| 3c | .env / credential files | PASS — 0 .env files, 0 credentials.json, 0 service-account files |
+| 4 | .gitignore audit | PASS (FIXED) — .env/.env.* added; tarballs/bundles/sha256 excluded; models/ build/ *.gguf covered |
+| 4 | Tracked binaries check | PASS — only intentional: 19 ggml-vocab-*.gguf (model vocabulary files, not weights) |
+| 5 | License | PASS — MIT License (tracked, valid) |
+| 6 | Git tags | PASS (2 tags created) — f6-candidate-source-bdd4550 (on bdd4550), f6-handoff-33ccda1 (on 33ccda1) |
+| 7-10 | Push + remote verify | NOT_RUN — blocked by network |
+| 11 | Doc updates | THIS_FILE + PRIVATE_GITHUB_PUSH_GUIDE.md |
+| 12 | Final output | Below |
+
+### BLOCKING_SECRET Found: 0
+
+No secrets, passwords, API keys, tokens, private keys, AWS credentials, GitHub tokens, or environment files with secrets were found in the git history or working tree.
+
+### Pre-Push Checklist (for when network is available)
+
+```bash
+# 1. Verify remote exists
+git ls-remote git@github.com:Phoenix3334/minicpmo45-ascend-private.git
+
+# 2. Push branch (NO force — absolute prohibition)
+git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git perf/f6-decode-to-speak
+
+# 3. Push tags (only these 2)
+git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git f6-candidate-source-bdd4550
+git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git f6-handoff-33ccda1
+
+# 4. Verify remote
+git ls-remote git@github.com:Phoenix3334/minicpmo45-ascend-private.git
+```
