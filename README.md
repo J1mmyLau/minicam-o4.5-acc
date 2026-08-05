@@ -580,3 +580,18 @@ loop every ~1000ms:
     POST /v1/stream/decode   → consume SSE → play WAV files from output_dir
     N++
 ```
+
+---
+
+## F6 Decode-to-Speak Optimization (Ascend 910C)
+
+> **Branch**: `perf/f6-decode-to-speak` | **Status**: `FINAL_INTERNAL=PASS` | **Frozen source**: `bdd4550`
+
+F6 is a profiling-driven optimization project targeting the decode-to-speak path of MiniCPM-o 4.5 on a single Ascend 910C (CANN 9.1.0-beta.1). Key results:
+
+- **Request→First Audio p50**: 4,798ms → 894ms (−81.4%)
+- **Prefill p50 (KV HIT)**: 2.5× speedup (210→86ms)
+- **Per-chunk RTF p50**: 0.28 (3.6× real-time)
+- **T6 Regression**: 11/11 gates PASS
+
+**Documentation**: [`docs/F6_README.md`](docs/F6_README.md) (overview) · [`docs/F6_QUICKSTART.md`](docs/F6_QUICKSTART.md) (quickstart) · [`docs/F6_METHODOLOGY.md`](docs/F6_METHODOLOGY.md) (methodology) · [`STATUS.md`](STATUS.md) (live project status)
