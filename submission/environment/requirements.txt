@@ -1,0 +1,4 @@
+# 评测/统计/复现所需 Python 依赖（无官方脚本时的最小集）
+# 推理服务本身为 C++ 无 Python 依赖；以下仅用于客户端与统计。
+# 官方 Starter Kit 依赖以其 requirements 为准合并。
+numpy

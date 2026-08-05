@@ -49,6 +49,23 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 `DAILY_OMNI_INTERNAL_PILOT = PASS`（服务器链 6/6 门全过，见 T10 段；模型输出受 whisper 编码上限限制，29.5s 音频 → "?"），
 `COMPETITION_COMPLETE = NOT_CLAIMED`。
 
+## 比赛收口阶段 (2026-08-05，竞赛收口指令)
+
+**状态**：`FINAL_INTERNAL=PASS`，`T6_FROZEN_BINARY_REGRESSION=PASS`（db258375/c4b16937 11/11），
+`DAILY_OMNI_INTERNAL_PILOT=PASS`，`REPRODUCIBLE_BINARY=PASS`，`COMPETITION_COMPLETE=NOT_CLAIMED`。
+官方 Gate（OFFICIAL_DAILY_OMNI / OFFICIAL_TTS_SEED / OFFICIAL_VIDEO_MME / 官方提交包核验）= **NOT_RUN / BLOCKED_BY_OFFICIAL_STARTER_KIT**
+（starter kit 45 项 0/45 confirmed，`METRIC_CONTRACT` 全部 provisional）。门状态仪表盘：`docs/competition-submission/OFFICIAL_GATE_STATUS.md`。
+
+**冻结纪律（收口阶段适用）**：冻结源码 bdd4550 **不得修改**。只允许新增/修正：benchmark 脚本 / Demo 适配脚本 / 统计脚本 / 提交目录 / 复现文档 / 官方结果文档。
+
+**已交付**（2026-08-05）：
+- `docs/competition-submission/`（10 份：需求矩阵 / 门状态 / Benchmark 执行计划 / Demo 验证计划 / chunk RTF 测量规范 / 性能报告模板 / 复现审计 / 最终提交清单 / Demo 用户指南 / Demo 录像脚本）
+- `submission/`（30 文件提交包骨架：env_check / build / start_server / health_check / demo_smoke / run_performance / analyze_chunk_rtf / run_daily_omni|tts_seed|video_mme stub 等，脚本全部 `set -Eeuo pipefail`，含 VERSION_MANIFEST 与 config/server.env 冻结 env）
+- `docs/vllm-migration/` 比赛约束层（新增 `VLLM_METRIC_MEASUREMENT_SPEC.md` + 7 份对齐：主指南 §2.5 赛事优先级 / 组件映射 13→17 字段 / 执行计划重排 V0–V12 / 风险 +R26–R40 / 交接包准入优先 / 实验模板 +5 / README）
+- chunk RTF 测量链路已可用（冻结二进制日志行 `T2W线程: … RTF=…` 可离线解析，无需改源码）
+
+**下一步（按资产可用性）**：①官方 Starter Kit/Harness 到达 → 跑官方三项 Benchmark；②官方权重/归一化公布 → 回填 PERFORMANCE_REPORT 官方口径；③官方 Demo 接入 → 跑 D1–D12 并录 Demo 视频；④提交包核验（clean-env 复现 / SHA 一致 / 无 /tmp 依赖）。
+
 ## T4 严格复核 Gate (2026-08-04)
 
 | Gate | 状态 | 关键数据 |
@@ -285,9 +302,12 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 | **P0** | **T11 修复后 T6 重跑** — server db258375 / libomni c075c535，11/11 GATES PASS, ACCEPT=True；`T6_REGRESSION=PASS` | **DONE** |
 | **P0** | **T13 TTS KV bounds guard 边界测试** — **DONE：BOUNDARY_TEST PASS**。cap 校准 512→256；根因：TTS-only 会话 LOG_ERR 被默认 CONT 阈值过滤，测试钩子内强制 verbosity=INFO 后 guard 可见；**guard=39（全 prefill_with_emb_tts，5× batch=1 + 34× batch>1，text_start=256=cap），10/10 验证项 PASS，memslot=0/http500=0/崩溃=0，8/8 drain+IDLE，followup 4/4，server healthy**；TTS_KV_GUARD_RUNTIME_COVERAGE=PASS；证据 tts_boundary_20260804_170049.json。**测试钩子待 revert（Step 5）** | **DONE** |
 | **P1** | **T10 Daily-Omni pilot** — 9 项 QA + 生命周期/SSE/常驻上下文验证，两轮（29.5s full + 3s short）；证据已归档到 docs/f6-s13-closure/phase2/daily_omni_pilot/（PILOT_REPORT.md）；服务器链 6/6 门 PASS；P0 修复 3 项纳入候选源码；模型输出受 whisper 编码上限（~24-26s）限制 | **DONE — DAILY_OMNI_INTERNAL_PILOT=PASS** |
-| **P1** | **Step 5 冻结最终源码候选** — F6DIAG 已移除、EXPERIMENT 标记已清 → commit 源码 → 干净重建 → SHA 比对 → REPRODUCIBLE_BINARY=PASS；随后重跑 T6（user_text 修复触及 media_type=1 音频路径）→ 回填 F6_FINAL_DELIVERY_REPORT.md | **IN_PROGRESS** |
+| **P1** | **Step 5 冻结最终源码候选** — F6DIAG 已移除、EXPERIMENT 标记已清 → commit 源码 bdd4550 → 干净重建 → REPRODUCIBLE_BINARY=PASS → 冻结二进制 T6 重跑 11/11 → F6_FINAL_DELIVERY_REPORT.md | **DONE（POST_T11_SOURCE_FREEZE=PASS，FINAL_INTERNAL）** |
 | **P1** | **T7 质量/比赛 Gate** — 评估完成：输入 CONFIRMED（修正协议），输出 BLOCKED_BY_CANDIDATE_LIMITATION（SSE 崩溃）；seed-tts=PENDING_EXTERNAL_ASSETS | **DONE** |
 | **P1** | **T8 最终口径** — 内部闭环 FINAL，官方 Gate 不宣称（BLOCKED_BY_CANDIDATE_LIMITATION / NOT_CLAIMED）；最终口径文档 F6_PHASE3_FINAL_FRAMING.md | **DONE** |
+| **P0** | **比赛收口 Phase A：需求矩阵 + 执行脚本框架 + Demo 计划 + 提交目录**（用户 12 节收口 Prompt）→ `docs/competition-submission/` 10 份 + `submission/` 30 文件；chunk RTF 采集管线可运行 | **DONE (2026-08-05)** |
+| **P0** | **比赛收口 Phase B：vLLM 迁移文档对齐比赛约束层**（用户更新 Prompt）→ 新增 `VLLM_METRIC_MEASUREMENT_SPEC.md` + 更新 7 份 | **DONE (2026-08-05)** |
+| **P1** | **运行官方 Gate** — 官方 Daily-Omni / TTS-Seed / Video-MME + 提交包核验（clean-env 复现 / SHA / 无 /tmp） | **BLOCKED_BY_OFFICIAL_STARTER_KIT** |
 | **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
 | **P2** | M6 6h mixed-workload soak audit | DEFERRED |
 
@@ -311,8 +331,12 @@ T6_FROZEN_BINARY_RE_RUN           = PASS   (11/11 gates, ACCEPT=True; 冻结二�
 POST_T11_SOURCE_FREEZE            = PASS   (F6DIAG 移除 + EXPERIMENT 清理 + 提交 bdd4550 + REPRODUCIBLE_BINARY=PASS + 冻结二进制 T6 11/11 PASS)
 POST_T11_FINAL_CANDIDATE          = FINAL_INTERNAL  (T13+T10+源码提交+重建 SHA 固化+冻结二进制 T6 全过 → 内部最终候选)
 DAILY_OMNI_INTERNAL_PILOT         = PASS   (服务器链 6/6 门; P0 修复 3 项; whisper 上限 29.5s→"?" 为模型限制; PILOT_REPORT.md)
-OFFICIAL_DAILY_OMNI               = NOT_RUN
-OFFICIAL_ACCURACY                 = PENDING_REVERIFY_AFTER_T9  (T9 已修非流式 text + SSE bad_alloc + text-only 生命周期, 旧 BLOCKED 过时)
+COMPETITION_CLOSURE_DOCS          = DONE   (2026-08-05: docs/competition-submission/ 10 份 + submission/ 30 文件 + chunk RTF 采集链路可运行)
+VLLM_MIGRATION_COMPETITION_ALIGN  = DONE   (2026-08-05: VLLM_METRIC_MEASUREMENT_SPEC.md + 7 份对齐比赛约束层)
+OFFICIAL_DAILY_OMNI               = NOT_RUN  (BLOCKED_BY_OFFICIAL_STARTER_KIT)
+OFFICIAL_TTS_SEED                 = NOT_RUN  (BLOCKED_BY_OFFICIAL_STARTER_KIT)
+OFFICIAL_VIDEO_MME                = NOT_RUN  (BLOCKED_BY_OFFICIAL_STARTER_KIT)
+OFFICIAL_ACCURACY                 = PENDING_REVERIFY_AFTER_T9  (T9 已修非流式 text + SSE bad_alloc + text-only 生命周期, 旧 BLOCKED 过时; 官方 Harness 前不置 OFFICIAL_PASS)
 OFFICIAL_BENCHMARK                = PENDING_REVERIFY_AFTER_T9
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
@@ -349,9 +373,14 @@ COMPETITION_COMPLETE              = NOT_CLAIMED
 ## Git
 
 ```
-HEAD:    d95acea docs(f6-phase2): T1 status unify + T2 baseline device audit
+HEAD:    f26323f docs(vllm-migration): sync to frozen candidate final state
 Branch:  perf/f6-decode-to-speak
 Worktree: /workspace/llama.cpp-omni-f6
+CANDIDATE_SOURCE_COMMIT: bdd4550   (冻结性能源码，比赛收口阶段不得修改)
+EVIDENCE_DOCS_COMMIT:    f26323f   (HEAD，文档基线)
+Server SHA256:  db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21
+libomni SHA256: c4b169376bced6bc3107cfda2f77abf35a634c1e146eed313a193e99e3739ea1
+model  SHA256:  d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de
 ```
 
 ## Phase 2 完成记录 (2026-08-04, 6 步指令)

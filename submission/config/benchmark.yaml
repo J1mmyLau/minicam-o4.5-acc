@@ -1,0 +1,31 @@
+# benchmark.yaml — Benchmark 运行配置（官方 Starter Kit 到达后回填）
+# 当前全部 BLOCKED_BY_OFFICIAL_STARTER_KIT
+
+benchmarks:
+  daily_omni:
+    data_dir: /workspace/benchmarks/Daily-Omni
+    data_version: PENDING_OFFICIAL      # 官方数据版本
+    subset: PENDING_OFFICIAL            # 官方子集
+    prompt_template: PENDING_OFFICIAL
+    answer_parser: PENDING_OFFICIAL     # A-D 解析
+    denominator: PENDING_OFFICIAL
+    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+
+  tts_seed:
+    data_dir: /workspace/benchmarks/seed-tts-eval
+    metrics: PENDING_OFFICIAL           # WER/SIM/音频有效性/RTF 以官方为准
+    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+
+  video_mme:
+    data_dir: /workspace/benchmarks/Video-MME
+    decode: PENDING_OFFICIAL            # 视频解码/抽帧策略
+    answer_parser: PENDING_OFFICIAL
+    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+
+admission:
+  max_accuracy_drop_pp: 2.0             # 相对官方基线降幅 ≤ 2 个百分点
+  compare_against: official_baseline    # 同脚本同子集同分母
+
+performance:
+  metric: per-audio-chunk RTF
+  spec: ../docs/competition-submission/CHUNK_RTF_MEASUREMENT_SPEC.md
