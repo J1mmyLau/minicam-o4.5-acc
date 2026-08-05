@@ -332,7 +332,7 @@ bash submission/scripts/fetch_demo.sh
 | Tag | 说明 |
 |-----|------|
 | `f6-candidate-source-bdd4550`（→ `80c30cd`） | 冻结候选源码。与原始 `bdd4550` 源码完全一致，仅移除了 git history 中误提交的 msprof 大文件（>100MB，超出 GitHub 限制）。 |
-| `f6-handoff-0357628`（→ `0357628`） | 官方评测规范对齐：SPEAK→WAV RTF, 精度阈值, Demo clone, assets AVAILABLE。 |
+| `f6-handoff-29dea8b`（→ `29dea8b`） | 官方评测规范对齐：SPEAK→WAV RTF, 精度阈值, Demo clone, assets AVAILABLE。 |
 | `f6-handoff-9dab6ba`（→ `9dab6ba`） | 前一版交接 HEAD（Demo 集成 + 比赛规则对齐）。 |
 
 完整 Tag 历史见 [`docs/tracking/TAGS.md`](docs/tracking/TAGS.md)。
