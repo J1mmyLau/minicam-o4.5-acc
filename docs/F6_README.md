@@ -2,7 +2,7 @@
 
 > **文档 HEAD**: `DOCUMENTATION_HEAD`（非候选源码 commit）
 > **候选源码 commit**: `bdd4550`
-> **状态**: `FINAL_INTERNAL=PASS` / `OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT`
+> **状态**: `FINAL_INTERNAL=PASS` / `OFFICIAL_EVALUATION_SPEC=AVAILABLE` / `OFFICIAL_GATE_EXECUTION=READY_TO_START`
 
 ## 一句话
 
@@ -66,10 +66,10 @@ Client HTTP/WS
 | 二进制可复现构建 | `PASS` | build-twice-same-dir byte-identical |
 | 提交工具链 | `PASS` | selftest 14/14 |
 | CANN CPU/NPU 放置审计 | `PASS` (static) | `docs/audit/` 5 docs |
-| 官方 Daily-Omni | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
-| 官方 TTS-Seed | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
-| 官方 Video-MME | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
-| 官方 Demo | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
+| 官方 Daily-Omni | `NOT_RUN` | Benchmark 资产未获取 |
+| 官方 TTS-Seed | `NOT_RUN` | Benchmark 资产未获取 |
+| 官方 Video-MME | `NOT_RUN` | Benchmark 资产未获取 |
+| 官方 Demo | `NOT_RUN` | 推理环境/模型不在当前机器 |
 | 官方 SPEAK→WAV RTF | `NOT_RUN` | 缺官方 harness |
 
 ---
@@ -206,8 +206,8 @@ cmake --build build --target llama-omni-server
 
 ## 已知限制
 
-- 官方三项 Benchmark（Daily-Omni / TTS-Seed / Video-MME）尚未执行 — `BLOCKED_BY_OFFICIAL_STARTER_KIT`
-- 官方 Demo 尚未接入
+- 官方三项 Benchmark（Daily-Omni / TTS-Seed / Video-MME）尚未执行 — 需获取 Benchmark 数据/脚本/评分器
+- 官方 Demo 尚未接入 — 推理环境/模型不在当前机器
 - 内部 pilot 样本规模有限（非全量官方评测集）
 - SSE + `use_tts=true` 有已知边界（duplex/slide 交互复杂度）
 - Whisper 音频编码输入上限

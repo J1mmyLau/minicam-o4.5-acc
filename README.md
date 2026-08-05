@@ -251,6 +251,7 @@ OFFICIAL_DEMO_GATE                        = NOT_RUN
 OFFICIAL_SPEAK_TO_WAV_RTF                 = NOT_RUN
 OFFICIAL_REPRODUCTION                     = NOT_RUN
 
+OFFICIAL_GATE_EXECUTION                   = READY_TO_START
 OFFICIAL_BENCHMARK_EXECUTION_ASSETS       = PENDING
 OFFICIAL_RTF_HARNESS                      = PENDING
 OFFICIAL_DEMO_FLOW_ASSETS                 = PENDING
@@ -319,6 +320,7 @@ bash submission/scripts/fetch_demo.sh
 | 查看比赛 Gate 和准入条件 | [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md) |
 | 了解 RTF parser 与官方口径差异 | [`docs/competition-submission/RTF_PARSER_AUDIT.md`](docs/competition-submission/RTF_PARSER_AUDIT.md) |
 | 审查 Demo Gate 检查表 | [`submission/demo/DEMO_GATE_CHECKLIST.md`](submission/demo/DEMO_GATE_CHECKLIST.md) |
+| 盘点官方执行资产获取状态 | [`docs/competition-submission/OFFICIAL_ASSET_INVENTORY.md`](docs/competition-submission/OFFICIAL_ASSET_INVENTORY.md) |
 | 核对提交材料覆盖度 | [`docs/competition-submission/SUBMISSION_CHECKLIST.md`](docs/competition-submission/SUBMISSION_CHECKLIST.md) |
 | 查看比赛状态和已知限制 | [`docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md`](docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md) |
 | 审查 CANN 设备放置源码 | [`docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md`](docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md) |
@@ -332,7 +334,8 @@ bash submission/scripts/fetch_demo.sh
 | `f6-handoff-3ebfa0f`（→ `3ebfa0f`） | 上一版交接 HEAD（双语 README）。 |
 | `f6-handoff-5df2add`（→ `5df2add`） | 文档版 HEAD（README 重写前）。 |
 | `f6-handoff-9dab6ba`（→ `9dab6ba`） | Demo 集成 + 比赛规则对齐 HEAD。 |
-| `f6-handoff-f572fd4`（→ `f572fd4`） | 官方评测规范对齐（SPEAK→WAV RTF, 精度阈值, Demo clone）。 |
+| `f6-handoff-f572fd4`（→ `66f23eb`） | 官方评测规范对齐（SPEAK→WAV RTF, 精度阈值, Demo clone）。 |
+| `f6-handoff-47fa80b`（→ `47fa80b`） | 状态切换: BLOCKED_BY_STARTER_KIT → READY_TO_START + 资产盘点。 |
 
 ## 已知限制
 

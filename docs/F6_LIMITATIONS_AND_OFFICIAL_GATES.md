@@ -101,10 +101,10 @@
 | **Gate 6**: 二进制可复现构建 | `INTERNAL_PASS` | — | — |
 | **Gate 7**: 提交工具链 | `INTERNAL_PASS` | — | — |
 | **Gate 8**: CANN CPU/NPU 放置审计 | `INTERNAL_PASS` (static) | — | `CPU_PER_CHUNK_CRITICAL_PATH=TO_MEASURE` |
-| **Official A**: Daily-Omni 准确率 | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 harness + 测试集到达 |
-| **Official B**: TTS-Seed 指标 | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 harness + 测试集到达 |
-| **Official C**: Video-MME 指标 | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 harness + 测试集到达 |
-| **Official D**: Demo | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 Demo 前端 + API 规范 |
+| **Official A**: Daily-Omni 准确率 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
+| **Official B**: TTS-Seed 指标 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
+| **Official C**: Video-MME 指标 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
+| **Official D**: Demo | `NOT_RUN` | 推理环境/模型不在当前机器 | Demo 前端已 clone @ ba7fa9c |
 | **Official E**: SPEAK→WAV RTF | `NOT_RUN` | 官方 harness 未到达 + parser 需 SPEAK 阶段分类升级 | 见 RTF_PARSER_AUDIT.md |
 
 ### 3.2 官方 Gate 执行流程 (待 unblock)

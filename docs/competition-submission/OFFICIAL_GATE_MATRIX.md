@@ -30,11 +30,11 @@ G8 最终提交
 | ID | Gate | 赛事要求 | 所需资产 | 脚本 | 原始输出 | 汇总 | 当前状态 | 阻塞原因 | 通过条件 |
 |----|------|---------|---------|------|---------|------|---------|---------|---------|
 | **G1** | Framework & Environment | 在官方昇腾环境部署 llama.cpp-omni | 官方硬件/镜像/CANN | `submission/scripts/start_server.sh` | — | — | `INTERNAL_PASS` | — | 官方环境可复现 |
-| **G2** | Daily-Omni Accuracy | 精度 vs 官方 baseline 79.5，降幅 ≤ 2pp → 需 ≥ 77.5 | 官方 Daily-Omni benchmark + 数据 | `submission/scripts/run_daily_omni.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ≥ 77.5 |
-| **G3** | TTS-Seed Accuracy | ASV ≥ 0.689 (基线 0.709) + WER ≤ 1.56 (基线 1.414) | 官方 TTS-Seed benchmark + 数据 | `submission/scripts/run_tts_seed.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ASV ≥ 0.689, WER ≤ 1.56 |
-| **G4** | Video-MME Accuracy | 精度 vs 官方 baseline 69.0，降幅 ≤ 2pp → 需 ≥ 67.0 | 官方 Video-MME benchmark + 数据 | `submission/scripts/run_video_mme.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ≥ 67.0 |
+| **G2** | Daily-Omni Accuracy | 精度 vs 官方 baseline 79.5，降幅 ≤ 2pp → 需 ≥ 77.5 | 官方 Daily-Omni benchmark + 数据（待获取） | `submission/scripts/run_daily_omni.sh` | — | — | `NOT_RUN` | Benchmark 资产未获取 | ≥ 77.5 |
+| **G3** | TTS-Seed Accuracy | ASV ≥ 0.689 (基线 0.709) + WER ≤ 1.56 (基线 1.414) | 官方 TTS-Seed benchmark + 数据（待获取） | `submission/scripts/run_tts_seed.sh` | — | — | `NOT_RUN` | Benchmark 资产未获取 | ASV ≥ 0.689, WER ≤ 1.56 |
+| **G4** | Video-MME Accuracy | 精度 vs 官方 baseline 69.0，降幅 ≤ 2pp → 需 ≥ 67.0 | 官方 Video-MME benchmark + 数据（待获取） | `submission/scripts/run_video_mme.sh` | — | — | `NOT_RUN` | Benchmark 资产未获取 | ≥ 67.0 |
 | **G5** | Official Demo | 接入 MiniCPM-o-Demo，完整端到端稳定交互 | MiniCPM-o-Demo 前端 @ ba7fa9c (✅ cloned) + 素材 | `submission/scripts/run_demo_gate.sh` | — | — | `NOT_RUN` | 推理环境/模型不在当前机器 | D1-D12 全部 PASS |
-| **G6** | SPEAK→WAV RTF | SPEAK 生成阶段 RTF（非全部 chunk 平均）。官方 baseline: 1.087 | 官方 benchmark harness | `submission/scripts/run_chunk_rtf_client.py` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | RTF < 1.087（低于 baseline） |
+| **G6** | SPEAK→WAV RTF | SPEAK 生成阶段 RTF（非全部 chunk 平均）。官方 baseline: 1.087 | 官方 RTF harness（待获取） | `submission/scripts/run_chunk_rtf_client.py` | — | — | `NOT_RUN` | RTF harness 未获取 + parser 需 SPEAK 分类升级 | RTF < 1.087（低于 baseline） |
 | **G7** | Engineering Reproduction | 官方在官方环境重新部署并复现全部结果 | 完整代码/配置/脚本/文档/视频 | `submission/scripts/` (全部) | — | — | `PARTIAL_READY` | G2-G6 需先通过 | clean-room 复现一致 |
 | **G8** | Final Package Review | 按要求提交全部材料 | 完整 submission 包 | — | — | — | `NOT_READY` | G2-G7 需先通过 | 材料完整、格式合规 |
 
@@ -100,6 +100,7 @@ OFFICIAL_DEMO_GATE                        = NOT_RUN
 OFFICIAL_SPEAK_TO_WAV_RTF                 = NOT_RUN
 OFFICIAL_REPRODUCTION                     = NOT_RUN
 
+OFFICIAL_GATE_EXECUTION                   = READY_TO_START
 OFFICIAL_BENCHMARK_EXECUTION_ASSETS       = PENDING
 OFFICIAL_RTF_HARNESS                      = PENDING
 OFFICIAL_DEMO_FLOW_ASSETS                 = PENDING
