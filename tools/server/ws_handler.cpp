@@ -188,7 +188,7 @@ static void clear_text_stream_state(omni_context * octx) {
 // (omni.cpp:14150-14154).  On abort/exception, that code is never reached,
 // making this the backstop — without it, n_past retains stale tokens and
 // the next session's output is contaminated by the aborted session's context.
-static void ws_cleanup_kv_cache_for_reuse(omni_context * octx) {
+void ws_cleanup_kv_cache_for_reuse(omni_context * octx) {
     if (!octx) return;
 
     // ── Main LLM KV cache ─────────────────────────────────────────
@@ -215,7 +215,7 @@ static void ws_cleanup_kv_cache_for_reuse(omni_context * octx) {
 
 // Transition context_state from ACTIVE → DRAINING → REUSABLE.
 // See FINALIZER_AUDIT.md for the full state machine and call site analysis.
-static void ws_finalize_context_reusable(omni_context * octx) {
+void ws_finalize_context_reusable(omni_context * octx) {
     if (!octx) return;
 
     // Note: do NOT check octx->use_tts here. After a text-only decode,

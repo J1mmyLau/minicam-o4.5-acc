@@ -779,14 +779,29 @@ int main(int argc, char ** argv) {
             return;
         }
 
-        state.session_mgr.request_transport_close(session_id);
-
-        // close is a completion primitive: do not return until inference
-        // threads are stopped and the shared omni_context is safe to reuse.
+        // F6 Session Lifecycle: atomically close the session AND extract
+        // the WS close callback. This prevents a critical race:
+        //
+        // BEFORE (old code):
+        //   1. take_close_callback() → session still ACTIVE
+        //   2. [worker reconnects here → session_mgr.allocate() sees ACTIVE → FAIL]
+        //   3. session_mgr.close() → too late, worker already rejected
+        //
+        // AFTER (atomic close+extract):
+        //   close_and_take_callback() marks session CLOSED, clears active_,
+        //   and extracts close_ws all under one lock → no window for the
+        //   worker to see a stale ACTIVE session.
+        //
+        // The octx cleanup must happen BEFORE the atomic close because
+        // close_and_take_callback frees the octx (omni_free).
         {
             std::lock_guard<std::mutex> octx_lock(state.octx_mutex);
             auto * closing = state.session_mgr.get(session_id);
             if (closing && closing->octx) {
+                // 1) Advance T2W drain generations BEFORE omni_prepare_for_reuse
+                //    so t2w_drain_signal_and_wait fast-paths for text-only.
+                ws_finalize_context_reusable(closing->octx);
+
                 closing->octx->break_event = true;
                 {
                     std::lock_guard<std::mutex> lk(closing->octx->text_mtx);
@@ -795,9 +810,22 @@ int main(int argc, char ** argv) {
                 }
                 closing->octx->text_cv.notify_all();
                 omni_prepare_for_reuse(closing->octx);
-            }
 
-            state.session_mgr.close(session_id);
+                // 2) Clear KV cache + n_past after threads are joined.
+                ws_cleanup_kv_cache_for_reuse(closing->octx);
+
+                // 3) Complete context_state → REUSABLE.
+                ws_finalize_context_reusable(closing->octx);
+            }
+        }
+
+        // Atomic: mark CLOSED + clear active_ + extract close_ws + free octx.
+        // After this returns, active_ is null — worker reconnect will succeed.
+        auto close_ws = state.session_mgr.close_and_take_callback(session_id);
+
+        // Now safe to close the transport.
+        if (close_ws) {
+            close_ws();
         }
 
         json resp;
