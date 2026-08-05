@@ -182,8 +182,11 @@ static void clear_text_stream_state(omni_context * octx) {
 static void ws_finalize_context_reusable(omni_context * octx) {
     if (!octx) return;
 
-    // TTS path handles its own state transitions via omni_duplex_drain_tts_audio
-    if (octx->use_tts) return;
+    // Note: do NOT check octx->use_tts here. After a text-only decode,
+    // use_tts has already been restored to prev_use_tts (which may be true
+    // from the session init). The CAS-based safety below ensures we never
+    // overwrite NOT_REUSABLE, and if the TTS drain path already set REUSABLE,
+    // this is a no-op.
 
     // ── Step 1: ACTIVE → DRAINING ────────────────────────────────
     int expected_active = CTX_STATE_ACTIVE;
