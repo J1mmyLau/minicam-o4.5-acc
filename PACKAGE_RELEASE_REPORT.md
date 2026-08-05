@@ -127,45 +127,44 @@ Until all items are checked, this package is named `f6-competition-handoff-*`.
 
 ## Git Push Security Audit (2026-08-05)
 
-> **Target**: `git@github.com:Phoenix3334/minicpmo45-ascend-private.git`
-> **Push blocked**: No GitHub network connectivity from air-gapped CANN environment.
-> **All audit steps that run locally**: COMPLETE.
+> **Target**: `Phoenix3334/minicpmo45-ascend-private`
+> **Push**: **BLOCKED** — private repo requires authentication, none available on this machine.
+> **All local audit steps**: COMPLETE.
+
+### Network Diagnosis
+
+| Check | Result |
+|-------|--------|
+| `GITHUB_HTTPS_NETWORK` | **PASS** — public repos reachable via HTTPS |
+| `GITHUB_SSH_22` | **BLOCKED** — timeout |
+| `GITHUB_SSH_443` | **CONNECTS** but key `hidevlab-vscode-plugin` not authorized |
+| `PRIVATE_REPO_HTTPS` | **AUTH_REQUIRED** — 404 for unauthenticated private repo |
+| `PRIVATE_REPO_SSH_443` | **AUTH_REQUIRED** — key not registered with GitHub |
 
 ### Audit Results
 
 | Step | Check | Result |
 |------|-------|--------|
-| 1 | Repo state | PASS — branch perf/f6-decode-to-speak, HEAD 33ccda1, worktree clean |
-| 2 | GitHub auth | BLOCKED_BY_NETWORK — no external connectivity from CANN sandbox |
-| 3a | git history secrets scan | PASS — 0 real secrets; all hits are technical terms in documentation (token/key in TTS/NLP context) |
-| 3b | rg working tree secrets | PASS — 0 password/secret/token[:=]"value" patterns, 0 AWS keys, 0 GitHub tokens |
-| 3c | Private key files | PASS — idea-arch.key is a ZIP/JPEG diagram file, not a crypto key |
-| 3c | .env / credential files | PASS — 0 .env files, 0 credentials.json, 0 service-account files |
-| 4 | .gitignore audit | PASS (FIXED) — .env/.env.* added; tarballs/bundles/sha256 excluded; models/ build/ *.gguf covered |
-| 4 | Tracked binaries check | PASS — only intentional: 19 ggml-vocab-*.gguf (model vocabulary files, not weights) |
-| 5 | License | PASS — MIT License (tracked, valid) |
-| 6 | Git tags | PASS (2 tags created) — f6-candidate-source-bdd4550 (on bdd4550), f6-handoff-33ccda1 (on 33ccda1) |
-| 7-10 | Push + remote verify | NOT_RUN — blocked by network |
-| 11 | Doc updates | THIS_FILE + PRIVATE_GITHUB_PUSH_GUIDE.md |
+| 1 | Repo state | PASS — branch perf/f6-decode-to-speak, HEAD 163f1d7, worktree clean |
+| 2 | GitHub network | PARTIAL — HTTPS public PASS, SSH/private AUTH_REQUIRED |
+| 3a | git history secrets scan | PASS — 0 real secrets |
+| 3b | rg working tree secrets | PASS — 0 password/secret/token patterns, 0 AWS keys, 0 GitHub tokens |
+| 3c | Private key files | PASS — idea-arch.key is ZIP/JPEG diagram, not crypto key |
+| 3c | .env / credential files | PASS — 0 .env files with secrets |
+| 4 | .gitignore audit | PASS — .env gap fixed (33ccda1); tarballs/bundles excluded |
+| 4 | Tracked binaries | PASS — only 19 intentional vocab gguf files |
+| 5 | License | PASS — MIT (tracked, valid) |
+| 6 | Git tags | PASS — f6-candidate-source-bdd4550 + f6-handoff-163f1d7 |
+| 7-10 | Push | **PRIVATE_REPO_AUTH_REQUIRED** |
+| 11 | Doc updates | THIS_FILE + PRIVATE_GITHUB_PUSH_GUIDE.md (4 auth options) |
 | 12 | Final output | Below |
 
 ### BLOCKING_SECRET Found: 0
 
-No secrets, passwords, API keys, tokens, private keys, AWS credentials, GitHub tokens, or environment files with secrets were found in the git history or working tree.
+### Resolution Paths
 
-### Pre-Push Checklist (for when network is available)
-
-```bash
-# 1. Verify remote exists
-git ls-remote git@github.com:Phoenix3334/minicpmo45-ascend-private.git
-
-# 2. Push branch (NO force — absolute prohibition)
-git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git perf/f6-decode-to-speak
-
-# 3. Push tags (only these 2)
-git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git f6-candidate-source-bdd4550
-git push git@github.com:Phoenix3334/minicpmo45-ascend-private.git f6-handoff-33ccda1
-
-# 4. Verify remote
-git ls-remote git@github.com:Phoenix3334/minicpmo45-ascend-private.git
-```
+See `PRIVATE_GITHUB_PUSH_GUIDE.md` for 4 options:
+- **A**: Add authorized SSH key to this machine → push via `ssh.github.com:443`
+- **B**: Set up HTTPS PAT credential helper (outside conversation)
+- **C**: Push from user's local machine with network + auth
+- **D**: Offline `git bundle` → transfer → push from another machine
