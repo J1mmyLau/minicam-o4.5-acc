@@ -30,7 +30,7 @@
 | 15 | 故障注入 | 断连崩溃 | `T6`（Disconnect 5/5 修复）、T5 freeze | 注入测试必须做 | 高（方法论） | abort/cancel/restart | V6 | orphan work | P2 |
 | 16 | 官方质量 Gate 诚实口径 | 区分内部/官方 | `T7/T8`（OFFICIAL_*=NOT_CLAIMED） | 不伪造官方结果 | 高（纪律） | 全部官方判定 | 状态分离 | 口径失真 | P0 |
 
-> **证据路径基准**：`docs/` 均在 llama.cpp-omni-f6 仓库内；commit chain 见 `docs/tracking/F6_PHASE3_HANDOFF.md`（HEAD 参考：T5 freeze `b043257`；Phase 3 handoff `549be69`）；raw 数据：`docs/f6-s13-closure/phase2/t6_integrated_regression.json`、`R13` A/B JSON、`t4_strict_cann_t2w.json` 等。
+> **证据路径基准**：`docs/` 均在 llama.cpp-omni-f6 仓库内；llama 侧最终冻结状态（2026-08-05）：候选源码 `bdd4550`、证据/文档 `adb9bb6`+`d5cc978`、冻结二进制 `db258375`/`c4b16937`（交接时分开标注 CANDIDATE_SOURCE_COMMIT 与 EVIDENCE_DOCS_COMMIT）；raw 数据：`docs/f6-s13-closure/phase2/t6_integrated_regression.json`、`R13` A/B JSON、`t4_strict_cann_t2w.json` 等。
 
 ---
 

@@ -8,7 +8,7 @@
 ## 1. 第一个小时（必做，5 件事）
 
 ```text
-□ 1. 读 README.md（30 秒）——知道这套文档是什么、7 个文件分别干什么
+□ 1. 读 README.md（30 秒）——知道这套文档是什么、8 个文件分别干什么
 □ 2. 读本文件 §4（最优先审计位置）——拿到第一周要核对的 5 个源码位置
 □ 3. 确认 run manifest 模板（§6）——从第一个实验开始就要记录
 □ 4. 确认状态标签（§7）——只允许 5 种，禁止混用
@@ -121,7 +121,7 @@ Per-request 记录（每个实验请求一行）
 4. vLLM 长 TTS 的 Talker/Token2Wav context 上限（V7 前无数据）
 5. 官方 Daily-Omni 准确率 / Seed-TTS 指标（官方 Harness/资产未定 → 不宣称 PASS）
 6. vLLM 源码级组件核实（全部 TO_AUDIT 项）
-7. llama 侧最终 T6 重跑结果（当前二进制 c075c535/db258375 回归进行中）
+7. llama 侧最终 T6 重跑结果 — **已完成（2026-08-05）**：冻结源码 bdd4550 重建二进制（c4b16937/db258375）T6 11/11 GATES PASS，ACCEPT=True；详见 `LLAMA_RAW_EVIDENCE_APPENDIX.md` §0/E
 ```
 
 ---
@@ -159,7 +159,7 @@ OFFICIAL_BENCHMARK_PASS
 
 ---
 
-## 10. 文档索引（7 个文件）
+## 10. 文档索引（8 个文件）
 
 | 文件 | 内容 | 什么时候打开 |
 |---|---|---|
@@ -169,6 +169,7 @@ OFFICIAL_BENCHMARK_PASS
 | `LLAMA_RAW_EVIDENCE_APPENDIX.md` | llama 全部实测数字 + CI95 + 来源 | 查数字 |
 | `VLLM_OPTIMIZATION_EXECUTION_PLAN.md` | V0–V12 × 16 字段 | 动手执行 |
 | `VLLM_RISK_AND_VALIDATION_MATRIX.md` | 16 证据 + 25 风险 + 候选决策 | 出故障时 |
+| `VLLM_TEAM_HANDOFF.md` | **本文件**：第一个小时 + 第一周 + 最终交付清单 | 接手时/收口时 |
 | `EXPERIMENT_TEMPLATES.md` | 4 种实验模板（Run Manifest 等） | 每次实验前 |
 
 > **快速阅读顺序**：README → 主指南 §0–§5 → 附录 A/B/C（参考数字）→ 按执行计划 V3→V4→V5 动手。

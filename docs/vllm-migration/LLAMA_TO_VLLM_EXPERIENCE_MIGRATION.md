@@ -341,6 +341,7 @@ T2W/Flow/Vocoder 在哪跑?
 5. **VLLM_OPTIMIZATION_EXECUTION_PLAN.md** — 动手时按 V0→V12 走。
 6. **VLLM_RISK_AND_VALIDATION_MATRIX.md** — 遇到故障时按 25 风险对号入座。
 7. **VLLM_TEAM_HANDOFF.md** — 队友第一周计划 + 最终交付清单。
+8. **EXPERIMENT_TEMPLATES.md** — 每次实验前取模板（Run Manifest / Per-request / 决策 / A/B 清单）。
 
 ---
 

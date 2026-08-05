@@ -18,8 +18,9 @@
 | 模型 | `MiniCPM-o-4_5-F16.gguf`（llama 侧）/ `OpenBMB/MiniCPM-o-4_5`（vLLM 侧） |
 | llama 运行 env | `OMNI_KV_CACHE_REUSE=1 OMNI_T2W_DEVICE=cann-flow-only OMNI_VOC_DEVICE=gpu ASCEND_RT_VISIBLE_DEVICES=0` |
 | llama 运行参数 | `-c 4096 -b 512 -ub 512 --split-mode layer` |
-| llama 候选二进制 | `llama-omni-server db258375` + `libomni.so c075c535`（当前 T6 重跑验证中；前序 `594920b6`/`f1d2f86d`/T5 `e77b43c3`） |
-| llama HEAD 参考 | T5 freeze `b043257`、Phase 3 handoff `549be69` |
+| llama 候选二进制（**冻结，最终**） | `llama-omni-server db258375` + `libomni.so c4b16937`（REPRODUCIBLE_BINARY=PASS：两次干净重建 SHA 逐字节一致；前序 `594920b6`/`f1d2f86d`/T5 `e77b43c3` 仅历史参考） |
+| llama 源码/文档 commit | CANDIDATE_SOURCE_COMMIT `bdd4550`；EVIDENCE_DOCS_COMMIT `adb9bb6`+`d5cc978`（交接时分开标注，不笼统写 HEAD） |
+| llama T6 冻结二进制重跑 | **11/11 GATES PASS, ACCEPT=True**（binary_sha=db258375；S13 120/120、Ext 30/30、Voice 5/5、Disc 5/5、KV A/B 28/30、Smoke 5/5；cpu_fallback=0/cann_error=0） |
 
 ---
 
@@ -75,18 +76,22 @@
 
 ---
 
-## E. T6 最终集成回归（11/11 Gates，ACCEPT=True）
+## E. T6 最终集成回归（11/11 Gates，ACCEPT=True）— 冻结二进制重跑（最终口径）
+
+> 下表为**冻结源码 bdd4550 重建二进制**上的 T6 完整重跑（re-run #3，binary_sha=db258375）；这是最终口径。
+> 前序 re-run #2（@ 91797e6+未提交 diff，libomni c075c535）的 KV A/B 为 27 valid（3 对排除，见 `t6_kv_ab_27of30.md`），仅历史参考。
 
 | # | 项 | 数值 | 来源 | vLLM 状态 |
 |---|---|---|---|---|
-| E1 | S13_STRICT_BASELINE | 120/120，err=0，runaway=0，prompt_modified=0 | `docs/f6-s13-closure/phase2/T6_INTEGRATED_REGRESSION_REPORT.md` | `TO_MEASURE_AT_RUNTIME` |
+| E1 | S13_STRICT_BASELINE | 120/120，err=0，runaway=0，prompt_modified=0，first_attempt_ok=120 | `docs/f6-s13-closure/phase2/T6_INTEGRATED_REGRESSION_REPORT.md` + `t6_integrated_regression.json` | `TO_MEASURE_AT_RUNTIME` |
 | E2 | Extended | 20 long + 10 mixed = 30/30 | 同上 | 同上 |
-| E3 | Voice-switch | 5/5 + 目录隔离 | 同上 | 同上 |
+| E3 | Voice-switch | 5/5 + 目录隔离（5 distinct hashes） | 同上 | 同上 |
 | E4 | Disconnect | 5/5 存活 + followup OK | 同上 | 同上 |
-| E5 | KV Cache A/B | 30/30（201.7→83.1ms，2.43×） | 同上 | 同上 |
+| E5 | KV Cache A/B（冻结口径） | 30 pairs / **28 valid**（2 对 C2-R2/C5-R3 按预声明 A_ERR 排除，机制 30/30；202.8→82.0ms，2.47×，loaded=130） | 同上 | 同上 |
 | E6 | 重启 | 3 会话重启 | 同上 | 同上 |
-| E7 | CPU fallback / CANN error | **0 / 0** | 同上 | 同上 |
-| E8 | stop 分布 | eos=86 / max_tokens=34 | 同上 | 同上 |
+| E7 | CPU fallback / CANN error | **0 / 0**（cann_ok=4） | 同上 | 同上 |
+| E8 | stop 分布 | eos=81 / max_tokens=39 | 同上 | 同上 |
+| E9 | decode_wall p50 | 5437ms | 同上 | 同上 |
 
 ---
 
@@ -106,6 +111,7 @@
 | G2 | `decode: failed to find a memory slot` | — | llama_decode 打进满 KV | 同上 | 同上 |
 | G3 | 单请求累积 | **3815 tokens** | 一个长请求内撞顶（**非跨请求**） | 同上 | 同上 |
 | G4 | 修复（F6 T11） | bounds guard | `eval_tokens_tts`/`prefill_with_emb_tts`：`n_past+batch > llama_n_ctx` 提前 return false | 同上 | — |
+| G5 | 修复闭环验证 | **TTS_KV_GUARD_IMPLEMENTED=YES / RUNTIME_COVERAGE=PASS** | 常规 T6 回归 + T13 确定性边界测试（guard=39 全来自 prefill_with_emb_tts，cap=256）+ followup 复用 + 正式源码去除测试钩子 | `docs/f6-s13-closure/phase2/tts_boundary/tts_boundary_20260804_170049.json` | — |
 
 **迁移问题（vLLM 必答，TO_AUDIT）**：Talker KV / Token2Wav 内部 buffer / Block Manager / `max_num_batched_tokens` / `max_num_seqs` / output token cap —— 哪一级先满？不能把所有 memory-slot 类错误归因主模型 KV。
 
@@ -129,7 +135,10 @@
 | B6b 有效 | **REJECTED**（llama 侧） | 无稳定收益 |
 | request 完成 = 全部 Stage 完成 | **REJECTED** | R7 drain 教训 |
 | TTS 有独立 context 上限 | **CONFIRMED**（llama 侧） | tts_n_past_accumulated=4096 |
+| TTS KV guard 已实现并覆盖 | **CONFIRMED**（llama 侧，T11+T13） | G5；正式冻结源码无测试钩子 |
 | vLLM Prefix Cache 覆盖多模态/TTS 前缀 | **UNPROVEN** | 需 V5 审计 |
 | vLLM 组件名/函数（组件映射中所有 TO_AUDIT 项） | **UNPROVEN** | 需源码审计 |
+
+> **llama 侧最终状态（2026-08-05）**：内部候选已真正冻结完成——源码 bdd4550、二进制 SHA 固化、T6 冻结二进制 11/11 PASS、工作树 clean、无遗留 server 进程。后续只剩官方评测与提交（官方 Daily-Omni / Seed-TTS / Video-MME / 官方提交包核验），不再属于候选研发。llama 侧任何数字在本附录均为"参考标尺"，vLLM 侧必须重新测量。
 
 > 状态标签只用于本附录结论行。正文每节的"证据状态"同理：`CONFIRMED / INFERENCE / HISTORICAL / UNPROVEN`。

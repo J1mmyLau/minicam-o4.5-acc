@@ -86,3 +86,4 @@ PENDING_EXTERNAL_ASSETS / OFFICIAL_BENCHMARK_PASS
 
 - 2026-08-03 — 初版 5 文件（组件映射 / 证据附录 / 执行计划 / 风险矩阵 / 交接包 + 主指南）。
 - 2026-08-04 — 扩充为可执行深度：主指南 12 经验 + 4 决策树、执行计划 V0–V12 × 16 字段、风险 16→25、新增 `EXPERIMENT_TEMPLATES.md` 与本 README。
+- 2026-08-05 — **同步 llama 侧冻结完成状态**：llama 内部候选已真正冻结（源码 `bdd4550`、二进制 `c4b16937`/`db258375` 固化、T6 冻结二进制 11/11 GATES PASS、REPRODUCIBLE_BINARY=PASS）。附录 §0/E/G、交接包 §8 更新为最终口径；文档索引修正为 8 个文件。**llama 侧不再属于候选研发**，本迁移集面向 vLLM-Omni 的审计与优化继续有效。
