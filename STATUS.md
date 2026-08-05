@@ -25,6 +25,8 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 **最终集成候选已冻结 = FINAL**（"KV Cache + HTTP token cap + 生命周期
 + CANN Flow/Vocoder" 组合，T5 冻结见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)，
 **T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**）。
+**文档体系完善（Task #354, 2026-08-05）**: 顶层文档从 3 份扩展到 8 份（README + QUICKSTART + ARCHITECTURE + OPTIMIZATION_AND_RESULTS + METHODOLOGY + REPRODUCTION_GUIDE + LIMITATIONS_AND_OFFICIAL_GATES + EVIDENCE_INDEX），2,276 行总量。口径修正：FINAL_INTERNAL 统一、4.8s→0.9s 带完整证据路径、COMPETITION_COMPLETE=NOT_CLAIMED 跨文档一致。质量检查：git diff --check PASS / 14 evidence path 全部存在 / 无 over-claim。
+
 **T9 接口修复（用户 P0 指令：修文本输出接口）** — 见下方 T9 段。libomni.so 保持冻结
 `f1d2f86d`，server 由 `e77b43c3` 解冻重建（当前 `594920b6`，T6 重跑验证中）；不伪造官方结果。
 
@@ -72,6 +74,7 @@ T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
 - `docs/vllm-migration/` 比赛约束层（新增 `VLLM_METRIC_MEASUREMENT_SPEC.md` + 7 份对齐：主指南 §2.5 赛事优先级 / 组件映射 13→17 字段 / 执行计划重排 V0–V12 / 风险 +R26–R40 / 交接包准入优先 / 实验模板 +5 / README）
 - chunk RTF 测量链路已可用（冻结二进制日志行 `T2W线程: … RTF=…` 可离线解析，无需改源码）
 - **提交工具链收口（2026-08-05，P0/P1 四修复）**：`run_performance.sh` 支持 `MODE=baseline|candidate` + 输出隔离 `${OUTPUT_ROOT}/<run_id>/<mode>/` + `manifest.json`；`valid_audio` 真实判定（10 排除原因枚举，删除恒 true 桩）+ `check_baseline_candidate_symmetry.py` 对称性检查；4 份 Gate 脚本显式 `--dry-run`（返回码 0/2/3/4）；私有默认路径清除（MODEL_PATH 必填无默认、DATA_ROOT/DEMO_DIR/OUTPUT_ROOT/OFFICIAL_HARNESS_ROOT 从 REPO_ROOT 派生）。新增 `submission/tests/`（单测 21 例 + 对称性 fixtures + 私有路径审计 + `run_selftest.sh`）。离线自检 **14/14 PASS**。
+- **CANN CPU/NPU 放置与同步只读审计（2026-08-05，初版 + 修订 + 二次修订 2026-08-05）**：输出 `docs/audit/`（5 份修订）。四级状态拆分：`CANN_STATIC_CAPABILITY_AUDIT=PASS`（源码审计已完成）/ `MAIN_LLM_STATIC_PLACEMENT=PASS`（weight tensor 在 CANN，scheduler 可追踪）/ `MAIN_LLM_RUNTIME_PLACEMENT=PARTIAL`（缺直接 profiler 证据：无 msprof/CANN timeline/backend 分配日志）/ `MAIN_LLM_CPU_FALLBACK_OBSERVED=NO`（不等于证明运行时无 fallback）/ `GRAPH_SPLIT_RUNTIME_COUNT=NOT_MEASURED` / `CPU_PER_CHUNK_CRITICAL_PATH=TO_MEASURE`。二次修订要点："未观察到 CPU fallback" ≠ "运行时 Placement PASS"；二者降级为 PARTIAL + NO。
 
 **下一步（按资产可用性）**：①官方 Starter Kit/Harness 到达 → 先 `--dry-run` 预检（rc=0）→ 跑官方三项 Benchmark（先 baseline 后 candidate，同 RUN_ID）；②官方权重/归一化公布 → 回填 PERFORMANCE_REPORT 官方口径；③官方 Demo 接入 → 跑 D1–D12 并录 Demo 视频；④提交包核验（clean-env 复现 / SHA 一致 / 无 /tmp 依赖）。
 
@@ -329,6 +332,12 @@ R13_STATIC_PREFIX_E2E             = PASS   (30/30 first-audio A/B, prefill 2.5×
 PHASE2_BOTTLENECK_ANALYSIS        = PASS   (decode→speak=2.9%, T2W CPU=93%)
 CANN_T2W_CANDIDATE                = STRONG_INTERNAL_PASS (W0 4798→894ms, −81.4%)
 BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参考 baseline)
+CANN_STATIC_CAPABILITY_AUDIT      = PASS    (supports_op / offload / sync/copy / KV / env var 已查清)
+MAIN_LLM_STATIC_PLACEMENT         = PASS    (-ngl 999 weight tensor 在 CANN，scheduler 可追踪)
+MAIN_LLM_RUNTIME_PLACEMENT        = PARTIAL (缺直接 profiler 证据：无 msprof/CANN timeline/backend 分配日志)
+MAIN_LLM_CPU_FALLBACK_OBSERVED    = NO      (冻结日志未观察到，不等于证明无)
+GRAPH_SPLIT_RUNTIME_COUNT         = NOT_MEASURED
+CPU_PER_CHUNK_CRITICAL_PATH       = TO_MEASURE (需逐 chunk 运行时预算完成 Amdahl 判定)
 T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
 T6_FINAL_INTEGRATED_REGRESSION    = PASS   (11/11 gates, ACCEPT=True; e77b43c3)
 T6_RE_RUN_AFTER_T11_FIX           = PASS   (11/11 gates, ACCEPT=True; server db258375 / libomni c075c535)
