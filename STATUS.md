@@ -375,11 +375,16 @@ COMPETITION_COMPLETE              = NOT_CLAIMED
 ## Git
 
 ```
-HEAD:    37dc598 docs(vllm-migration): align optimization handoff with competition metrics
+HEAD:    b527dce docs(competition): official gate readiness report — 7-item check + asset manifests + OFFICIAL_GATE_WAITING
 Branch:  perf/f6-decode-to-speak
 Worktree: /workspace/llama.cpp-omni-f6
-CANDIDATE_SOURCE_COMMIT: bdd4550   (冻结性能源码，比赛收口阶段不得修改)
-EVIDENCE_DOCS_COMMIT:    f26323f   (冻结证据基线; 新增文档: 7a3f11e 比赛收口 + 37dc598 vLLM 对齐)
+
+LLAMA_CANDIDATE_SOURCE_COMMIT = bdd4550     # 真正参加 llama 子赛道的冻结源码（不得修改）
+COMPETITION_DOCS_COMMIT       = 7a3f11e
+VLLM_MIGRATION_DOCS_COMMIT    = 37dc598
+FINAL_TRACKING_HEAD           = b527dce     # 就绪度报告后推进（原固定值 379e2e6 → b527dce）
+EVIDENCE_DOCS_COMMIT          = f26323f     # 冻结证据基线
+```
 Server SHA256:  db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21
 libomni SHA256: c4b169376bced6bc3107cfda2f77abf35a634c1e146eed313a193e99e3739ea1
 model  SHA256:  d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de
