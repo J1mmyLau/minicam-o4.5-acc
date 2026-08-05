@@ -10,7 +10,7 @@
 
 - SSH key registered with GitHub account Phoenix3334
 - Network access to github.com
-- This repo at HEAD `33ccda1` (branch `perf/f6-decode-to-speak`)
+- This repo at HEAD `37ef54d` (branch `perf/f6-decode-to-speak`)
 
 ---
 
@@ -28,7 +28,7 @@ git push private perf/f6-decode-to-speak
 
 # Step 3: Push tags
 git push private f6-candidate-source-bdd4550
-git push private f6-handoff-33ccda1
+git push private f6-handoff-37ef54d
 
 # Step 4: Verify
 git ls-remote private
@@ -41,10 +41,10 @@ git ls-remote private
 | Item | Value |
 |------|-------|
 | **Branch** | `perf/f6-decode-to-speak` |
-| **HEAD** | `33ccda1` (chore(gitignore): add .env and .env.* patterns) |
+| **HEAD** | `37ef54d` (docs(release): add git push security audit results and push guide) |
 | **Frozen source** | `bdd4550` (ancestor of HEAD, tagged `f6-candidate-source-bdd4550`) |
 | **Tag 1** | `f6-candidate-source-bdd4550` → commit `bdd4550` |
-| **Tag 2** | `f6-handoff-33ccda1` → commit `33ccda1` |
+| **Tag 2** | `f6-handoff-37ef54d` → commit `37ef54d` |
 | **Existing tag** | `f6-timing-instrumentation-pass-20260730` (pre-existing, informational) |
 
 ---
@@ -85,7 +85,7 @@ git ls-remote private
 
 The repo at `Phoenix3334/minicpmo45-ascend-private` will contain:
 
-- Full git history from initial commit through `33ccda1`
+- Full git history from initial commit through `37ef54d`
 - Complete source tree (llama.cpp + omni extensions, frozen at bdd4550)
 - All documentation (8 top-level docs, audit/, tracking/, evidence/, competition/, vllm-migration/)
 - Submission scripts (`submission/`)
@@ -119,5 +119,5 @@ git push private --delete perf/f6-decode-to-speak
 To remove tags from remote (only if necessary):
 ```bash
 git push private --delete f6-candidate-source-bdd4550
-git push private --delete f6-handoff-33ccda1
+git push private --delete f6-handoff-37ef54d
 ```
