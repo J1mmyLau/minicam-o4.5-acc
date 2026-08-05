@@ -1,14 +1,17 @@
 # llama.cpp-omni → vLLM-Omni 组件映射（代码审计入口）
 
 > **用途**：这是队友在 vLLM-Omni 源码中的审计地图，**不是函数一一对应**。
-> 每个组件给出 13 个字段；**未源码审计的 vLLM 类/函数一律标 `TO_AUDIT`**，禁止把猜测写成 CONFIRMED。
+> 每个组件给出 17 个字段；**未源码审计的 vLLM 类/函数一律标 `TO_AUDIT`**，禁止把猜测写成 CONFIRMED。
 > 验证实验编号对应 `VLLM_OPTIMIZATION_EXECUTION_PLAN.md` 的 V0–V12。
+> 比赛字段（影响的比赛指标 / 指标起止事件 / 需要记录的 raw 字段 / 官方 Gate 风险）口径见 `VLLM_METRIC_MEASUREMENT_SPEC.md`。
 
 ---
 
-## 0. 13 字段说明
+## 0. 17 字段说明
 
-`llama对象 / llama owner / llama生命周期 / vLLM候选对象 / vLLM可能目录 / vLLM可能类/函数 / 状态 / 必须回答的问题 / 建议grep关键词 / 建议runtime日志 / 验证实验 / 风险 / 备注`
+`llama对象 / llama owner / llama生命周期 / vLLM候选对象 / vLLM可能目录 / vLLM可能类/函数 / 状态 / 必须回答的问题 / 建议grep关键词 / 建议runtime日志 / 验证实验 / 风险 / 备注 / 影响的比赛指标 / 指标起止事件 / 需要记录的raw字段 / 官方Gate风险`
+
+> 后 4 个字段为**比赛约束层**（2026-08-05 新增）：回答"这个组件最终落到哪项比赛指标、起止事件怎么打、raw 记什么、官方 Gate 上有什么坑"。
 
 ---
 
@@ -28,6 +31,10 @@
 | 建议 runtime 日志 | 每请求 request_id + HTTP status + 耗时 |
 | 验证实验 | V1（冒烟） |
 | 风险 | 接口字段缺省 → 官方判分不可用（llama F7/T7 教训） |
+| 影响的比赛指标 | 准入（接口完整性，先于排名）；TTFT/TTFP 起点（T0 候选） |
+| 指标起止事件 | `T0 request received`（TTFT/TTFP 起点；是否含网络/预处理以官方脚本为准） |
+| 需要记录的 raw 字段 | 每请求 HTTP status / 响应字段完整性 / request_id / 处理耗时 |
+| 官方 Gate 风险 | 官方脚本用 streaming 或不同字段时接口不兼容 → 假失败（误判 M6）；只测 non-streaming 不测 streaming |
 
 ---
 
@@ -47,6 +54,10 @@
 | 建议 runtime 日志 | enqueue/dequeue 时间戳 + queue depth |
 | 验证实验 | V6 |
 | 风险 | queue empty ≠ worker inactive（llama R7） |
+| 影响的比赛指标 | 全部三项（排队/调度时间影响各指标起止观测） |
+| 指标起止事件 | 排队等待计入哪个指标由官方脚本定（**不预设**）；内部记 `T0→admit` |
+| 需要记录的 raw 字段 | enqueue/dequeue 时间戳、queue depth、wait time |
+| 官方 Gate 风险 | 把排队等待混入 chunk RTF / TTFP（误判 M7）；queue empty 误判空闲（R7） |
 
 ---
 
@@ -66,6 +77,10 @@
 | 建议 runtime 日志 | prefill begin/end、first token、speak decision |
 | 验证实验 | V3 |
 | 风险 | 把 thinker decode 误当第一瓶颈（llama 2.9%） |
+| 影响的比赛指标 | TTFT（首个 text token）；TTFP 前段（speak 决策延迟） |
+| 指标起止事件 | `T0→T3`（TTFT）；`T0→T4 speak decision`（TTFP 前段） |
+| 需要记录的 raw 字段 | prefill begin/end、first text token、speak decision、token 数 |
+| 官方 Gate 风险 | 官方 TTFT 终点判定（非空 token / 协议标记）不同 → 口径偏差（误判 M6）；packing 错 → 假低精度 |
 
 ---
 
@@ -85,6 +100,10 @@
 | 建议 runtime 日志 | admit、first token、context usage、complete |
 | 验证实验 | V3 / V7 |
 | 风险 | Talker context 满 / 旧音频混入新请求（llama G1） |
+| 影响的比赛指标 | TTFP 中段（Talker 首个 audio token）；chunk RTF 长尾 |
+| 指标起止事件 | `T5 talker admit → T6 talker first token`（TTFP 中段） |
+| 需要记录的 raw 字段 | admit、first token、context usage、complete、request_id |
+| 官方 Gate 风险 | context 满 → 500/截断 → Benchmark 失败率升高（M7/R29）；旧音频混入 → chunk 序列错位（R6） |
 
 ---
 
@@ -104,6 +123,10 @@
 | 建议 runtime 日志 | admit、Flow begin/end、Vocoder begin/end、first audio、complete |
 | 验证实验 | V3 / V4 / V7 |
 | 风险 | 设备放置主导首音（llama 93%）；Token2Wav backlog |
+| 影响的比赛指标 | **chunk RTF（直接）**、TTFP（首个 chunk） |
+| 指标起止事件 | `T11 Flow begin → T12 Vocoder end`（chunk RTF 核心区间；`queue_wait` 单列不进 RTF） |
+| 需要记录的 raw 字段 | 每 chunk compute_ms、audio_duration_ms、sample_count、chunk_rtf、queue_wait、WAV 有效 |
+| 官方 Gate 风险 | 设备放置/backlog → chunk RTF 高；把 Flow/Vocoder 内部 RTF 冒充 chunk RTF（误判 M2）；首 chunk 冷启动拉偏 p50（M4） |
 
 ---
 
@@ -123,6 +146,10 @@
 | 建议 runtime 日志 | reused blocks/tokens、prefill latency、TTFT |
 | 验证实验 | V5 |
 | 风险 | false HIT / cache collision / 只缓存 thinker 文本 KV |
+| 影响的比赛指标 | TTFT（prefill 减少） |
+| 指标起止事件 | `T1 prefill start → T2 prefill end`（TTFT 中段） |
+| 需要记录的 raw 字段 | reused blocks/tokens、prefill latency、TTFT、audio TTFP（端到端校验，防只报 prefill） |
+| 官方 Gate 风险 | 只缓存 thinker 文本 KV → 端到端无收益但报告只报 prefill（M1/M3、R1/R3）；HIT 未复测端到端 |
 
 ---
 
@@ -142,6 +169,10 @@
 | 建议 runtime 日志 | kv blocks free/used、每 Stage context usage |
 | 验证实验 | V6 / V7 |
 | 风险 | block leak（HBM 单调增长）；memory-slot 误归因 |
+| 影响的比赛指标 | chunk RTF（长稳下漂移）；全部（长稳崩则 Benchmark 中断） |
+| 指标起止事件 | —（间接：长稳下各指标漂移；非单一指标区间） |
+| 需要记录的 raw 字段 | kv blocks free/used、每 Stage context usage、HBM/RSS |
+| 官方 Gate 风险 | leak/memory-slot → 长稳失败 → 官方 Harness 连续请求中断（R15/R20） |
 
 ---
 
@@ -161,6 +192,10 @@
 | 建议 runtime 日志 | 输出字段完整性、输出长度 |
 | 验证实验 | V1 |
 | 风险 | 非流式无 text / 空音（llama F7/T7 教训） |
+| 影响的比赛指标 | 准入（精度判分可用性）；TTFT 终点判定 |
+| 指标起止事件 | `T15 response sent`（TTFT/TTFP 终点附近；与官方解析器对齐） |
+| 需要记录的 raw 字段 | 字段完整性、text 长度、audio 有无、WAV 有效 |
+| 官方 Gate 风险 | 字段缺省 → 官方判分器解析失败 → 假失败（R12/R29）；空包当有效音频（M5） |
 
 ---
 
@@ -180,6 +215,10 @@
 | 建议 runtime 日志 | 流开始/结束、chunk 数 |
 | 验证实验 | V1 / V6 |
 | 风险 | 流式崩溃服务器（llama F7-1 bad_alloc 教训） |
+| 影响的比赛指标 | TTFT/TTFP（流式路径下首个 chunk/包） |
+| 指标起止事件 | 流开始 → 首个 chunk → `[DONE]`；终点判定与官方脚本对齐 |
+| 需要记录的 raw 字段 | 流开始/结束、chunk 数、首 chunk 时间戳、`[DONE]` 完整性 |
+| 官方 Gate 风险 | 官方脚本 stream 模式字段/终结语义不兼容 → 假失败（M6）；流式崩溃 → 长稳失败（R13） |
 
 ---
 
@@ -199,6 +238,10 @@
 | 建议 runtime 日志 | cancel 事件、残留任务 |
 | 验证实验 | V6 |
 | 风险 | use-after-free（llama 曾因 omni_free 竞争崩溃）；orphan future |
+| 影响的比赛指标 | 间接（Benchmark 中段断连/取消；不构成排名区间） |
+| 指标起止事件 | —（中断场景，非指标区间） |
+| 需要记录的 raw 字段 | cancel 事件、残留任务计数、恢复后首个请求是否成功 |
+| 官方 Gate 风险 | 断连崩溃/污染后续请求 → 官方 Harness 连续请求失败（R6） |
 
 ---
 
@@ -218,6 +261,10 @@
 | 建议 runtime 日志 | queue depth、wait time |
 | 验证实验 | V3 / V6 |
 | 风险 | queue empty ≠ 完成；Token2Wav backlog |
+| 影响的比赛指标 | chunk RTF（backlog 影响 chunk 到达间隔）、TTFP（首个 chunk 延迟） |
+| 指标起止事件 | —（chunk RTF 计算区间不含排队；`queue_wait` 单列） |
+| 需要记录的 raw 字段 | queue depth、wait time、backlog、chunk 到达时间戳 |
+| 官方 Gate 风险 | 把 queue_wait 混入 chunk RTF（误判 M7）；backlog → TTFP 高（M1/M3 旁路） |
 
 ---
 
@@ -235,8 +282,12 @@
 | 必须回答 | 会话 TTL / disconnect grace / replay TTL / pending turn limit / max sessions？speak-listen 决策与 barge-in？ |
 | 建议 grep | `rg -n "duplex|realtime|barge_in|session_id|ttl"` |
 | 建议 runtime 日志 | session 创建/过期、turn 边界 |
-| 验证实验 | V11 |
+| 验证实验 | 附加实验（DEFER；2026-08-05 起不再是主线 V11） |
 | 风险 | Duplex 实验线阻塞 Simplex 主线；断线恢复不完整 |
+| 影响的比赛指标 | —（Duplex 移入附加实验，不参与主线排名指标；比赛未明确计入则不做） |
+| 指标起止事件 | —（非主线） |
+| 需要记录的 raw 字段 | —（若实验性跑：session TTL / turn 边界 / 音频顺序） |
+| 官方 Gate 风险 | Duplex 改动污染 Simplex 候选 → 主线指标回归（R10）；比赛不计 Duplex 时禁止占主线资源 |
 
 ---
 

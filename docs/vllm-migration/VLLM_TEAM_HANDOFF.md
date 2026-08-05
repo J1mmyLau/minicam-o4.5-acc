@@ -33,17 +33,17 @@
 
 ---
 
-## 3. 队友第一周执行计划
+## 3. 队友第一周执行计划（比赛口径版）
 
 | 天 | 任务 | 产出 | 模板 |
 |---|---|---|---|
-| D1 | V0 环境冻结 + V1 三类接口冒烟 | `freeze.txt` + 冒烟脚本 | Run Manifest |
-| D2 | V2 单卡 baseline（三类指标） | `baseline.json` | Per-request 记录 |
-| D3–D4 | V3 Stage 打点 + V4 设备放置审计（**并行**） | `stage_timeline.json` + `device_placement.md` | Per-request 记录 |
-| D5 | V5 Prefix Cache A/B | `prefix_cache_ab.json` | 配对 A/B 清单 |
-| D6–D7 | V6 生命周期（连续/取消/断连）+ 复盘 | `lifecycle.json` + 周报 | 决策记录 |
+| D1 | V0 赛事规则冻结 + V1 官方格式接口冒烟 | `freeze.txt` + `rule_freeze.md` + 冒烟脚本 | Run Manifest / Metric Manifest |
+| D2 | V2 三指标冻结基线（TTFT/TTFP/逐 chunk RTF） | `baseline.json` + `chunk_rtf_baseline.csv` | Per-request 记录 / Per-chunk RTF |
+| D3–D4 | V3 三指标 Stage 时间线 + V4 设备放置审计（**并行**） | `stage_timeline.json` + `device_placement.md` | Per-request 记录 |
+| D5 | V5 Prefix Cache TTFT A/B | `prefix_cache_ab.json` | 配对 A/B 清单 |
+| D6–D7 | V8 生命周期长稳（连续/取消/断连/长 TTS）+ 复盘 | `lifecycle.json` + 周报 | 决策记录 |
 
-> 本周不写任何算子。只建立：基线 + 占比 + 设备 + 前缀复用四张地图。
+> 本周不写任何算子、不做任何优化。只建立：**规则+接口 / 三指标基线 / 占比 / 设备** 四张地图。V6（TTFP 优化）/ V7（chunk RTF 优化）需等 V3/V4 结论与官方 baseline 就位后再动。
 
 ---
 
@@ -61,19 +61,36 @@
 
 ---
 
-## 5. 最先跑的三个实验（优先级铁律）
+## 5. 最先跑的三个实验（优先级铁律，比赛口径 2026-08-05）
 
-1. **端到端 Stage 打点（V3）** — 确认 Thinker/Talker/Token2Wav 各占比，验证"瓶颈不在 decode"假设。
-2. **设备放置审计（V4）** — 确认 Flow/Vocoder 到底跑在 CPU 还是 NPU、host-device copy 在哪。
-3. **Prefix Cache A/B（V5）** — 确认固定参考音频与模板是否真正复用。
+> **准入优先于性能**：决策优先级为 **精度 → Demo → 单卡 → 指标**。精度（≤2pp）与 Demo 可用是能不能上榜的硬门槛，性能排名排在其后；任何性能优化不得破坏精度/Demo。
 
-> 三者的共同点：**先测量，后优化**。与 llama 路线完全一致。
+1. **官方格式接口冒烟（V1）** — 三类请求（文本 / 文本+音频 / Daily-Omni packing）× streaming/non-streaming × **官方参数**，断言 text 与 audio 字段完整。防止"假低精度"卡准入（llama T7 教训）。
+2. **三指标冻结基线（V2）** — 单卡 TTFT / TTFP / **逐 chunk RTF** 的 p50/p95 冻结（chunk 必须逐条采集，首/中/尾分桶，见 `VLLM_METRIC_MEASUREMENT_SPEC.md`）。
+3. **三指标 Stage 时间线 + 设备放置（V3 + V4）** — 端到端 T0–T15 逐 chunk 占比 + Amdahl 排序 + Flow/Vocoder/Token2Wav 真实设备与 host-device copy 位置。
+
+> 三者共同点：**先测量，后优化**。与 llama 路线一致；只是 V1 改为官方格式冒烟、V2 改为三比赛指标口径。
 
 ---
 
-## 6. 实验模板（Run Manifest / Per-request 记录 / 决策记录 / A/B 清单）
+## 5.1 第一周禁止清单（DEFER，不要碰）
 
-> 完整可复制模板见 `EXPERIMENT_TEMPLATES.md`。这里放最小版。
+```text
+□ 不做 Decode-to-Speak / 提前触发 Talker 类直觉优化（llama B6b 负结果，先打点证明占比）
+□ 不写任何算子 / 不做算子融合（Amdahl 排序之前一律 DEFER）
+□ 不把 Duplex 作为主线任务（附加实验，DEFER，不得占用主线 deadline）
+□ 不在 2/3 卡上做优化并当单卡成绩（比赛单卡；多卡仅诊断）
+□ 不引用 llama 数字当 vLLM 结果（llama 数字仅参考标尺）
+□ 不自行定官方权重 / 归一化（一律"待官方确认"）
+□ 不把内部结果写成 OFFICIAL（官方 Harness 未跑不置位）
+□ 不跳过 V8 长稳直接跑精度基准/Demo（长稳是 Bench/Demo 前提）
+```
+
+---
+
+## 6. 实验模板（Run Manifest / Per-request / 决策 / A/B + 5 个比赛模板）
+
+> 完整可复制模板见 `EXPERIMENT_TEMPLATES.md`（§1–§4 基础模板；§6–§10 比赛模板：Metric Manifest / Benchmark Accuracy Comparison / Demo Validation Record / Per-chunk RTF Record / Official Gate Record）。这里放最小版。
 
 ```text
 Run Manifest（每次 run 一栏）
@@ -126,21 +143,23 @@ Per-request 记录（每个实验请求一行）
 
 ---
 
-## 9. 最终交接要求（队友冻结比赛候选前必须产出 12 项）
+## 9. 最终交接要求（队友冻结比赛候选前必须产出 14 项）
 
 ```text
 1. Canonical 单卡启动 YAML
 2. 一键启动脚本
 3. 一键冒烟脚本
-4. Seed-TTS benchmark
-5. Daily-Omni benchmark
-6. Stage 性能时间线
-7. Prefix Cache A/B
-8. 长稳回归
-9. 已知问题
-10. 已拒绝优化
-11. 回滚方法
-12. 最终比赛口径
+4. Daily-Omni benchmark（相对官方基线 ≤2pp，accuracy_comparison 模板）
+5. TTS-Seed benchmark（WER/RTF + 相对官方基线）
+6. Video-MME benchmark（相对官方基线 ≤2pp）
+7. Demo 验证 + 视频（D1–D12，准入第二门槛）
+8. Stage 性能时间线（三比赛指标口径）
+9. Prefix Cache A/B（TTFT）
+10. 长稳回归（V8）
+11. 已知问题
+12. 已拒绝优化
+13. 回滚方法
+14. 最终比赛口径（TTFT/TTFP/chunk RTF + 口径标注 + 状态分离）
 ```
 
 状态必须分开（不允许混用）：
@@ -159,17 +178,19 @@ OFFICIAL_BENCHMARK_PASS
 
 ---
 
-## 10. 文档索引（8 个文件）
+## 10. 文档索引（10 个文件）
 
 | 文件 | 内容 | 什么时候打开 |
 |---|---|---|
 | `README.md` | **入口**：这套文档是什么、先读哪个 | 第一次 |
-| `LLAMA_TO_VLLM_EXPERIENCE_MIGRATION.md` | 主指南：12 经验 + 4 决策树 + 打点 schema | 理解方法论 |
-| `LLAMA_VLLM_COMPONENT_MAPPING.md` | 13 组件 × 13 字段 + rg 导航命令 | 定位源码 |
+| `LLAMA_TO_VLLM_EXPERIENCE_MIGRATION.md` | 主指南：12 经验 + 4 决策树 + §2.5 赛事优先级映射 | 理解方法论 |
+| `LLAMA_VLLM_COMPONENT_MAPPING.md` | 13 组件 × 17 字段（含 4 个比赛字段）+ rg 导航命令 | 定位源码 |
 | `LLAMA_RAW_EVIDENCE_APPENDIX.md` | llama 全部实测数字 + CI95 + 来源 | 查数字 |
-| `VLLM_OPTIMIZATION_EXECUTION_PLAN.md` | V0–V12 × 16 字段 | 动手执行 |
-| `VLLM_RISK_AND_VALIDATION_MATRIX.md` | 16 证据 + 25 风险 + 候选决策 | 出故障时 |
-| `VLLM_TEAM_HANDOFF.md` | **本文件**：第一个小时 + 第一周 + 最终交付清单 | 接手时/收口时 |
-| `EXPERIMENT_TEMPLATES.md` | 4 种实验模板（Run Manifest 等） | 每次实验前 |
+| `VLLM_METRIC_MEASUREMENT_SPEC.md` | **TTFT/TTFP/chunk RTF 口径**：定义/起止事件/raw schema/统计/误判 | 测指标前必读 |
+| `VLLM_COMPETITION_REQUIREMENTS.md` | 比赛规则约束层（准入/指标/加分/交付） | 比赛决策时 |
+| `VLLM_OPTIMIZATION_EXECUTION_PLAN.md` | V0–V12 × 16 字段（比赛口径版）+ Duplex 附加实验 | 动手执行 |
+| `VLLM_RISK_AND_VALIDATION_MATRIX.md` | 16 证据 + 40 风险（R26–R40 比赛风险）+ 候选决策 | 出故障时 |
+| `VLLM_TEAM_HANDOFF.md` | **本文件**：第一个小时 + 第一周 + 第一周禁止清单 + 交付清单 | 接手时/收口时 |
+| `EXPERIMENT_TEMPLATES.md` | 4 基础模板 + 5 比赛模板 | 每次实验前 |
 
-> **快速阅读顺序**：README → 主指南 §0–§5 → 附录 A/B/C（参考数字）→ 按执行计划 V3→V4→V5 动手。
+> **快速阅读顺序**：README → 主指南 §0–§5 → 指标规范（测指标前）→ 比赛约束 → 按执行计划 V1→V2→V3 动手（V0 规则冻结先行）。

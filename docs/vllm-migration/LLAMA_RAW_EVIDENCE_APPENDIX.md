@@ -140,5 +140,7 @@
 | vLLM 组件名/函数（组件映射中所有 TO_AUDIT 项） | **UNPROVEN** | 需源码审计 |
 
 > **llama 侧最终状态（2026-08-05）**：内部候选已真正冻结完成——源码 bdd4550、二进制 SHA 固化、T6 冻结二进制 11/11 PASS、工作树 clean、无遗留 server 进程。后续只剩官方评测与提交（官方 Daily-Omni / Seed-TTS / Video-MME / 官方提交包核验），不再属于候选研发。llama 侧任何数字在本附录均为"参考标尺"，vLLM 侧必须重新测量。
+>
+> **比赛衔接（2026-08-05）**：llama 子赛道排名核心 = 逐 chunk RTF；vLLM 子赛道 = TTFT + TTFP + chunk RTF。vLLM 侧指标口径见 `VLLM_METRIC_MEASUREMENT_SPEC.md`，比赛约束见 `VLLM_COMPETITION_REQUIREMENTS.md`。本附录 A–I 的 llama 数字是"参考标尺"，vLLM 侧必须按指标规范重新测量，禁止直接引用为 vLLM 结果。
 
 > 状态标签只用于本附录结论行。正文每节的"证据状态"同理：`CONFIRMED / INFERENCE / HISTORICAL / UNPROVEN`。

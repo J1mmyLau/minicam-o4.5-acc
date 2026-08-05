@@ -2,7 +2,7 @@
 
 > **一句话定位**：本文把 llama.cpp-omni 在 Ascend 910C（CANN）上踩过的所有坑和验证过的方法，整理成一份**在 vLLM-Omni 上可以照着执行的迁移清单**。
 > **硬性口径**：llama 侧数字只作假设与参考标尺，**不是 vLLM 结果**；vLLM 侧任何未源码核实的内容一律标 `TO_AUDIT`。内部结果 ≠ 官方结果。
-> **配套文档**：入口 README → 本指南（主文）→ 组件映射（代码地图）→ 原始证据附录（数字）→ 执行计划（V0–V12）→ 风险矩阵（25 风险）→ 交接包（队友第一周）。
+> **配套文档**：入口 README → 本指南（主文）→ 组件映射（代码地图）→ 原始证据附录（数字）→ 指标测量规范（TTFT/TTFP/chunk RTF 口径）→ 比赛约束附录 → 执行计划（V0–V12）→ 风险矩阵（25+ 风险）→ 交接包（队友第一周）。
 
 ---
 
@@ -91,6 +91,52 @@ flowchart LR
 4. **负结果也是结论**：B6b（提前触发 Talker）无稳定收益 → 记录并拒绝，防止他人重复踩。
 
 > vLLM 侧第一步永远是 **V3 Stage 打点**（见执行计划），拿到 vLLM 自己的占比表，再谈优化。
+
+---
+
+## 2.5 赛事指标如何改变迁移优先级（比赛约束层）
+
+> 本节只讲**优先级**如何被比赛规则改变；三个指标的定义/起止事件/统计/误判清单见 **`VLLM_METRIC_MEASUREMENT_SPEC.md`**，比赛规则全文见 **`VLLM_COMPETITION_REQUIREMENTS.md`**。
+
+### 2.5.1 结论先行
+
+```text
+排名核心 = chunk RTF（llama 子赛道）/ 三项综合（vLLM 子赛道）
+准入     = 精度相对官方基线降幅 ≤2pp + Demo 可用          ← 先于性能排名
+纪律     = 单卡口径（多卡仅诊断）、内部 ≠ 官方、不自行定权重
+```
+
+1. **准入先于排名**：精度与 Demo 是"能不能上榜"的硬门槛，性能是"上多高"。任何性能优化落地前/后必须验证精度无回归（相对官方基线降幅 ≤2pp），Demo 链路不被破坏。
+2. **排名核心是"逐 chunk"口径**：llama 子赛道核心指标是每个音频 chunk 的 RTF，不是全请求 RTF、不是 Flow/Vocoder 内部 RTF。所以 V3 打点必须产出**逐 chunk** 的占比与统计（首/中/尾分桶），而不是请求级均值。
+3. **单卡**：优化结论必须单卡复验（比赛单卡 910C）。多卡 Stage 分散收益只作诊断线索。
+4. **接口冒烟先行**：V1 官方格式冒烟（streaming/non-streaming × 三类请求 × 官方参数）必须先做——llama 的 T7 教训是接口/packing 缺陷直接造成"假低精度"，阻塞准入。
+
+### 2.5.2 llama 经验 → 比赛指标映射表
+
+列：`llama经验 | vLLM假设 | 主要比赛指标 | 次要指标 | 验证方法 | 质量风险 | 决策`
+
+| llama 经验（证据见附录） | vLLM 假设 | 主要比赛指标 | 次要指标 | 验证方法 | 质量风险 | 决策 |
+|---|---|---|---|---|---|---|
+| 静态前缀 KV Cache（prefill 2.4×） | 固定前缀（system prompt/参考音频/TTS template/多模态 embedding）在 vLLM 可复用 | **TTFT** | TTFP | V5 A/B（30 对 strict，CI95 不跨 0） | 只覆盖 thinker 文本 KV → 端到端无收益 | VERIFY_FIRST（V5） |
+| 设备放置 CPU→NPU（W0 −81.4%） | vLLM Token2Wav/Flow/Vocoder 实际设备未审计 | **TTFP、chunk RTF** | TTFT | V4 设备审计 + V6/V7 A/B | 算子在 CPU / host-device copy 主导首音 | VERIFY_FIRST（V4/V6/V7） |
+| 先打点再优化（decode 仅 2.9%） | vLLM 各 Stage 占比未知 | 三项定位 | — | V3 三指标 Stage 打点 + Amdahl 排序 | 过早优化 thinker decode | PROFILE_FIRST（V3） |
+| 出队 ≠ 完成（R7） | 完成语义不精确 → chunk 截断/旧音频混入 | **chunk RTF（首中尾真实性）** | TTFP | V8 生命周期长稳 | 响应返回后仍有 active work | 先测量后判（V8） |
+| 接口/协议先于模型（T7/T9） | 字段缺省 / packing 错 → 假低精度 | 准入（精度） | — | V1 官方接口冒烟 + V9/V10 基准 | 假低精度被拒准入 | VERIFY_FIRST（V1/V9/V10） |
+| Talker 独立 context 上限（4096） | vLLM Talker/Token2Wav 哪级先满 | **chunk RTF（长尾）** | TTFP | V7 chunk RTF 长尾 + 分 Stage 监控 | memory-slot 类错误 500 | 提前压测（V7/V8） |
+| 连续请求生命周期（R13） | 常驻 + 状态隔离 + 无 leak | **chunk RTF 稳定** | TTFT/TTFP | V8 长稳 | 长稳崩 → Benchmark/Demo 不可跑 | 先验证后优化（V8） |
+| 诚实口径纪律（T7/T8） | 官方未跑不宣称 OFFICIAL | 全部 | — | V12 冻结 + 状态分离 | 口径混用 → 交付被否 | REJECT（V12） |
+| 负结果纪律（B6b） | 不在关键路径的优化无效 | 次要 | — | V3 占比 + 优化前后 A/B | 机械迁移 llama 优化 | REJECT_BY_AMDAHL |
+
+### 2.5.3 由此确定的执行顺序
+
+```text
+V0 赛事规则冻结 → V1 官方接口冒烟 → V2 三指标 Baseline → V3 三指标 Stage 打点
+→ V4 设备放置 → V5 Prefix Cache TTFT A/B → V6 TTFP 优化 → V7 chunk RTF 优化
+→ V8 生命周期长稳 → V9 Daily-Omni → V10 TTS-Seed → V11 Video-MME + Demo → V12 冻结
+（Duplex 移入附加实验，DEFER，不得阻塞 Simplex 主线）
+```
+
+> 与旧版（decode/生命周期优先）的关键差异：①V2/V3 从"通用指标"改为**三比赛指标**口径；②新增 V6 TTFP 优化、V7 chunk RTF 优化两个独立优化阶段；③生命周期长稳（V8）前置到精度基准之前（基准的前提是稳定）；④Accuracy 基准（V9/V10）在 Demo（V11）前；⑤Duplex 不再是主线 V11。
 
 ---
 
@@ -337,11 +383,13 @@ T2W/Flow/Vocoder 在哪跑?
 1. **README.md** — 30 秒了解这套文档是什么、从哪里下手。
 2. **本文 §0–§5** — 方法与十二经验，建立"先测量后优化"的心智。
 3. **LLAMA_RAW_EVIDENCE_APPENDIX.md** — 需要具体数字/CI95/样本时查。
-4. **LLAMA_VLLM_COMPONENT_MAPPING.md** — 需要定位 vLLM 源码时查（13 组件 × 13 字段 + rg 命令）。
-5. **VLLM_OPTIMIZATION_EXECUTION_PLAN.md** — 动手时按 V0→V12 走。
-6. **VLLM_RISK_AND_VALIDATION_MATRIX.md** — 遇到故障时按 25 风险对号入座。
-7. **VLLM_TEAM_HANDOFF.md** — 队友第一周计划 + 最终交付清单。
-8. **EXPERIMENT_TEMPLATES.md** — 每次实验前取模板（Run Manifest / Per-request / 决策 / A/B 清单）。
+4. **VLLM_METRIC_MEASUREMENT_SPEC.md** — 三项比赛指标的定义/起止事件/统计口径/误判清单（测指标前先读）。
+5. **LLAMA_VLLM_COMPONENT_MAPPING.md** — 需要定位 vLLM 源码时查（13 组件 × 17 字段 + rg 命令）。
+6. **VLLM_OPTIMIZATION_EXECUTION_PLAN.md** — 动手时按 V0→V12 走（比赛口径版）。
+7. **VLLM_RISK_AND_VALIDATION_MATRIX.md** — 遇到故障时按 40 风险对号入座（含比赛风险 R26–R40）。
+8. **VLLM_TEAM_HANDOFF.md** — 队友第一周计划 + 最终交付清单。
+9. **VLLM_COMPETITION_REQUIREMENTS.md** — 比赛规则约束层（准入/指标/加分/交付）。
+10. **EXPERIMENT_TEMPLATES.md** — 每次实验前取模板（Run Manifest / Per-request / 决策 / A/B / 5 个比赛模板）。
 
 ---
 
@@ -358,6 +406,8 @@ T2W/Flow/Vocoder 在哪跑?
 | E2E | 请求→完整响应 | 含 TTS 生成 |
 
 > 所有结论必须带：样本数 / 配对方式 / p50/p95 / CI95 / 来源路径。
+>
+> **比赛口径（vLLM 子赛道）**：TTFT/TTFP/chunk RTF 的定义、起止事件、raw schema、统计口径与误判清单见 **`VLLM_METRIC_MEASUREMENT_SPEC.md`**。权重/归一化以官方最终文档为准，**本指南不预设**。
 
 ---
 
@@ -386,6 +436,11 @@ T7  talker complete         T15 response sent
 | Per-request 记录 | `EXPERIMENT_TEMPLATES.md` §2 |
 | 决策记录 | `EXPERIMENT_TEMPLATES.md` §3 |
 | 配对 A/B 检查清单 | `EXPERIMENT_TEMPLATES.md` §4 |
+| Metric Manifest（指标清单） | `EXPERIMENT_TEMPLATES.md` §6 |
+| Benchmark Accuracy Comparison（基准精度对比） | `EXPERIMENT_TEMPLATES.md` §7 |
+| Demo Validation Record（Demo 验证记录） | `EXPERIMENT_TEMPLATES.md` §8 |
+| Per-chunk RTF Record（逐 chunk RTF 记录） | `EXPERIMENT_TEMPLATES.md` §9 |
+| Official Gate Record（官方 Gate 记录） | `EXPERIMENT_TEMPLATES.md` §10 |
 
 ### 9.3 质量检查（每次提交前）
 
