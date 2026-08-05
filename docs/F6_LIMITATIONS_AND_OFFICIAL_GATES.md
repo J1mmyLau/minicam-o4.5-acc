@@ -101,16 +101,16 @@
 | **Gate 6**: 二进制可复现构建 | `INTERNAL_PASS` | — | — |
 | **Gate 7**: 提交工具链 | `INTERNAL_PASS` | — | — |
 | **Gate 8**: CANN CPU/NPU 放置审计 | `INTERNAL_PASS` (static) | — | `CPU_PER_CHUNK_CRITICAL_PATH=TO_MEASURE` |
-| **Official A**: Daily-Omni 准确率 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
-| **Official B**: TTS-Seed 指标 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
-| **Official C**: Video-MME 指标 | `NOT_RUN` | Benchmark 数据/脚本/评分器未获取 | 见 OFFICIAL_ASSET_INVENTORY.md |
-| **Official D**: Demo | `NOT_RUN` | 推理环境/模型不在当前机器 | Demo 前端已 clone @ ba7fa9c |
+| **Official A**: Daily-Omni 准确率 | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 (基线 79.5, 阈值 ≥77.5) | 官方资产 ✅, 缺 Candidate 结果 |
+| **Official B**: TTS-Seed 指标 | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 (ASV基线 0.709/阈值≥0.689, WER基线 1.414/阈值≤1.56) | 官方资产 ✅, 缺 Candidate 结果 |
+| **Official C**: Video-MME 指标 | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 (基线 69.0, 阈值 ≥67.0) | 官方资产 ✅, 缺 Candidate 结果 |
+| **Official D**: Demo | `NOT_RUN` | Candidate 尚未执行 Demo D1-D12 端到端验证 | Demo 前端已 clone @ ba7fa9c |
 | **Official E**: SPEAK→WAV RTF | `NOT_RUN` | 官方 harness 未到达 + parser 需 SPEAK 阶段分类升级 | 见 RTF_PARSER_AUDIT.md |
 
 ### 3.2 官方 Gate 执行流程 (待 unblock)
 
 ```
-BLOCKED_BY_OFFICIAL_STARTER_KIT → 官方 harness 到达
+OFFICIAL_ASSETS_AVAILABLE → Candidate 执行
     │
     ├── Step 1: Gate --dry-run (全部 rc=0)
     │     ├── run_daily_omni.sh --dry-run

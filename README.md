@@ -229,35 +229,36 @@ Demo Gate 检查表（D1–D12）见 [`submission/demo/DEMO_GATE_CHECKLIST.md`](
 完整 Gate 矩阵: [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md)
 
 ```
+CANDIDATE_SOURCE_COMMIT                  = bdd4550
 FINAL_INTERNAL                           = PASS
 REPRODUCIBLE_BINARY                       = PASS
 T6_FROZEN_BINARY_REGRESSION              = PASS (11/11)
 DEMO_ASSETS_CLONED                        = YES (ba7fa9c)
 
 OFFICIAL_EVALUATION_SPEC                  = AVAILABLE
+OFFICIAL_FULL_DATASET_BASELINE            = AVAILABLE
 OFFICIAL_ACCURACY_THRESHOLDS              = AVAILABLE
-OFFICIAL_LLAMA_RTF_BASELINE               = 1.087
-OFFICIAL_LLAMA_REFERENCE_ALL_CHUNK_RTF    = 0.618
+OFFICIAL_BENCHMARK_ASSETS                 = AVAILABLE
+OFFICIAL_RTF_HARNESS                      = AVAILABLE
+OFFICIAL_DEMO_REPOSITORY                  = AVAILABLE
+OFFICIAL_GATE_EXECUTION                   = READY
+
+OFFICIAL_LLAMA_SPEAK_TO_WAV_RTF_BASELINE  = 1.087
+OFFICIAL_LLAMA_ALL_CHUNK_RTF_REF          = 0.618
 OFFICIAL_METRIC_SCOPE                     = SPEAK_GENERATION
 OFFICIAL_METRIC_CHAIN                     = SPEAK_TO_WAV_FULL_CHAIN
 OFFICIAL_TEST_CONCURRENCY                 = 1
 OFFICIAL_WEIGHT_PRECISION                 = F16
 
-OFFICIAL_DAILY_OMNI                       = NOT_RUN
 OFFICIAL_VIDEO_MME                        = NOT_RUN
+OFFICIAL_DAILY_OMNI                       = NOT_RUN
 OFFICIAL_TTS_SEED_ASV                     = NOT_RUN
 OFFICIAL_TTS_SEED_WER                     = NOT_RUN
 OFFICIAL_DEMO_GATE                        = NOT_RUN
 OFFICIAL_SPEAK_TO_WAV_RTF                 = NOT_RUN
 OFFICIAL_REPRODUCTION                     = NOT_RUN
 
-OFFICIAL_GATE_EXECUTION                   = READY_TO_START
-OFFICIAL_BENCHMARK_EXECUTION_ASSETS       = PENDING
-OFFICIAL_RTF_HARNESS                      = PENDING
-OFFICIAL_DEMO_FLOW_ASSETS                 = PENDING
-OFFICIAL_SUBMISSION_TEMPLATE              = PENDING
-
-F6_OFFICIAL_SUBMISSION_PACKAGE            = NOT_READY
+OFFICIAL_SUBMISSION_PACKAGE               = NOT_READY
 COMPETITION_COMPLETE                      = NOT_CLAIMED
 ```
 
@@ -331,11 +332,10 @@ bash submission/scripts/fetch_demo.sh
 | Tag | 说明 |
 |-----|------|
 | `f6-candidate-source-bdd4550`（→ `80c30cd`） | 冻结候选源码。与原始 `bdd4550` 源码完全一致，仅移除了 git history 中误提交的 msprof 大文件（>100MB，超出 GitHub 限制）。 |
-| `f6-handoff-3ebfa0f`（→ `3ebfa0f`） | 上一版交接 HEAD（双语 README）。 |
-| `f6-handoff-5df2add`（→ `5df2add`） | 文档版 HEAD（README 重写前）。 |
-| `f6-handoff-9dab6ba`（→ `9dab6ba`） | Demo 集成 + 比赛规则对齐 HEAD。 |
-| `f6-handoff-f572fd4`（→ `66f23eb`） | 官方评测规范对齐（SPEAK→WAV RTF, 精度阈值, Demo clone）。 |
-| `f6-handoff-47fa80b`（→ `47fa80b`） | 状态切换: BLOCKED_BY_STARTER_KIT → READY_TO_START + 资产盘点。 |
+| `f6-handoff-3114fa7`（→ `3114fa7`） | 官方评测规范对齐：SPEAK→WAV RTF, 精度阈值, Demo clone, READY 状态。 |
+| `f6-handoff-9dab6ba`（→ `9dab6ba`） | 前一版交接 HEAD（Demo 集成 + 比赛规则对齐）。 |
+
+完整 Tag 历史见 [`docs/tracking/TAGS.md`](docs/tracking/TAGS.md)。
 
 ## 已知限制
 

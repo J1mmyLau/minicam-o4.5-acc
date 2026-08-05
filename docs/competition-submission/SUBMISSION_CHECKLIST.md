@@ -38,7 +38,7 @@
 | TTS-Seed | `run_tts_seed.sh` | `benchmark.yaml` | `benchmark_results/candidate/tts_seed/` | — | `READY` | `NOT_RUN` |
 | Video-MME | `run_video_mme.sh` | `benchmark.yaml` | `benchmark_results/candidate/video_mme/` | — | `READY` | `NOT_RUN` |
 
-全部 `NOT_RUN` — Benchmark 数据/脚本/评分器待获取。
+全部 `NOT_RUN` — 官方资产已提供，Candidate 尚未在官方全量数据集上执行。
 
 ---
 
@@ -108,10 +108,11 @@ SUBMISSION_SCRIPTS_READY              = YES
 SUBMISSION_DOCS_READY                 = YES
 DEMO_ASSETS_CLONED                    = YES (ba7fa9c, 422 files)
 DEMO_INTEGRATION_SCRIPTS              = READY
-DEMO_INTERNAL_INTEGRATION             = NOT_VERIFIED
-SUBMISSION_BENCHMARK_RESULTS_READY    = NO  (Benchmark 数据/脚本/评分器未获取)
-SUBMISSION_PERFORMANCE_OFFICIAL_READY = NO  (RTF harness 未获取)
-SUBMISSION_DEMO_VIDEO_READY           = NO  (推理环境/模型不在当前机器)
+OFFICIAL_BENCHMARK_ASSETS             = AVAILABLE
+OFFICIAL_RTF_HARNESS                  = AVAILABLE
+CANDIDATE_BENCHMARK_RESULTS           = NOT_RUN
+CANDIDATE_PERFORMANCE_RTF             = NOT_RUN
+SUBMISSION_DEMO_VIDEO                 = NOT_RECORDED
 
 F6_OFFICIAL_SUBMISSION_PACKAGE        = NOT_READY
 ```

@@ -18,7 +18,7 @@
 任务: Ascend 硬件适配与优化（MiniCPM-o 全模态推理）
 官方指标: SPEAK→WAV 完整链路 RTF / Daily-Omni 准确率 / TTS-Seed (ASV+WER) / Video-MME
 官方基线: SPEAK→WAV RTF=1.087 (全部chunk平均=0.618仅供参考)
-当前状态: 内部冻结候选已完成；三项官方 Benchmark NOT_RUN (缺官方 harness)
+当前状态: 内部冻结候选已完成；官方资产 ✅；三项 Benchmark Candidate 结果 NOT_RUN
 ```
 
 ---
@@ -66,11 +66,11 @@ Client HTTP/WS
 | 二进制可复现构建 | `PASS` | build-twice-same-dir byte-identical |
 | 提交工具链 | `PASS` | selftest 14/14 |
 | CANN CPU/NPU 放置审计 | `PASS` (static) | `docs/audit/` 5 docs |
-| 官方 Daily-Omni | `NOT_RUN` | Benchmark 资产未获取 |
-| 官方 TTS-Seed | `NOT_RUN` | Benchmark 资产未获取 |
-| 官方 Video-MME | `NOT_RUN` | Benchmark 资产未获取 |
-| 官方 Demo | `NOT_RUN` | 推理环境/模型不在当前机器 |
-| 官方 SPEAK→WAV RTF | `NOT_RUN` | 缺官方 harness |
+| 官方 Daily-Omni | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 |
+| 官方 TTS-Seed | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 |
+| 官方 Video-MME | `NOT_RUN` | Candidate 尚未在官方全量数据集执行 |
+| 官方 Demo | `NOT_RUN` | Candidate 尚未执行 D1-D12 |
+| 官方 SPEAK→WAV RTF | `NOT_RUN` | Candidate 尚未执行 |
 
 ---
 
