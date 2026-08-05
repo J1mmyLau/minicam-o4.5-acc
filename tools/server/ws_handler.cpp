@@ -164,6 +164,73 @@ static void clear_text_stream_state(omni_context * octx) {
     octx->text_streaming = false;
 }
 
+// F6 Session Lifecycle Fix: unified context finalizer for WebSocket /backend path.
+//
+// After stream_decode completes or the session is cleaned up, this transitions
+// the shared context back to REUSABLE so the next request (same session or new
+// session) can proceed without being rejected by the stream_decode lifecycle
+// guard (omni.cpp:13416-13418).
+//
+// For TTS sessions, omni_duplex_drain_tts_audio already manages state.
+// For text-only sessions, stream_decode leaves context_state=ACTIVE and
+// omni_prepare_for_reuse does not reset it — this function closes that gap.
+//
+// Safety:
+//   - Uses compare_exchange → won't overwrite NOT_REUSABLE (drain failure)
+//   - Checks active_t2w_generation == 0 before final REUSABLE transition
+//   - Goes through DRAINING phase for observability
+static void ws_finalize_context_reusable(omni_context * octx) {
+    if (!octx) return;
+
+    // TTS path handles its own state transitions via omni_duplex_drain_tts_audio
+    if (octx->use_tts) return;
+
+    // ── Step 1: ACTIVE → DRAINING ────────────────────────────────
+    int expected_active = CTX_STATE_ACTIVE;
+    bool became_draining = octx->context_state.compare_exchange_strong(
+        expected_active, CTX_STATE_DRAINING);
+
+    if (!became_draining) {
+        // Already DRAINING: proceed to REUSABLE (another thread may have
+        // started drain).  Already REUSABLE: nothing to do.  NOT_REUSABLE:
+        // leave it — recovery logic in stream_decode handles that path.
+        if (expected_active == CTX_STATE_DRAINING) {
+            // fall through to REUSABLE transition below
+        } else {
+            return;  // REUSABLE or NOT_REUSABLE — don't touch
+        }
+    }
+
+    // ── Step 2: Advance drain generation ─────────────────────────
+    // Text-only sessions produce no WAV; the drain predicate in
+    // omni_duplex_drain_tts_audio would wait 5s and timeout.
+    // Mark this generation as fully drained immediately.
+    uint32_t req_gen = octx->request_generation.load(std::memory_order_relaxed);
+    octx->drain_complete_generation.store(req_gen);
+
+    // ── Step 3: DRAINING → REUSABLE ──────────────────────────────
+    // Safety check: no active T2W generation must exist before reuse.
+    uint32_t active_gen = octx->t2w_thread_info
+        ? octx->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed)
+        : 0;
+    if (active_gen != 0) {
+        LOG_WRN("WS finalize: active_t2w_generation=%u != 0 — leaving DRAINING, "
+                "generation still in-flight\n", active_gen);
+        return;
+    }
+
+    int expected_draining = CTX_STATE_DRAINING;
+    if (!octx->context_state.compare_exchange_strong(
+            expected_draining, CTX_STATE_REUSABLE)) {
+        LOG_WRN("WS finalize: expected DRAINING(%d), got %d — forcing REUSABLE\n",
+                CTX_STATE_DRAINING, expected_draining);
+        // Force: only if still not REUSABLE (don't hide NOT_REUSABLE)
+        if (expected_draining != CTX_STATE_NOT_REUSABLE) {
+            octx->context_state.store(CTX_STATE_REUSABLE);
+        }
+    }
+}
+
 static void stop_reusable_octx_threads(omni_context * octx) {
     omni_prepare_for_reuse(octx);
 }
@@ -1049,6 +1116,13 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             }
             octx->use_tts = prev_use_tts;
 
+            // F6 Session Lifecycle: text-only decode leaves context_state=ACTIVE.
+            // Reset to REUSABLE so the same session can handle the next turn
+            // without being rejected by the stream_decode lifecycle guard.
+            if (!parsed_input.use_tts_template) {
+                ws_finalize_context_reusable(octx);
+            }
+
             // Non-streaming: hand the buffered PCM to response.done.audio and
             // stop accumulating so later turns / full-duplex stream normally.
             {
@@ -1215,6 +1289,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             if (decode_thread.joinable()) {
                 decode_thread.join();
             }
+
+            // F6 Session Lifecycle: reset context_state for text-only
+            // full-duplex decodes so the next turn can proceed.
+            ws_finalize_context_reusable(octx);
+
             double generate_ms = elapsed_ms(t_generate_start);
             {
                 const std::string text = sanitize_utf8_stream(utf8_pending, "", true);
@@ -1272,6 +1351,12 @@ cleanup:
             }
             session->octx->text_cv.notify_all();
             omni_prepare_for_reuse(session->octx);
+
+            // F6 Session Lifecycle: omni_prepare_for_reuse stops threads and
+            // clears queues but does NOT reset context_state. Transition the
+            // shared context to REUSABLE so the next session can reuse it
+            // without being rejected by the stream_decode lifecycle guard.
+            ws_finalize_context_reusable(session->octx);
         }
         session_mgr.close(session_id);
     }
