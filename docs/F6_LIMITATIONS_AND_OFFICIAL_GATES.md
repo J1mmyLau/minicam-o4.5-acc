@@ -27,7 +27,7 @@
 │     - 官方 Daily-Omni 准确率                                      │
 │     - 官方 TTS-Seed 指标                                          │
 │     - 官方 Video-MME 指标                                         │
-│     - 官方 per-chunk RTF                                          │
+│     - 官方 SPEAK→WAV RTF                                          │
 │     - 多用户并发                                                   │
 │     - 长稳 24h+                                                   │
 │     - MTP (multi-token prediction)                               │
@@ -105,7 +105,7 @@
 | **Official B**: TTS-Seed 指标 | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 harness + 测试集到达 |
 | **Official C**: Video-MME 指标 | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 harness + 测试集到达 |
 | **Official D**: Demo | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 Demo 前端 + API 规范 |
-| **Official E**: per-chunk RTF | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` | 官方 RTF 口径确认 + 工具对接 |
+| **Official E**: SPEAK→WAV RTF | `NOT_RUN` | 官方 harness 未到达 + parser 需 SPEAK 阶段分类升级 | 见 RTF_PARSER_AUDIT.md |
 
 ### 3.2 官方 Gate 执行流程 (待 unblock)
 

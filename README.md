@@ -1,31 +1,69 @@
 # MiniCPM-o 4.5 on Ascend 910C
 
 > 基于 `llama.cpp-omni` 的全模态模型部署与推理优化项目，面向单卡 Ascend 910C 环境，
-> 重点优化从模型完成文本推理到生成首段语音的 Decode-to-Speak 链路。
+> 重点优化 SPEAK 生成阶段的 SPEAK→WAV 完整链路。
+
+## 官方评测目标
+
+本仓库对应 **llama.cpp-omni 子赛道**（赛道一，子赛道 A）。正式评测在以下统一环境中执行：
+
+| 参数 | 值 |
+|------|-----|
+| 硬件 | Ascend 910C 单卡 |
+| 运行环境 | CANN 9.1.0-beta1 |
+| 权重精度 | F16 |
+| 并发 | 1 |
+
+在通过精度和 Demo 准入后，**主要排名指标为 SPEAK 生成阶段的 SPEAK→WAV 完整链路 RTF**。
+
+全双工推理分三种状态，只有 SPEAK 生成阶段计入排名：
+
+| 阶段 | 运行模块 | 计入排名 |
+|------|---------|---------|
+| LISTEN | VPM + APM + LLM | ❌ |
+| **SPEAK 生成** | VPM + APM + LLM + TTS + T2W | ✅ **排名依据** |
+| SPEAK 尾部 | 仅 TTS + T2W (LLM 已结束) | ❌ |
+
+官方 F16 性能基线：
+
+| 指标 | 基线值 | 用途 |
+|------|--------|------|
+| 全部 chunk 平均 RTF | 0.618 | 仅供参考 |
+| **SPEAK→WAV 完整链路 RTF** | **1.087** | **排名依据** |
+
+官方精度准入阈值（四项必须全部满足）：
+
+| Benchmark | 基线 | 准入阈值 | 规则 |
+|-----------|------|---------|------|
+| VideoMME | 69.0 | ≥ 67.0 | 绝对下降 ≤ 2pp |
+| Daily-Omni | 79.5 | ≥ 77.5 | 绝对下降 ≤ 2pp |
+| TTS-Seed ASV | 0.709 | ≥ 0.689 | 绝对下降 ≤ 0.02 |
+| TTS-Seed WER | 1.414 | ≤ 1.56 | 相对增幅 ≤ 10% |
+
+完整官方规范: [`docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md`](docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md)
 
 ## 项目背景
 
-本项目来自全模态大模型在昇腾算力平台上的部署优化比赛，对应 **llama.cpp-omni 子赛道**。
-
-比赛要求参赛方案在统一昇腾环境中完成模型部署，并依次通过五道关卡：
+比赛评测流程：
 
 ```text
 框架与环境可运行
         ↓
-三项 Benchmark 精度降幅 ≤ 2 个百分点（准入条件）
+三项 Benchmark 精度准入（四项阈值，缺一不可）
         ↓
 官方 Demo 端到端稳定可用（准入条件）
         ↓
-每个 audio chunk 的 RTF（排名依据）
+SPEAK→WAV 完整链路 RTF（排名依据）
         ↓
 主办方在官方环境中重新复现
 ```
 
-**精度和 Demo 可用性属于准入条件。只有通过这两项检查后，优化版本才会进入性能评测。**
+**精度和 Demo 可用性属于准入条件。只有通过这两项检查后，优化版本才会进入性能排名。**
 仅能运行 Benchmark、但无法正常接入官方 Demo 的方案，不满足本赛道的准入要求。
 
 目前仓库已完成内部冻结候选、二进制复现、稳定性回归和比赛工具链准备工作。
-官方 Starter Kit、Benchmark Harness 和 Demo 资产尚未到位。
+官方 Starter Kit、Benchmark Harness 尚未到位。官方评测规范已于 2026-08-05 发布——
+精度阈值、性能基线、SPEAK 阶段定义和 Demo 准入要求已正式明确。
 
 ## 为什么 MiniCPM-o 4.5 的部署更复杂
 
@@ -72,9 +110,18 @@ TTS KV Cache 和流式接口也存在稳定性问题。
 
 ## 内部结果
 
-> 以下数字全部来自内部 A/B 实验。**它们不是官方 per-chunk RTF**，不是完整请求 E2E 指标，
-> 不是 vLLM-Omni 的结果。llama.cpp-omni 子赛道的正式性能排名指标是——也只​是——每个 audio chunk
-> 的 RTF。TTFT 和 TTFP 是 vLLM-Omni 子赛道的指标，不适用于本仓库。
+> 以下数字全部来自内部 A/B 实验。**它们不是官方 SPEAK→WAV RTF**，不是完整请求 E2E 指标，
+> 不能与官方 baseline 1.087 直接比较。
+>
+> - 内部 "Request-to-first-WAV" = HTTP 请求到首个 WAV 文件 mtime，单位为 ms，关注首音延迟
+> - 官方的 1.087 = SPEAK 生成阶段内完整链路耗时 ÷ chunk 时长，为无量纲 RTF 比值
+> - 内部 T2W 线程 RTF (~0.23-0.28) 仅覆盖 Flow+Vocoder，不包含 Main LLM/Talker/TTS
+>
+> 两者单位和计时边界都不同。当前正确描述为：
+> **已通过内部实验确认设备迁移具有显著收益；下一步需按官方 SPEAK→WAV 完整链路口径重新测量正式 RTF。**
+>
+> 详见 [`docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md`](docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md)
+> 和 [`docs/competition-submission/RTF_PARSER_AUDIT.md`](docs/competition-submission/RTF_PARSER_AUDIT.md)。
 
 ### 首段语音延迟（Request-to-first-WAV）
 
@@ -160,8 +207,9 @@ CANN 设备放置的源码级审计见 [`docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT
 我们已经在代码层面为 Demo Gate 做了准备——非流式文本输出、SSE 稳定性、多模态 prefill 协议修正、
 Persistent Server 生命周期、连续请求和断连恢复——这些都是 Demo 端到端可用的前置条件。
 
+官方 Demo 前端已 clone 并 pin 在 [`ba7fa9c`](https://github.com/OpenBMB/MiniCPM-o-Demo/commit/ba7fa9cc6ad63c894f1bd5e5afac28466953519d)（`submission/scripts/fetch_demo.sh`）。
 Demo Gate 检查表（D1–D12）见 [`submission/demo/DEMO_GATE_CHECKLIST.md`](submission/demo/DEMO_GATE_CHECKLIST.md)。
-当前官方 Demo 资产未到位，全部 D1–D12 标记 `NOT_RUN`。
+当前推理环境和模型权重不在本机，全部 D1–D12 标记 `NOT_RUN`。
 
 ## 官方 Gate 状态
 
@@ -181,18 +229,35 @@ Demo Gate 检查表（D1–D12）见 [`submission/demo/DEMO_GATE_CHECKLIST.md`](
 完整 Gate 矩阵: [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md)
 
 ```
-FINAL_INTERNAL                       = PASS
-REPRODUCIBLE_BINARY                   = PASS
+FINAL_INTERNAL                           = PASS
+REPRODUCIBLE_BINARY                       = PASS
+T6_FROZEN_BINARY_REGRESSION              = PASS (11/11)
+DEMO_ASSETS_CLONED                        = YES (ba7fa9c)
 
-OFFICIAL_DAILY_OMNI                  = NOT_RUN
-OFFICIAL_TTS_SEED                     = NOT_RUN
-OFFICIAL_VIDEO_MME                    = NOT_RUN
-OFFICIAL_DEMO_GATE                    = NOT_RUN
-OFFICIAL_CHUNK_RTF                    = NOT_RUN
+OFFICIAL_EVALUATION_SPEC                  = AVAILABLE
+OFFICIAL_ACCURACY_THRESHOLDS              = AVAILABLE
+OFFICIAL_LLAMA_RTF_BASELINE               = 1.087
+OFFICIAL_LLAMA_REFERENCE_ALL_CHUNK_RTF    = 0.618
+OFFICIAL_METRIC_SCOPE                     = SPEAK_GENERATION
+OFFICIAL_METRIC_CHAIN                     = SPEAK_TO_WAV_FULL_CHAIN
+OFFICIAL_TEST_CONCURRENCY                 = 1
+OFFICIAL_WEIGHT_PRECISION                 = F16
 
-OFFICIAL_GATES                       = BLOCKED_BY_OFFICIAL_STARTER_KIT
-F6_OFFICIAL_SUBMISSION_PACKAGE        = NOT_READY
-COMPETITION_COMPLETE                  = NOT_CLAIMED
+OFFICIAL_DAILY_OMNI                       = NOT_RUN
+OFFICIAL_VIDEO_MME                        = NOT_RUN
+OFFICIAL_TTS_SEED_ASV                     = NOT_RUN
+OFFICIAL_TTS_SEED_WER                     = NOT_RUN
+OFFICIAL_DEMO_GATE                        = NOT_RUN
+OFFICIAL_SPEAK_TO_WAV_RTF                 = NOT_RUN
+OFFICIAL_REPRODUCTION                     = NOT_RUN
+
+OFFICIAL_BENCHMARK_EXECUTION_ASSETS       = PENDING
+OFFICIAL_RTF_HARNESS                      = PENDING
+OFFICIAL_DEMO_FLOW_ASSETS                 = PENDING
+OFFICIAL_SUBMISSION_TEMPLATE              = PENDING
+
+F6_OFFICIAL_SUBMISSION_PACKAGE            = NOT_READY
+COMPETITION_COMPLETE                      = NOT_CLAIMED
 ```
 
 **最终比赛成绩以主办方在官方硬件、镜像、Starter Kit 和测试脚本中重新部署并复现得到的结果为准。**
@@ -235,9 +300,9 @@ curl -s "http://127.0.0.1:18093/health"
 详细步骤见 [`docs/F6_QUICKSTART.md`](docs/F6_QUICKSTART.md)，完整复现流程见
 [`docs/F6_REPRODUCTION_GUIDE.md`](docs/F6_REPRODUCTION_GUIDE.md)。
 
-Demo 前端克隆（官方资产到位后）:
+Demo 前端获取（已 pin commit ba7fa9c）:
 ```bash
-git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git third_party/MiniCPM-o-Demo
+bash submission/scripts/fetch_demo.sh
 ```
 
 ## 文档导航
@@ -250,7 +315,9 @@ git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git third_party/MiniCPM-o-De
 | 了解实验方法论和工程原则 | [`docs/F6_METHODOLOGY.md`](docs/F6_METHODOLOGY.md) |
 | 从头复现所有实验 | [`docs/F6_REPRODUCTION_GUIDE.md`](docs/F6_REPRODUCTION_GUIDE.md) |
 | 核对每一项结论的证据 | [`docs/F6_EVIDENCE_INDEX.md`](docs/F6_EVIDENCE_INDEX.md) |
+| 查阅官方评测规范（精度/基线/SPEAK定义） | [`docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md`](docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md) |
 | 查看比赛 Gate 和准入条件 | [`docs/competition-submission/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md) |
+| 了解 RTF parser 与官方口径差异 | [`docs/competition-submission/RTF_PARSER_AUDIT.md`](docs/competition-submission/RTF_PARSER_AUDIT.md) |
 | 审查 Demo Gate 检查表 | [`submission/demo/DEMO_GATE_CHECKLIST.md`](submission/demo/DEMO_GATE_CHECKLIST.md) |
 | 核对提交材料覆盖度 | [`docs/competition-submission/SUBMISSION_CHECKLIST.md`](docs/competition-submission/SUBMISSION_CHECKLIST.md) |
 | 查看比赛状态和已知限制 | [`docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md`](docs/F6_LIMITATIONS_AND_OFFICIAL_GATES.md) |
@@ -264,6 +331,8 @@ git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git third_party/MiniCPM-o-De
 | `f6-candidate-source-bdd4550`（→ `80c30cd`） | 冻结候选源码。与原始 `bdd4550` 源码完全一致，仅移除了 git history 中误提交的 msprof 大文件（>100MB，超出 GitHub 限制）。 |
 | `f6-handoff-3ebfa0f`（→ `3ebfa0f`） | 上一版交接 HEAD（双语 README）。 |
 | `f6-handoff-5df2add`（→ `5df2add`） | 文档版 HEAD（README 重写前）。 |
+| `f6-handoff-9dab6ba`（→ `9dab6ba`） | Demo 集成 + 比赛规则对齐 HEAD。 |
+| `f6-handoff-f572fd4`（→ `f572fd4`） | 官方评测规范对齐（SPEAK→WAV RTF, 精度阈值, Demo clone）。 |
 
 ## 已知限制
 
@@ -274,7 +343,7 @@ G2–G6 五项官方评测目前都未运行，原因是比赛官方 Starter Kit
 ### CANN 设备放置 —— 静态已确认，运行时待测
 
 源码层面已完成 CANN backend 设备放置的完整审计，静态分析全部 **PASS**。
-但 CANN profiler timeline、backend 分配日志和 per-chunk CPU/NPU 耗时分解尚未测量。
+但 CANN profiler timeline、backend 分配日志和逐 chunk CPU/NPU 耗时分解尚未测量。
 `MAIN_LLM_RUNTIME_PLACEMENT = PARTIAL`，`CPU_PER_CHUNK_CRITICAL_PATH` 等四项
 标记为 `NOT_MEASURED` 或 `TO_MEASURED`。
 

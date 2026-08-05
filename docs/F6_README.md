@@ -16,8 +16,9 @@
 
 ```
 任务: Ascend 硬件适配与优化（MiniCPM-o 全模态推理）
-官方指标: per-chunk RTF / Daily-Omni 准确率 / Seed-TTS-Eval / Video-MME
-当前状态: 内部冻结候选已完成；三项官方 Benchmark NOT_RUN (BLOCKED_BY_OFFICIAL_STARTER_KIT)
+官方指标: SPEAK→WAV 完整链路 RTF / Daily-Omni 准确率 / TTS-Seed (ASV+WER) / Video-MME
+官方基线: SPEAK→WAV RTF=1.087 (全部chunk平均=0.618仅供参考)
+当前状态: 内部冻结候选已完成；三项官方 Benchmark NOT_RUN (缺官方 harness)
 ```
 
 ---
@@ -69,7 +70,7 @@ Client HTTP/WS
 | 官方 TTS-Seed | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
 | 官方 Video-MME | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
 | 官方 Demo | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
-| 官方 per-chunk RTF | `NOT_RUN` | `BLOCKED_BY_OFFICIAL_STARTER_KIT` |
+| 官方 SPEAK→WAV RTF | `NOT_RUN` | 缺官方 harness |
 
 ---
 
@@ -139,7 +140,7 @@ Client HTTP/WS
 ## 不要误解
 
 - **`-ngl 999` ≠ 零 CPU 参与** — input/index/control tensor、KV metadata、D2H logits/hidden、sampler、tokenizer 仍在 CPU/Host。详见 `docs/audit/CANN_CPU_NPU_PLACEMENT_AUDIT.md`。
-- **内部 RTF ≠ 官方 chunk RTF** — 内部 RTF（G7 日志 p50=0.23, S13 p50=0.28）使用 `T2W线程` 日志行自测，不等同于官方 Harness 产出的 per-chunk RTF。
+- **内部 RTF ≠ 官方 SPEAK→WAV RTF** — 内部 RTF（G7 日志 p50=0.23, S13 p50=0.28）使用 `T2W线程` 日志行自测，仅覆盖 Flow+Vocoder；官方 SPEAK→WAV RTF (baseline=1.087) 覆盖完整链路 (Main LLM→Talker→TTS→T2W→Flow→Vocoder)。两者计时链不同，不可直接比较。
 - **Daily-Omni pilot ≠ 官方准确率** — pilot 仅验证 6/6 server gates 和链路通畅，非官方全量评测。
 - **`FINAL_INTERNAL` ≠ `COMPETITION_COMPLETE`** — 内部冻结候选已闭环；官方比赛完成需三项 Benchmark + Demo + chunk RTF 全部 PASS。
 

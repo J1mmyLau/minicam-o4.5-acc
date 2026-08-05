@@ -30,15 +30,36 @@ G8 最终提交
 | ID | Gate | 赛事要求 | 所需资产 | 脚本 | 原始输出 | 汇总 | 当前状态 | 阻塞原因 | 通过条件 |
 |----|------|---------|---------|------|---------|------|---------|---------|---------|
 | **G1** | Framework & Environment | 在官方昇腾环境部署 llama.cpp-omni | 官方硬件/镜像/CANN | `submission/scripts/start_server.sh` | — | — | `INTERNAL_PASS` | — | 官方环境可复现 |
-| **G2** | Daily-Omni Accuracy | 精度 vs 官方 baseline，降幅 ≤ 2pp | 官方 Daily-Omni benchmark + 数据 | `submission/scripts/run_daily_omni.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | 降幅 ≤ 2pp |
-| **G3** | TTS-Seed Accuracy | 精度 vs 官方 baseline，降幅 ≤ 2pp | 官方 TTS-Seed benchmark + 数据 | `submission/scripts/run_tts_seed.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | 降幅 ≤ 2pp |
-| **G4** | Video-MME Accuracy | 精度 vs 官方 baseline，降幅 ≤ 2pp | 官方 Video-MME benchmark + 数据 | `submission/scripts/run_video_mme.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | 降幅 ≤ 2pp |
-| **G5** | Official Demo | 接入 MiniCPM-o-Demo，完整端到端稳定交互 | MiniCPM-o-Demo 前端 + 素材 | `submission/scripts/run_demo_gate.sh` | — | — | `NOT_RUN` | 官方 Demo 资产未到位 | D1-D12 全部 PASS |
-| **G6** | Per-chunk RTF | 每 audio chunk RTF（统一硬件/环境/模型/数据/脚本） | 官方 benchmark harness | `submission/scripts/run_chunk_rtf_client.py` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | RTF < 1.0（实时） |
+| **G2** | Daily-Omni Accuracy | 精度 vs 官方 baseline 79.5，降幅 ≤ 2pp → 需 ≥ 77.5 | 官方 Daily-Omni benchmark + 数据 | `submission/scripts/run_daily_omni.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ≥ 77.5 |
+| **G3** | TTS-Seed Accuracy | ASV ≥ 0.689 (基线 0.709) + WER ≤ 1.56 (基线 1.414) | 官方 TTS-Seed benchmark + 数据 | `submission/scripts/run_tts_seed.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ASV ≥ 0.689, WER ≤ 1.56 |
+| **G4** | Video-MME Accuracy | 精度 vs 官方 baseline 69.0，降幅 ≤ 2pp → 需 ≥ 67.0 | 官方 Video-MME benchmark + 数据 | `submission/scripts/run_video_mme.sh` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | ≥ 67.0 |
+| **G5** | Official Demo | 接入 MiniCPM-o-Demo，完整端到端稳定交互 | MiniCPM-o-Demo 前端 @ ba7fa9c (✅ cloned) + 素材 | `submission/scripts/run_demo_gate.sh` | — | — | `NOT_RUN` | 推理环境/模型不在当前机器 | D1-D12 全部 PASS |
+| **G6** | SPEAK→WAV RTF | SPEAK 生成阶段 RTF（非全部 chunk 平均）。官方 baseline: 1.087 | 官方 benchmark harness | `submission/scripts/run_chunk_rtf_client.py` | — | — | `NOT_RUN` | BLOCKED_BY_OFFICIAL_STARTER_KIT | RTF < 1.087（低于 baseline） |
 | **G7** | Engineering Reproduction | 官方在官方环境重新部署并复现全部结果 | 完整代码/配置/脚本/文档/视频 | `submission/scripts/` (全部) | — | — | `PARTIAL_READY` | G2-G6 需先通过 | clean-room 复现一致 |
 | **G8** | Final Package Review | 按要求提交全部材料 | 完整 submission 包 | — | — | — | `NOT_READY` | G2-G7 需先通过 | 材料完整、格式合规 |
 
 ---
+
+---
+
+## 官方 Baseline（F16，单并发，昇腾 910C）
+
+来源: [官方评测规范](https://www.feishu.cn/docx/U41vdXMmQo7tv3xW2p9c9uEanKe) (2026-08-05)
+
+| Benchmark | 基线值 | 准入阈值 |
+|-----------|--------|---------|
+| VideoMME | 69.0 | ≥ 67.0 |
+| Daily-Omni | 79.5 | ≥ 77.5 |
+| TTS-Seed ASV | 0.709 | ≥ 0.689 |
+| TTS-Seed WER | 1.414 | ≤ 1.56 |
+
+| 性能指标 | 值 | 说明 |
+|----------|-----|------|
+| 全部 chunk 平均 RTF | 0.618 | 仅供参考，不用于排名 |
+| **SPEAK→WAV 完整链路 RTF** | **1.087** | **排名依据** (avg 1087.3ms/chunk) |
+
+> ⚠️ **SPEAK 阶段 RTF** 是唯一排名指标。LISTEN / SPEAK 尾部 chunk 不计入。
+> 不同用例 LISTEN/SPEAK 比例不同，全部 chunk 平均 RTF 不可直接对比。
 
 ## 内部 Gate 矩阵（已完成）
 
@@ -56,20 +77,39 @@ G8 最终提交
 ## 状态汇总
 
 ```
-FINAL_INTERNAL                       = PASS
-REPRODUCIBLE_BINARY                   = PASS
-INTERNAL_HANDOFF_READY                = YES
+FINAL_INTERNAL                           = PASS
+REPRODUCIBLE_BINARY                       = PASS
+INTERNAL_HANDOFF_READY                    = YES
+T6_FROZEN_BINARY_REGRESSION              = PASS (11/11)
+DEMO_ASSETS_CLONED                        = YES (ba7fa9c, 422 files)
 
-OFFICIAL_DAILY_OMNI                  = NOT_RUN
-OFFICIAL_TTS_SEED                     = NOT_RUN
-OFFICIAL_VIDEO_MME                    = NOT_RUN
-OFFICIAL_DEMO_GATE                    = NOT_RUN
-OFFICIAL_CHUNK_RTF                    = NOT_RUN
+OFFICIAL_EVALUATION_SPEC                  = AVAILABLE
+OFFICIAL_ACCURACY_THRESHOLDS              = AVAILABLE
+OFFICIAL_LLAMA_RTF_BASELINE               = 1.087
+OFFICIAL_LLAMA_REFERENCE_ALL_CHUNK_RTF    = 0.618
+OFFICIAL_METRIC_SCOPE                     = SPEAK_GENERATION
+OFFICIAL_METRIC_CHAIN                     = SPEAK_TO_WAV_FULL_CHAIN
+OFFICIAL_TEST_CONCURRENCY                 = 1
+OFFICIAL_WEIGHT_PRECISION                 = F16
 
-OFFICIAL_GATES                       = BLOCKED_BY_OFFICIAL_STARTER_KIT
-OFFICIAL_GATE_TOOLING_READINESS       = PASS
-F6_OFFICIAL_SUBMISSION_PACKAGE        = NOT_READY
-COMPETITION_COMPLETE                  = NOT_CLAIMED
+OFFICIAL_DAILY_OMNI                       = NOT_RUN
+OFFICIAL_VIDEO_MME                        = NOT_RUN
+OFFICIAL_TTS_SEED_ASV                     = NOT_RUN
+OFFICIAL_TTS_SEED_WER                     = NOT_RUN
+OFFICIAL_DEMO_GATE                        = NOT_RUN
+OFFICIAL_SPEAK_TO_WAV_RTF                 = NOT_RUN
+OFFICIAL_REPRODUCTION                     = NOT_RUN
+
+OFFICIAL_BENCHMARK_EXECUTION_ASSETS       = PENDING
+OFFICIAL_RTF_HARNESS                      = PENDING
+OFFICIAL_DEMO_FLOW_ASSETS                 = PENDING
+OFFICIAL_SUBMISSION_TEMPLATE              = PENDING
+
+OFFICIAL_GATE_TOOLING_READINESS           = PASS
+DEMO_INTEGRATION_SCRIPTS                  = READY
+DEMO_INTERNAL_INTEGRATION                 = NOT_VERIFIED
+F6_OFFICIAL_SUBMISSION_PACKAGE            = NOT_READY
+COMPETITION_COMPLETE                      = NOT_CLAIMED
 ```
 
 **最终比赛成绩以主办方在官方硬件、镜像、Starter Kit 和测试脚本中重新部署并复现得到的结果为准。**

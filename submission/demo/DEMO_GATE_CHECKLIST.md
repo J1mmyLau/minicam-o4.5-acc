@@ -2,7 +2,33 @@
 
 > 官方 Demo: [MiniCPM-o-Demo](https://github.com/OpenBMB/MiniCPM-o-Demo)
 > 准入条件: Demo 必须端到端可用，否则不进入性能评测。
-> 当前: **全部 NOT_RUN**（官方 Demo 资产未到位）。
+> 当前: **全部 NOT_RUN**（官方 Demo 资产已获取但推理环境/deploy key 未到位）。
+
+## Demo 资产信息
+
+| 字段 | 值 |
+|------|-----|
+| Repository | `https://github.com/OpenBMB/MiniCPM-o-Demo.git` |
+| Commit | `ba7fa9cc6ad63c894f1bd5e5afac28466953519d` |
+| Branch | `main` |
+| Fetch method | HTTPS shallow clone (`--depth 1 --filter=blob:none`) |
+| Fetch script | `submission/scripts/fetch_demo.sh` |
+| Local path | `third_party/MiniCPM-o-Demo/` |
+| Files | 422 |
+| Architecture | Python FastAPI gateway + Node.js frontend + PyTorch workers |
+| Metadata file | `submission/demo/demo_metadata.env` |
+
+## 状态快照
+
+```
+DEMO_ASSETS_CLONED            = YES (ba7fa9c, 422 files)
+DEMO_INTEGRATION_SCRIPTS      = READY (fetch_demo.sh, start_demo.sh, run_demo_gate.sh)
+DEMO_DEPENDENCIES_DOCUMENTED  = YES (requirements.txt, package.json from upstream)
+DEMO_CONFIG_TEMPLATE          = AVAILABLE (config.example.json in upstream)
+DEMO_INTERNAL_INTEGRATION     = NOT_VERIFIED (no model/inference env on this machine)
+DEMO_INTERNAL_D1_D12          = NOT_RUN
+DEMO_OFFICIAL_GATE            = NOT_RUN
+```
 
 ---
 
@@ -27,7 +53,7 @@
 |----|-------|------|------|------|---------|---------|----------|------|
 | **D1** | Server start | 服务成功启动, health 可达 | `submission/scripts/start_server.sh` | server.env | — | — | — | `NOT_RUN` |
 | **D2** | Health check | `/health` 返回 200 | `curl /health` | — | — | — | — | `NOT_RUN` |
-| **D3** | Demo frontend start | Demo 前端成功启动 | 参照 MiniCPM-o-Demo README | — | — | — | — | `NOT_RUN` |
+| **D3** | Demo frontend start | Demo 前端成功启动 | 参照 MiniCPM-o-Demo README | config.json → llm_server | — | — | — | `NOT_RUN` |
 | **D4** | Demo ↔ server | 前端成功连接推理服务 | Demo 界面操作 | OAI chat/completions | — | — | — | `NOT_RUN` |
 | **D5** | Text input | 文本输入正常处理 | Demo 界面输入 | 纯文本 | — | — | — | `NOT_RUN` |
 | **D6** | Image input | 图像输入正常处理 | Demo 界面上传 | 图片文件 | — | — | — | `NOT_RUN` |
@@ -58,7 +84,10 @@
 ## 运行方式
 
 ```bash
-# 完整 Demo Gate（需官方资产到位后运行）
+# 获取 Demo 前端
+bash submission/scripts/fetch_demo.sh
+
+# 完整 Demo Gate（需模型 + 推理环境就绪后运行）
 bash submission/scripts/run_demo_gate.sh
 
 # 冒烟（服务侧可自动化部分）
@@ -72,14 +101,17 @@ bash submission/scripts/run_demo_gate.sh --dry-run
 
 ## 当前阻塞清单
 
-| 阻塞项 | 说明 |
-|--------|------|
-| MiniCPM-o-Demo 前端代码 | `git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git third_party/MiniCPM-o-Demo` |
-| 官方 Demo 交互素材 | 文本/图片/音频/视频输入样例 |
-| 官方完整交互流程定义 | 预期的交互步骤和验证标准 |
-| 演示视频录制 | D1-D12 全部 PASS 后方可录制 |
+| 阻塞项 | 说明 | 状态 |
+|--------|------|------|
+| MiniCPM-o-Demo 前端代码 | `https://github.com/OpenBMB/MiniCPM-o-Demo.git` @ ba7fa9c | ✅ CLONED |
+| 模型权重 | MiniCPM-o-4_5-F16.gguf, ~16 GB | NOT ON THIS MACHINE |
+| 推理环境 (Ascend 910C + CANN) | NPU + CANN runtime | NOT ON THIS MACHINE |
+| 官方 Demo 交互素材 | 文本/图片/音频/视频输入样例 | PENDING |
+| 官方完整交互流程定义 | 预期的交互步骤和验证标准 | PENDING |
+| 演示视频录制 | D1-D12 全部 PASS 后方可录制 | NOT_RECORDED |
 
 ---
 
 > **NOT_RUN**: D1-D12 全部标记 NOT_RUN，无伪 PASS。
-> 官方 Demo 资产到位后，按行填写命令、输入、实际结果、日志路径和截图/视频时间点。
+> 官方 Demo 资产已获取并 pin 在 ba7fa9c。
+> 在有推理硬件和模型权重的机器上，执行 `fetch_demo.sh` → `start_demo.sh` → 按行填表。

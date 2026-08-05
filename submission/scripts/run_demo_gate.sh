@@ -38,8 +38,8 @@ echo "== 资产就绪检查 =="
 
 MISSING=()
 
-if [ ! -d "${DEMO_DIR}" ]; then
-  MISSING+=("MiniCPM-o-Demo 前端: git clone https://github.com/OpenBMB/MiniCPM-o-Demo.git ${DEMO_DIR}")
+if [ ! -d "${DEMO_DIR}/.git" ]; then
+  MISSING+=("MiniCPM-o-Demo 前端: bash submission/scripts/fetch_demo.sh  (commit ba7fa9c)")
 fi
 
 if [ ! -f "${MODEL_PATH}" ]; then

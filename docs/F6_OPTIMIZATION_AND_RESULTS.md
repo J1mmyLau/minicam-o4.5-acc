@@ -241,7 +241,7 @@ OMNI_VOC_DEVICE=gpu
 | 官方 TTS-Seed | `NOT_RUN` |
 | 官方 Video-MME | `NOT_RUN` |
 | 官方 Demo | `NOT_RUN` |
-| 官方 per-chunk RTF | `NOT_RUN` |
+| 官方 SPEAK→WAV RTF (baseline=1.087) | `NOT_RUN` |
 
 全部 `BLOCKED_BY_OFFICIAL_STARTER_KIT`。`COMPETITION_COMPLETE=NOT_CLAIMED`。
 

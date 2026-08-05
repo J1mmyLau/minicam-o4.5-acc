@@ -179,3 +179,9 @@ tools/omni/**/pt/
 *.tar.gz
 *.bundle
 *.sha256
+
+# Third-party dependencies (fetched by scripts, not committed)
+third_party/
+
+# Generated demo metadata
+submission/demo/demo_metadata.env
