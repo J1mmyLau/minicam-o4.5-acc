@@ -179,6 +179,42 @@ static void clear_text_stream_state(omni_context * octx) {
 //   - Uses compare_exchange → won't overwrite NOT_REUSABLE (drain failure)
 //   - Checks active_t2w_generation == 0 before final REUSABLE transition
 //   - Goes through DRAINING phase for observability
+// Clear KV cache and reset n_past for the shared omni_context.
+// Called on session disconnect to ensure the next session starts with a
+// clean KV state.  Idempotent — safe to call even if KV was already cleared
+// by the normal decode completion path.
+//
+// For normal text/TTS completion, stream_decode clears KV at end-of-decode
+// (omni.cpp:14150-14154).  On abort/exception, that code is never reached,
+// making this the backstop — without it, n_past retains stale tokens and
+// the next session's output is contaminated by the aborted session's context.
+static void ws_cleanup_kv_cache_for_reuse(omni_context * octx) {
+    if (!octx) return;
+
+    // ── Main LLM KV cache ─────────────────────────────────────────
+    if (octx->ctx_llama) {
+        auto mem = llama_get_memory(octx->ctx_llama);
+        if (mem) {
+            llama_memory_clear(mem, true);
+        }
+    }
+    octx->n_past = 0;
+
+    // ── TTS model KV cache ────────────────────────────────────────
+    if (octx->ctx_tts_llama) {
+        auto mem = llama_get_memory(octx->ctx_tts_llama);
+        if (mem) {
+            // seq_id=0, p0=0, p1=-1 → remove all tokens from sequence 0
+            llama_memory_seq_rm(mem, 0, 0, -1);
+        }
+    }
+    octx->tts_n_past_accumulated = 0;
+
+    LOG_INF("WS cleanup: KV cache cleared + n_past reset for next session\n");
+}
+
+// Transition context_state from ACTIVE → DRAINING → REUSABLE.
+// See FINALIZER_AUDIT.md for the full state machine and call site analysis.
 static void ws_finalize_context_reusable(omni_context * octx) {
     if (!octx) return;
 
@@ -204,12 +240,31 @@ static void ws_finalize_context_reusable(omni_context * octx) {
         }
     }
 
-    // ── Step 2: Advance drain generation ─────────────────────────
-    // Text-only sessions produce no WAV; the drain predicate in
-    // omni_duplex_drain_tts_audio would wait 5s and timeout.
-    // Mark this generation as fully drained immediately.
+    // ── Step 2: Advance generation counters ────────────────────
+    // Text-only sessions produce no WAV; the drain predicates in
+    // omni_duplex_drain_tts_audio and t2w_drain_signal_and_wait would
+    // otherwise wait for TTS producer completion that never arrives.
+    // Advance all generation-scoped counters so both the request guard
+    // (drain_complete_generation) and the T2W drain predicate
+    // (tts_producer_done_generation, final_processed_generation) pass
+    // immediately when omni_prepare_for_reuse runs at disconnect.
     uint32_t req_gen = octx->request_generation.load(std::memory_order_relaxed);
     octx->drain_complete_generation.store(req_gen);
+
+    if (octx->t2w_thread_info) {
+        // Advance TTS producer done (drain predicate condition 1)
+        uint32_t prev_tts = octx->t2w_thread_info->tts_producer_done_generation.load(std::memory_order_relaxed);
+        if (req_gen > prev_tts) {
+            octx->t2w_thread_info->tts_producer_done_generation.store(req_gen, std::memory_order_release);
+            octx->t2w_thread_info->drain_cv.notify_one();
+        }
+        // Advance final processed (drain predicate condition 4)
+        uint32_t prev_fp = octx->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+        if (req_gen > prev_fp) {
+            octx->t2w_thread_info->final_processed_generation.store(req_gen, std::memory_order_release);
+            octx->t2w_thread_info->drain_cv.notify_one();
+        }
+    }
 
     // ── Step 3: DRAINING → REUSABLE ──────────────────────────────
     // Safety check: no active T2W generation must exist before reuse.
@@ -1353,12 +1408,26 @@ cleanup:
                 session->octx->text_done_flag = true;
             }
             session->octx->text_cv.notify_all();
+            // F6 Session Lifecycle: Advance T2W drain generations BEFORE
+            // omni_prepare_for_reuse so t2w_drain_signal_and_wait fast-paths
+            // for text-only (no WAV produced, no TTS producer to drain).
+            // Step 1-2 only — Step 3 (REUSABLE) is deferred until after
+            // threads are joined (active_t2w_generation check requires it).
+            ws_finalize_context_reusable(session->octx);
+
             omni_prepare_for_reuse(session->octx);
 
             // F6 Session Lifecycle: omni_prepare_for_reuse stops threads and
-            // clears queues but does NOT reset context_state. Transition the
-            // shared context to REUSABLE so the next session can reuse it
-            // without being rejected by the stream_decode lifecycle guard.
+            // clears queues but does NOT reset context_state or KV cache.
+            // 1) Clear KV cache + n_past → next session starts with clean state
+            //    (critical for abort recovery — normal decode clears KV at
+            //    end-of-decode, but abort skips that code path entirely).
+            ws_cleanup_kv_cache_for_reuse(session->octx);
+
+            // 2) Complete context_state → REUSABLE.  The first call above may
+            //    have left state as DRAINING (active_t2w_generation was non-zero
+            //    while threads were still running).  Now threads are joined, so
+            //    the CAS in Step 3 will succeed — active_t2w_generation == 0.
             ws_finalize_context_reusable(session->octx);
         }
         session_mgr.close(session_id);
