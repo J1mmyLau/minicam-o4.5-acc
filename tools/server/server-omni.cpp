@@ -3,6 +3,76 @@
 
 #include "omni.h"
 #include "llama.h"
+
+// UTF-8 stream sanitizer — buffers partial multi-byte sequences across fragments
+// and replaces invalid bytes with U+FFFD.  Mirrors ws_handler.cpp::sanitize_utf8_stream.
+static inline bool utf8_cont(unsigned char c) { return (c & 0xC0) == 0x80; }
+
+static std::string sanitize_utf8_stream(std::string & pending,
+                                        const std::string & fragment,
+                                        bool flush = false) {
+    static const std::string replacement = "\xEF\xBF\xBD";
+    std::string input = pending + fragment;
+    pending.clear();
+
+    std::string out;
+    size_t i = 0;
+    while (i < input.size()) {
+        const unsigned char c = static_cast<unsigned char>(input[i]);
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+            i++;
+            continue;
+        }
+
+        int need = 0;
+        if (c >= 0xC2 && c <= 0xDF) {
+            need = 1;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            need = 2;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            need = 3;
+        } else {
+            out += replacement;
+            i++;
+            continue;
+        }
+
+        if (i + need >= input.size()) {
+            pending = input.substr(i);
+            break;
+        }
+
+        bool ok = true;
+        for (int j = 1; j <= need; ++j) {
+            ok = ok && utf8_cont(static_cast<unsigned char>(input[i + j]));
+        }
+        if (ok && c == 0xE0) {
+            ok = static_cast<unsigned char>(input[i + 1]) >= 0xA0;
+        } else if (ok && c == 0xED) {
+            ok = static_cast<unsigned char>(input[i + 1]) < 0xA0;
+        } else if (ok && c == 0xF0) {
+            ok = static_cast<unsigned char>(input[i + 1]) >= 0x90;
+        } else if (ok && c == 0xF4) {
+            ok = static_cast<unsigned char>(input[i + 1]) < 0x90;
+        }
+
+        if (!ok) {
+            out += replacement;
+            i++;
+            continue;
+        }
+
+        out.append(input, i, need + 1);
+        i += need + 1;
+    }
+
+    if (flush && !pending.empty()) {
+        out += replacement;
+        pending.clear();
+    }
+    return out;
+}
 #include "common.h"
 #include "log.h"
 #include "arg.h"
@@ -694,6 +764,7 @@ int main(int argc, char ** argv) {
                 }
 
                 // poll text queue until generation finishes
+                std::string sse_utf8_pending;
                 while (true) {
                     std::unique_lock<std::mutex> lk(state.octx->text_mtx);
                     state.octx->text_cv.wait_for(lk, std::chrono::milliseconds(200), [&]{
@@ -705,19 +776,29 @@ int main(int argc, char ** argv) {
                         state.octx->text_queue.pop_front();
                         lk.unlock();
 
+                        // P0-3: sanitize UTF-8 in SSE path (mirrors ws_handler.cpp)
                         json ev;
                         if (frag == "__IS_LISTEN__") {
                             ev = {{"content", ""}, {"stop", false}, {"is_listen", true}, {"end_of_turn", true}};
                         } else if (frag == "__END_OF_TURN__") {
                             ev = {{"content", ""}, {"stop", true}, {"is_listen", false}, {"end_of_turn", true}};
                         } else {
-                            ev = {{"content", frag}, {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
+                            std::string safe = sanitize_utf8_stream(sse_utf8_pending, frag);
+                            ev = {{"content", safe}, {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
                         }
 
                         if (!server_sent_event(sink, ev)) {
                             // client disconnected → cancel decode; the releaser joins
                             return false;
                         }
+                        lk.lock();
+                    }
+                    // flush pending partial UTF-8 at end of stream
+                    if (state.octx->text_done_flag && !sse_utf8_pending.empty()) {
+                        lk.unlock();
+                        json ev = {{"content", sanitize_utf8_stream(sse_utf8_pending, "", true)},
+                                   {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
+                        if (!server_sent_event(sink, ev)) return false;
                         lk.lock();
                     }
 
