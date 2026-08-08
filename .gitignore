@@ -174,3 +174,11 @@ apps/
 # PyTorch checkpoint directories
 pt/
 tools/omni/**/pt/
+
+# Profiling artifacts (large files — GitHub rejects >100MB)
+profiles/
+*.db
+mindstudio_profiler_output/
+
+# Benchmark result JSONs (large, auto-generated)
+benchmarks/results/
