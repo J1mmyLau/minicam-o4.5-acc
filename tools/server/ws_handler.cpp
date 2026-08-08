@@ -1135,6 +1135,14 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                         // handled by response.done
                     } else {
                         const std::string text = sanitize_utf8_stream(utf8_pending, frag);
+                        // P0-3: hex-dump text after sanitize_utf8_stream (env-gated, default OFF)
+                        if (getenv("OMNI_ENCODING_DIAG")) {
+                            fprintf(stderr, "[enc_diag] ws_text_delta frag_len=%zu text_len=%zu text_hex=",
+                                    frag.size(), text.size());
+                            for (size_t i = 0; i < std::min(text.size(), size_t(64)); i++)
+                                fprintf(stderr, "%02x", (unsigned char)text[i]);
+                            fprintf(stderr, "\n");
+                        }
                         full_text += text;
                         if (streaming && !text.empty()) {
                             send_event(make_text_delta(
@@ -1223,6 +1231,9 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
 
             TempMediaFiles tmp_files;
             int input_index = ++msg_counter;
+            // F6 formal: propagate frame index to T2W queue items via simplex_round_idx
+            // so [bench_wav] lines can be correlated to [bench] frames.
+            octx->simplex_round_idx = input_index;
             double prefill_ms = 0.0;
             int turn_vision_slices = parsed_input.video_frames_b64.empty() ? 0 : 1;
 
@@ -1239,8 +1250,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             }
 
             // Prefill
+            const auto t_prefill_start = std::chrono::steady_clock::now();
             {
-                const auto t_prefill_start = std::chrono::steady_clock::now();
                 std::lock_guard<std::mutex> lock(octx_mutex);
                 if (!stream_prefill(octx, tmp_files.audio_path, tmp_files.image_path,
                                     input_index, parsed_input.max_slice_nums)) {
@@ -1286,6 +1297,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // Collect full text for response.done
             std::string full_text;
             std::string utf8_pending;
+            bool emitted_listen = false;  // F6 formal: track LISTEN for bench
 
             // Poll text_queue
             while (true) {
@@ -1309,6 +1321,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 if (!frag.empty()) {
                     if (frag == "__IS_LISTEN__") {
                         // Model switched to listen
+                        emitted_listen = true;  // F6 formal: track for bench
                         send_event(make_listen_delta(
                             session_id, response_id,
                             make_runtime_metrics(octx, prefill_ms,
@@ -1321,6 +1334,14 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                     } else {
                         // Text delta
                         const std::string text = sanitize_utf8_stream(utf8_pending, frag);
+                        // P0-3: hex-dump text after sanitize_utf8_stream (duplex path, env-gated)
+                        if (getenv("OMNI_ENCODING_DIAG")) {
+                            fprintf(stderr, "[enc_diag] ws_text_delta_dup frag_len=%zu text_len=%zu text_hex=",
+                                    frag.size(), text.size());
+                            for (size_t i = 0; i < std::min(text.size(), size_t(64)); i++)
+                                fprintf(stderr, "%02x", (unsigned char)text[i]);
+                            fprintf(stderr, "\n");
+                        }
                         full_text += text;
                         if (!text.empty()) {
                             send_event(make_text_delta(
@@ -1370,6 +1391,66 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 std::lock_guard<std::mutex> lk(audio_state->mtx);
                 emitted_audio = audio_state->emitted_audio;
             }
+
+            // ── F6 formal benchmark: server-side per-chunk timing ──
+            // Only logs; does NOT change inference behavior or event ordering.
+            {
+                const char * bench_state = "UNKNOWN";
+                if (emitted_listen)
+                    bench_state = "LISTEN";
+                else if (emitted_audio && !full_text.empty())
+                    bench_state = "SPEAK_GENERATION";
+                else if (emitted_audio)
+                    bench_state = "SPEAK_TAIL";
+                else if (!full_text.empty())
+                    bench_state = "SPEAK_GENERATION";  // text-only = LLM active
+                else
+                    bench_state = "SPEAK_TAIL";
+
+                auto t_now = std::chrono::steady_clock::now();
+                int64_t t_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_now.time_since_epoch()).count();
+                int64_t pf_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_prefill_start.time_since_epoch()).count();
+                int64_t pf_end_ns   = pf_start_ns + (int64_t)(prefill_ms * 1e6);
+                int64_t llm_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_generate_start.time_since_epoch()).count();
+                int64_t llm_end_ns   = llm_start_ns + (int64_t)(generate_ms * 1e6);
+
+                // Query T2W status (non-blocking, observation only)
+                uint32_t t2w_final_processed_gen = 0;
+                uint32_t t2w_active_gen = 0;
+                size_t   t2w_queued = 0;
+                size_t   t2w_active = 0;
+                int      t2w_wav_count = 0;
+                if (octx->t2w_thread_info) {
+                    t2w_final_processed_gen = octx->t2w_thread_info->final_processed_generation.load(
+                        std::memory_order_relaxed);
+                    t2w_active_gen = octx->t2w_thread_info->active_t2w_generation.load(
+                        std::memory_order_relaxed);
+                    t2w_queued = octx->t2w_thread_info->queued_t2w_task_count.load(
+                        std::memory_order_relaxed);
+                    t2w_active = octx->t2w_thread_info->active_t2w_task_count.load(
+                        std::memory_order_relaxed);
+                    t2w_wav_count = octx->t2w_thread_info->wav_count.load(
+                        std::memory_order_relaxed);
+                }
+                uint32_t current_gen = octx->request_generation.load(std::memory_order_relaxed);
+
+                fprintf(stderr,
+                    "[bench] session=%.8s frame=%d gen=%u state=%s "
+                    "prefill_start=%lld prefill_end=%lld "
+                    "llm_start=%lld llm_end=%lld "
+                    "text_len=%zu text_done_ts=%lld emitted_audio=%d "
+                    "t2w_final_processed_gen=%u t2w_active_gen=%u t2w_queued=%zu t2w_active=%zu t2w_wav_count=%d\n",
+                    session_id.c_str(), input_index, current_gen, bench_state,
+                    (long long)pf_start_ns, (long long)pf_end_ns,
+                    (long long)llm_start_ns, (long long)llm_end_ns,
+                    full_text.size(), (long long)t_now_ns, emitted_audio ? 1 : 0,
+                    t2w_final_processed_gen, t2w_active_gen, t2w_queued, t2w_active, t2w_wav_count);
+            }
+            // ── end bench instrumentation ──
+
             if (!full_text.empty() || emitted_audio) {
                 // Full-duplex speak responses also need an explicit completion
                 // boundary; pure listen steps are represented by listen delta only.

@@ -2536,6 +2536,15 @@ static const char * sample_with_hidden_and_token(struct common_sampler * smpl, s
     } else {
         ret = common_token_to_piece(ctx_omni->ctx_llama, id);
     }
+    // P0-3: hex-dump token→piece for encoding diagnosis (env-gated, default OFF)
+    if (getenv("OMNI_ENCODING_DIAG")) {
+        static int piece_seq = 0;
+        fprintf(stderr, "[enc_diag] piece_seq=%d token_id=%d piece_len=%zu piece_hex=",
+                piece_seq++, id, ret.size());
+        for (size_t i = 0; i < std::min(ret.size(), size_t(32)); i++)
+            fprintf(stderr, "%02x", (unsigned char)ret[i]);
+        fprintf(stderr, "\n");
+    }
     eval_id_with_hidden(ctx_omni, params, id, n_past, hidden_states);
     return ret.c_str();
 }
@@ -11378,6 +11387,17 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
             ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
                 }
+                // F6 formal: bench_wav instrumentation for EOS-buffer-empty path
+                {
+                    auto t_wav = std::chrono::steady_clock::now();
+                    int64_t wav_complete_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        t_wav.time_since_epoch()).count();
+                    uint32_t done_gen = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+                    int wav_cnt = ctx_omni->t2w_thread_info->wav_count.load(std::memory_order_relaxed);
+                    fprintf(stderr,
+                        "[bench_wav_drain] wav_complete_ns=%lld gen=%u wav_count=%d\n",
+                        (long long)wav_complete_ns, done_gen, wav_cnt);
+                }
                 ctx_omni->t2w_thread_info->drain_cv.notify_one();
                 print_with_timestamp("T2W(C++): EOS drain — buffer empty (wav_count=%d)\n",
                                      ctx_omni->t2w_thread_info->wav_count.load());
@@ -11620,6 +11640,18 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms | req=%d gen=%u\n",
                                             ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms,
                                             effective_round_idx, ctx_omni->e2e_stage.t2w_thread_generation);
+                        // F6 formal: bench_wav at per-chunk WAV completion
+                        {
+                            auto t_wav_steady = std::chrono::steady_clock::now();
+                            int64_t wav_complete_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                t_wav_steady.time_since_epoch()).count();
+                            uint32_t wav_gen = ctx_omni->e2e_stage.t2w_thread_generation;
+                            int wav_cnt = ctx_omni->t2w_thread_info->wav_count.load(std::memory_order_relaxed);
+                            fprintf(stderr,
+                                "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d\n",
+                                (long long)wav_complete_ns, wav_gen, wav_cnt,
+                                ctx_omni->wav_turn_base + wav_idx, audio_duration, effective_round_idx);
+                        }
                         wav_idx++;
                         // P7.3: track WAV count for drain verification
                         ctx_omni->t2w_thread_info->wav_count.fetch_add(1, std::memory_order_relaxed);
@@ -11762,6 +11794,18 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
                 }
                 ctx_omni->t2w_thread_info->generation_final_completed.store(gen, std::memory_order_relaxed);
+            }
+            // F6 formal benchmark: wav_complete instrumentation
+            {
+                auto t_wav = std::chrono::steady_clock::now();
+                int64_t wav_complete_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_wav.time_since_epoch()).count();
+                uint32_t done_gen = ctx_omni->t2w_thread_info->final_processed_generation.load(
+                    std::memory_order_relaxed);
+                int wav_cnt = ctx_omni->t2w_thread_info->wav_count.load(std::memory_order_relaxed);
+                fprintf(stderr,
+                    "[bench_wav_drain] wav_complete_ns=%lld gen=%u wav_count=%d\n",
+                    (long long)wav_complete_ns, done_gen, wav_cnt);
             }
             // F6 R13: Single CV notify after ALL drain-predicate state updated.
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
@@ -12554,6 +12598,13 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
 
         // 推送到 text_queue（SSE）
         if (!response.empty()) {
+            // P0-3: hex-dump response text before queue push (env-gated, default OFF)
+            if (getenv("OMNI_ENCODING_DIAG")) {
+                fprintf(stderr, "[enc_diag] text_queue_push len=%zu hex=", response.size());
+                for (size_t i = 0; i < std::min(response.size(), size_t(64)); i++)
+                    fprintf(stderr, "%02x", (unsigned char)response[i]);
+                fprintf(stderr, "\n");
+            }
             std::lock_guard<std::mutex> tl(ctx_omni->text_mtx);
             ctx_omni->text_queue.push_back(response);
             ctx_omni->text_cv.notify_all();
