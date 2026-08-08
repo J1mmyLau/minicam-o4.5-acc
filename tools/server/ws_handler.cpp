@@ -845,6 +845,10 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
         bool accumulate = false;
         std::vector<float> accum;
         bool emitted_audio = false;
+        // F6 formal: per-chunk incremental counters for official classify_chunk()
+        // Reset at each input.append; accumulated during chunk processing.
+        int chunk_text_tokens_before = 0;  // snapshot of ctx->generated_token_count before decode
+        int chunk_audio_byte_count = 0;    // float32 PCM bytes in audio deltas this chunk
     };
     auto audio_state = std::make_shared<AudioCbState>();
     audio_state->session_id = session_id;
@@ -872,6 +876,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 response_id = audio_state->response_id;
                 response_start = audio_state->response_start;
                 audio_state->emitted_audio = true;
+                audio_state->chunk_audio_byte_count += n_samples * (int)sizeof(float);
             }
             std::string b64 = float32_pcm_to_b64(samples, n_samples);
             ProtocolMetrics metrics = make_runtime_metrics(
@@ -929,6 +934,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             audio_state->response_id = response_id; // update for audio callback
             audio_state->response_start = t_request_start;
             audio_state->emitted_audio = false;
+            audio_state->chunk_audio_byte_count = 0;
         }
 
         // Branch: full_duplex vs turn_based. The input shape MUST match the
@@ -1269,6 +1275,13 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             tmp_files.audio_path.clear();
             tmp_files.image_path.clear();
 
+            // F6 formal: snapshot token count after prefill (before decode)
+            // for per-chunk classify_chunk() n_tokens delta.
+            {
+                std::lock_guard<std::mutex> lk(audio_state->mtx);
+                audio_state->chunk_text_tokens_before = octx->generated_token_count;
+            }
+
             // force_listen: caller forces this step to LISTEN — skip decoding
             // and immediately report a listen delta, then wait for next input.
             if (parsed_input.force_listen) {
@@ -1413,21 +1426,32 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // ── F6 formal benchmark: server-side per-chunk timing ──
             // Only logs; does NOT change inference behavior or event ordering.
             {
-                // State machine mirrors official benchmark semantics:
-                // SPEAK_GENERATION = audio delta observed during chunk's window
-                //   (with drain OFF, previous-chunk audio may arrive now — this
-                //    is the official window-based approximation, not a bug)
-                // SPEAK_TAIL = text may continue but no audio in this window
-                // LISTEN = model asks for more audio input
+                // Per-chunk counters for official classify_chunk() replication.
+                // Must be identical to benchmarks/official_speak_wav_rtf.py:classify_chunk()
+                int chunk_text_tokens = 0;
+                int chunk_audio_bytes = 0;
+                int chunk_tts_tokens = 0;  // TODO: track from T2W callback (n_tts_tokens)
+                {
+                    std::lock_guard<std::mutex> lk(audio_state->mtx);
+                    chunk_text_tokens = octx->generated_token_count - audio_state->chunk_text_tokens_before;
+                    chunk_audio_bytes = audio_state->chunk_audio_byte_count;
+                }
+
+                // Official classify_chunk() replicated exactly:
+                //   SPEAK_GENERATION: n_tokens > 0 && audio_bytes > 0
+                //   SPEAK_TAIL:       n_tokens == 0 && (n_tts_tokens > 0 || audio_bytes > 0)
+                //   LISTEN:           emitted_listen (kind=listen delta observed)
                 const char * bench_state = "UNKNOWN";
-                if (emitted_listen)
+                if (emitted_listen) {
                     bench_state = "LISTEN";
-                else if (emitted_audio)
+                } else if (chunk_text_tokens > 0 && chunk_audio_bytes > 0) {
                     bench_state = "SPEAK_GENERATION";
-                else if (!full_text.empty())
-                    bench_state = "SPEAK_TAIL";  // text present but no audio → tail
-                else
+                } else if (chunk_text_tokens == 0 &&
+                           (chunk_tts_tokens > 0 || chunk_audio_bytes > 0)) {
                     bench_state = "SPEAK_TAIL";
+                } else {
+                    bench_state = "OTHER";
+                }
 
                 auto t_now = std::chrono::steady_clock::now();
                 int64_t t_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -1464,11 +1488,13 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                     "prefill_start=%lld prefill_end=%lld "
                     "llm_start=%lld llm_end=%lld "
                     "text_len=%zu text_done_ts=%lld emitted_audio=%d "
+                    "chunk_n_tokens=%d chunk_n_tts_tokens=%d chunk_audio_bytes=%d "
                     "t2w_final_processed_gen=%u t2w_active_gen=%u t2w_queued=%zu t2w_active=%zu t2w_wav_count=%d\n",
                     session_id.c_str(), input_index, octx->simplex_round_idx, current_gen, bench_state,
                     (long long)pf_start_ns, (long long)pf_end_ns,
                     (long long)llm_start_ns, (long long)llm_end_ns,
                     full_text.size(), (long long)t_now_ns, emitted_audio ? 1 : 0,
+                    chunk_text_tokens, chunk_tts_tokens, chunk_audio_bytes,
                     t2w_final_processed_gen, t2w_active_gen, t2w_queued, t2w_active, t2w_wav_count);
             }
             // ── end bench instrumentation ──
