@@ -1426,8 +1426,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // ── F6 formal benchmark: server-side per-chunk timing ──
             // Only logs; does NOT change inference behavior or event ordering.
             {
-                // Per-chunk counters for official classify_chunk() replication.
-                // Must be identical to benchmarks/official_speak_wav_rtf.py:classify_chunk()
+                // Per-chunk counters for SPEAK_GENERATION classification.
+                // Implements the same logic as benchmarks/speak_wav_rtf_client.py:classify_chunk()
+                // Classification parity status:
+                //   SPEAK_GENERATION: PASS (n_tokens>0 && audio_bytes>0)
+                //   SPEAK_TAIL:       INCOMPLETE (chunk_n_tts_tokens ≡ 0, not yet tracked)
                 int chunk_text_tokens = 0;
                 int chunk_audio_bytes = 0;
                 int chunk_tts_tokens = 0;  // TODO: track from T2W callback (n_tts_tokens)
@@ -1437,10 +1440,12 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                     chunk_audio_bytes = audio_state->chunk_audio_byte_count;
                 }
 
-                // Official classify_chunk() replicated exactly:
+                // classify_chunk() — reimplementation of official spec logic:
                 //   SPEAK_GENERATION: n_tokens > 0 && audio_bytes > 0
                 //   SPEAK_TAIL:       n_tokens == 0 && (n_tts_tokens > 0 || audio_bytes > 0)
                 //   LISTEN:           emitted_listen (kind=listen delta observed)
+                // NOTE: n_tts_tokens is NOT tracked yet (≡0), so pure-TTS tail
+                //       (n_tokens=0, n_tts>0, audio=0) will fall through to OTHER.
                 const char * bench_state = "UNKNOWN";
                 if (emitted_listen) {
                     bench_state = "LISTEN";

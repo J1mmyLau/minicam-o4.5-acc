@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Official SPEAK→WAV RTF Benchmark — Subtrack A (llama.cpp-omni on CANN).
+"""SPEAK→WAV RTF Benchmark (Client-Side) — Subtrack A (llama.cpp-omni on CANN).
+
+PROVENANCE: Reimplementation by Claude based on official competition spec (2026-08-05).
+NOT the official evaluator script — the official RTF harness was never distributed.
+Baseline RTF=1.087 (F16, 37 SPEAK_GENERATION chunks) from official spec.
+This script implements the SAME classification logic described in the spec:
+  LISTEN / SPEAK_GENERATION / SPEAK_TAIL
+using WS-window-based event observation (first decisive delta per chunk).
+
+OFFICIAL_EVALUATOR_SCRIPT       = NOT_AVAILABLE
+OFFICIAL_SPEC_DESCRIPTION       = AVAILABLE (RTF=1.087, 37 chunks, 3 states)
+THIS_SCRIPT                     = BEST_EFFORT_REIMPLEMENTATION
+F16_CALIBRATION_REQUIRED        = YES (validate against known baseline)
 
 Fixed decisions (2026-08-06):
   BENCH_CONFIG_SOURCE   = PINNED_MINICPM_O_DEMO
-  OFFICIAL_MANDATORY    = NOT_CONFIRMED
   ROUNDS=5, CHUNKS_PER_ROUND=30, WARMUP=3, CHUNK_DURATION_MS=1000
 
 Supports two transport paths:
@@ -11,8 +22,8 @@ Supports two transport paths:
   --transport worker    → via Python Worker   (Demo E2E reference)
 
 Usage:
-  python benchmarks/official_speak_wav_rtf.py --model F16 --transport backend
-  python benchmarks/official_speak_wav_rtf.py --model Q4_K_M --transport worker
+  python benchmarks/speak_wav_rtf_client.py --model F16 --transport backend
+  python benchmarks/speak_wav_rtf_client.py --model Q4_K_M --transport worker
 """
 
 import argparse, asyncio, base64, hashlib, io, json, os, shutil, struct, subprocess, sys, time, wave
