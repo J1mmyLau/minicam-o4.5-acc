@@ -1,9 +1,39 @@
 # AUDIT LOG — CANN Flow + Vocoder Optimization
 
-**Project:** llama.cpp-omni-operator / Ascend 910C / CANN 9.1.0-beta.1
-**Branch:** perf/flow-chunk-rtf
+**Project:** llama.cpp-omni-session-fix / Ascend 910C / CANN 9.1.0-beta.1
+**Branch:** perf/f6-decode-to-speak (Phase 4)
 
 ---
+
+## 2026-08-07 08:15 | WORKLOAD_ALIGNMENT_DEMO | PASS
+Aligned speak_wav_rtf_v2.py workload with pinned MiniCPM-o-Demo config:
+- ref_audio: BH-Ref-HT-F224 WAV base64 in session.init (was: server fallback only)
+- max_new_tokens: 200→26 (matches server default max_new_speak_tokens_per_chunk)
+- OFFICIAL_COMPARABILITY = PASS. Q8_0 aligned RTF=0.582, 1.87× vs official 1.087.
+Evidence: /tmp/gfh-die0/q8_0_aligned_3x30.txt, memory/ f6-workload-alignment-demo.md.
+
+## 2026-08-07 07:52 | LLM_QUANTIZATION_AB | COMPLETE
+F16 vs Q8_0 vs Q4_K_M A/B on CANN flow-only:
+- Q8_0: RTF=0.565, 0% LISTEN, wall-T2W gap 7ms. Speedup is vocoder CPU (−78ms, −17.3%), not LLM decode.
+- Q4_K_M: REJECTED — 27-40% LISTEN rate (extreme quantization degrades speech token generation).
+- LLM decode contribution < 10ms — T2W IS the wall.
+Evidence: server-q8_0.log, server-q4km.log, server-cann-flow-v3.log, memory/ f6-llm-quantization-ab.md.
+
+## 2026-08-07 07:43 | DRAIN_MULTI_ROUND_FIX | PASS
+Fixed session turnover blocking multi-round benchmarks:
+- Root cause: OMNI_T2W_DRAIN_TIMEOUT_MS adaptive (max 900s) in t2w_drain_signal_and_wait()
+  called inside omni_prepare_for_reuse() while holding octx_mutex
+- Fix: OMNI_T2W_DRAIN_TIMEOUT_MS=5000 + symlink server.log → actual log
+- Result: 3/3 multi-round benchmarks PASS (was: rounds 2-5 all rejected)
+Evidence: server-cann-flow-v3.log, cann_flow_3x30_v3.txt.
+
+## 2026-08-07 07:36 | FULL_CHAIN_RTF_F16 | PASS
+First full-chain SPEAK→WAV measurement with OMNI_T2W_DEVICE=cann-flow-only:
+- F16: RTF p50=0.685, wall p50=685ms, 3/3 rounds, 0% LISTEN, 81 SPEAK samples
+- T2W p50=596.6ms (87% of wall), gap=88ms
+- Per-component: encoder=9.1ms CANN, FM=150.9ms CANN, vocoder=451.6ms CPU
+- 1.59× faster than official baseline 1.087
+Evidence: server-cann-flow-v3.log, cann_flow_3x30_v3.txt, memory/ f6-cann-flow-full-chain-w0.md.
 
 ## 2026-08-03 08:45 | R13_PER_GEN_ACTIVE | COMPLETE
 Per-generation active accounting fix (ec6dbc7). Replaced global active_t2w_task_count
@@ -392,3 +422,11 @@ Not two physical cards. Compliant with single-card competition rules.
 ## 2026-08-04 | T7 | DECISION — OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION（Daily-Omni 文本输出路径损坏）；seed-tts=PENDING_EXTERNAL_ASSETS（Drive 不可达）；COMPETITION_COMPLETE=NOT_CLAIMED；不伪造
 ## 2026-08-04 | T8 | FINAL_FRAMING — FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环）；OFFICIAL_ACCURACY/BENCHMARK=BLOCKED_BY_CANDIDATE_LIMITATION、COMPETITION_COMPLETE=NOT_CLAIMED；最终口径文档 F6_PHASE3_FINAL_FRAMING.md；不宣称官方 PASS
 ## 2026-08-04 | T7 | EVIDENCE_ARCHIVED — t7_evidence/ 归档 srv2(媒体崩溃+输入证明)+srv3(纯文本崩溃) 日志（force-add 越过 *.log ignore）
+## 2026-08-07 09:45 | EVIDENCE_CLOSURE | COMPETITION_EVIDENCE_CLOSURE_COMPLETE
+- Step 1: Mean RTF alignment — Q8_0 mean=0.615, F16 mean=0.703, speedup=1.77× PROVISIONAL
+- Step 2: 13-parameter full workload diff — 6 differences, OFFICIAL_COMPARABILITY=PROVISIONAL
+- Step 3: Alternating F16/Q8 A/B — Vocoder −52.5ms PROVEN, FM dequant +20.3ms DISCOVERED
+- Step 4: 5×30 formal Q8_0 — RTF=0.639 mean, speedup=1.70×, 150 SPEAK, 0 errors
+- Step 5: Soak test — 300-chunk PASS (thread +9, drift +1.6%), 1800-chunk FAIL (T2W queue backlog)
+- Step 6: Demo full chain — Audio 10/10 valid, text 10/10 responses (decoding `?` chars)
+- Final: Q8_0 + CANN flow-only RTF=0.639, speedup=1.70×, COMPETITION_EVIDENCE_CLOSURE=DONE

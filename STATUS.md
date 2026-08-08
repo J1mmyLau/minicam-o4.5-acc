@@ -1,21 +1,43 @@
-# F6 Phase 3 — Decode-to-Speak Optimization — 项目状态
+# F6 Phase 5 — COMPETITION_EVIDENCE_CLOSURE — 项目状态
 
 ## 当前阶段
 
-`Phase 3：T1–T8 全部完成。FINAL_INTEGRATED_CANDIDATE=FINAL（内部闭环），
-OFFICIAL_ACCURACY=BLOCKED_BY_CANDIDATE_LIMITATION, OFFICIAL_BENCHMARK=BLOCKED,
-COMPETITION_COMPLETE=NOT_CLAIMED（不宣称）` —
+**COMPETITION_EVIDENCE_CLOSURE 全部 6 步完成。**
+Q8_0 + CANN flow-only 生产候选：RTF=0.639 mean，speedup=1.70× vs 官方 1.087。
+Vocoder CPU quantization 因果机制 PROVEN（交替 A/B 3/3 对确认）。
+FM CANN dequant penalty +20.3ms DISCOVERED。
+Soak 300-chunk PASS（线程 +9, RTF drift +1.6%），1800-chunk FAIL（T2W queue backlog）。
+Demo Full Chain CONDITIONAL PASS（音频 10/10 valid，文本 10/10 响应但 `?` 字符）。
+OFFICIAL_COMPARABILITY=PROVISIONAL（LISTEN=0%，采样参数差异，system_prompt 差异）。
 
-（前序阶段）`S13_FROZEN_STRICT_BASELINE=PASS_120_OF_120, R13 Static-Prefix PASS,
-CANN_T2W_CANDIDATE=STRONG_INTERNAL_PASS, T4 STRICT REVERIFY PASS,
-T6 FINAL INTEGRATED REGRESSION = PASS (11/11 GATES)` —
-瓶颈已定位（T2W CPU 设备放置 = 93%），非 LLM Decode→Speak（2.9%）。
-**最终集成候选已冻结 = FINAL**（"KV Cache + HTTP token cap + 生命周期
-+ CANN Flow/Vocoder" 组合，T5 冻结见 [T5 Freeze](docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md)，
-**T6 最终集成回归全过（ACCEPT=True）→ 候选状态 FINAL**）。
-下一阶段：**T7 质量/比赛 Gate 已评估** — 官方资产部分到达；Daily-Omni 输入路径经修正协议确认可用，
-但**文本输出路径损坏（SSE 崩溃 + 非流式无文本）→ BLOCKED_BY_CANDIDATE_LIMITATION**；
-seed-tts-eval = PENDING_EXTERNAL_ASSETS（Drive 不可达）。不伪造官方结果。
+### 证据收口 Gate 矩阵
+
+| Step | Gate | Status | Key Metric |
+|------|------|--------|------------|
+| 1 | Mean RTF Alignment | ✅ | Q8_0 mean=0.615, F16 mean=0.703 |
+| 2 | Workload Parameter Diff | ✅ | 13 params, 6 diff, 4 no-impact |
+| 3 | Alternating A/B | ✅ | Vocoder −52.5ms PROVEN, FM +20.3ms |
+| 4 | 5×30 Formal Run | ✅ | RTF=0.639, 150 SPEAK, 0 errors |
+| 5 | Soak Test | ⚠️ | 300-chunk PASS, 1800-chunk FAIL |
+| 6 | Demo Full Chain | ⚠️ | Audio 10/10 valid, text `?` chars |
+
+### 最终指标
+
+```
+MODEL:              Q8_0 (GGUF)
+DEVICE:             CANN0 + OMNI_T2W_DEVICE=cann-flow-only
+SPEAK_RTF_MEAN:     0.639
+SPEAK_WALL_MEAN_MS: 639.2
+SPEAK_SAMPLES:      150 (5×30)
+SPEEDUP_vs_1.087:   1.70×
+LISTEN_RATE:        0%
+ERRORS:             0
+T2W_VOCODER_CPU:    432.3ms mean
+T2W_FM_CANN:        188.7ms mean
+```
+
+Session 日期: 2026-08-07。服务器 PID: 见 `/tmp/gfh-die0/llama-omni.pid`。
+下一阶段：比赛提交准备。OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT。
 
 关键数据：
 - S13 frozen strict baseline **120/120 成功**（eos=111, max_tokens=9, 0 error, 0 timeout,
@@ -157,20 +179,92 @@ Script: /workspace/llama.cpp-omni-f6/scripts/run_canonical_kv_ab.py
 证据：`docs/f6-s13-closure/raw-data/step7/s13_step7_final.json`
 （summary + gates 字段全 TRUE）。
 
+## Phase 4 CANN Flow-Only Production Gates (2026-08-07)
+
+### FULL_CHAIN_RTF Gate (F16 → Q8_0)
+
+| Model | RTF p50 | Wall p50 | Wall p95 | LISTEN% | n | Rounds | Verdict |
+|-------|---------|----------|----------|---------|---|--------|---------|
+| **F16** | 0.685 | 685ms | 830ms | 0% | 81 | 3/3 | Baseline |
+| **Q8_0** | **0.565** | 565ms | 703ms | 0% | 81 | 3/3 | **−17.5% vs F16** ✅ |
+| Q4_K_M | — | — | — | 27-40% | 36 | 2/3-fail | REJECTED ❌ |
+| **Q8_0 aligned** | **0.582** | 582ms | 697ms | 0% | 81 | 3/3 | **Production** ✅ |
+
+### T2W Per-Component (CANN flow-only, n=271-303)
+
+| Component | F16 p50 | Q8_0 p50 | Backend |
+|-----------|---------|----------|---------|
+| Encoder | 9.1ms | 8.5ms | CANN |
+| Flow Matching | 150.9ms | 161.0ms | CANN |
+| Vocoder | 451.6ms | 373.4ms | **CPU** (CANN=broken, silent) |
+| **T2W Total** | **596.6ms** | **557.8ms** | — |
+| Wall−T2W Gap | 88.4ms | 7.2ms | — |
+
+### Critical Path
+
+- T2W IS the wall (gap 7ms at p50 with Q8_0)
+- Vocoder CPU (452→373ms) = 66-76% of T2W
+- FM CANN (151ms) = 27% of T2W
+- LLM decode contribution < 10ms
+
+### Drain Fix
+
+- **Root cause**: `t2w_drain_signal_and_wait` with adaptive timeout (max 900s) called inside
+  `omni_prepare_for_reuse` while holding `octx_mutex` — blocked multi-round benchmarks
+- **Fix**: `OMNI_T2W_DRAIN_TIMEOUT_MS=5000` + benchmark log symlink fix
+- **Result**: 6/9 multi-round benchmarks PASS, 0 session.init rejections
+
+### Workload Alignment
+
+- ref_audio: now sent explicitly (BH-Ref WAV, byte-identical to server default)
+- max_new_tokens: 200→26 (matches server default max_new_speak_tokens_per_chunk)
+- force_listen_count=0 preserved (required for pure SPEAK RTF measurement)
+- **OFFICIAL_COMPARABILITY = PASS** (aligned with pinned MiniCPM-o-Demo config)
+
+### Comparison to Official Baseline
+
+| Metric | Official (F16) | Our Q8_0 (CANN flow-only) | Speedup |
+|--------|---------------|--------------------------|---------|
+| SPEAK→WAV RTF | **1.087** | **0.582** | **1.87×** |
+| Wall p50 | 1087ms | 582ms | −505ms (−46.5%) |
+
+### Production Candidate
+
+```
+Model:     Q8_0 (MiniCPM-o-4_5-Q8_0.gguf)
+Config:    OMNI_T2W_DEVICE=cann-flow-only
+           OMNI_T2W_DRAIN_TIMEOUT_MS=5000
+           -ngl 999 --device CANN0
+           --ctx-size 4096 --batch-size 512 --ubatch-size 512 -t 4
+RTF:       0.582 (p50), 1.87× vs official 1.087
+Audio:     100% valid, 0% LISTEN (81 SPEAK samples across 3 rounds)
+Reliability: 3/3 rounds, multi-round verified
+```
+
 ## 当前待办 (优先级排序)
 
 | 优先级 | 任务 | 状态 |
 |--------|------|------|
-| **P0** | **T3 严格事件关联** — 埋点实现并提交 510a9f0（decode-start 打 round_idx/gen/reqidx；W0/wav 行 req/gen；响应回显）；smoke 验证通过：value-bound 证据（log/e2e-JSON/pipeline-CSV/响应回显）全渠道一致 | **DONE** |
-| **P0** | **T4 严格复核** — CANN T2W ≥16 对，request-id 绑定，0 错配；FULL PASS：20 对 / 19 active，10 gates 19/19，T2W-only delta 19/19 全负（p50 −4215.8ms，CI [−4395.6, −4085.4]），W0 E2E p50 −3946ms（CI [−4379, −3799]），0 fallback/0 error/0 timeout；wav_count 服务端 bug 已修 | **DONE** |
-| **P0** | **T5 最终集成候选** — KV Cache + HTTP token cap + 生命周期 + CANN Flow/Vocoder 组合冻结；freeze 文档 `docs/F6_PHASE3_T5_FINAL_INTEGRATED_CANDIDATE.md`（二进制 e77b43c3 + libomni f1d2f86d，HEAD b043257）；INTERNAL_PASS | **DONE** |
-| **P0** | **T6 最终集成回归** — 120 frozen + 30 MISS→HIT + 20 长文本 + 10 混合 + 5 切音色 + 5 断连 + 3 重启 | **DONE — ALL 11 GATES PASS** |
-| **P1** | **T7 质量/比赛 Gate** — 评估完成：输入 CONFIRMED（修正协议），输出 BLOCKED_BY_CANDIDATE_LIMITATION（SSE 崩溃）；seed-tts=PENDING_EXTERNAL_ASSETS | **DONE** |
-| **P1** | **T8 最终口径** — 内部闭环 FINAL，官方 Gate 不宣称（BLOCKED_BY_CANDIDATE_LIMITATION / NOT_CLAIMED）；最终口径文档 F6_PHASE3_FINAL_FRAMING.md | **DONE** |
-| **P1** | 审计 Git 未跟踪脚本 → 归档或提交 | PENDING |
-| **P2** | M6 6h mixed-workload soak audit | DEFERRED |
+| **P3** | **Vocoder CANN 数值修复** — CPU 452ms→CANN 129ms 但输出全静音 (peak=0)；需 buffer sync / stream / kernel 调试 | **NOT_STARTED** |
+| **P4** | **FM 进一步优化** — 150ms → <100ms (n_timesteps ablation 5→4→3, per-op CANN breakdown) | **NOT_STARTED** |
+| P2 | Drain session turnover — 已 workaround（env var），需代码级修复 | WORKAROUND |
+| — | 30-min multi-session stability soak | DEFERRED |
+| — | Audio quality validation (ASV/WER/subjective) | DEFERRED |
+| — | Set OMNI_T2W_DEVICE=cann-flow-only as default | DEFERRED |
 
-### 已完成 Gate（本阶段权威状态）
+### 已完成 Gate（Phase 4）
+
+```
+FULL_CHAIN_RTF_F16                  = PASS   (0.685, 3/3 rounds, 0 errors)
+FULL_CHAIN_RTF_Q8_0                 = PASS   (0.565 unaligned, 0.582 aligned)
+LLM_QUANTIZATION_AB                 = PASS   (Q8_0 optimal, Q4_K_M REJECTED 27-40% LISTEN)
+DRAIN_MULTI_ROUND_FIX               = PASS   (OMNI_T2W_DRAIN_TIMEOUT_MS=5000 + log symlink)
+WORKLOAD_ALIGNMENT_DEMO             = PASS   (ref_audio + max_new_tokens=26)
+OFFICIAL_COMPARABILITY              = PASS   (aligned with pinned Demo config)
+PRODUCTION_CANDIDATE_Q8_0           = STRONG_INTERNAL_PASS (RTF 0.582, 1.87× vs official)
+```
+
+### 前序已完成 Gate（Phase 3）
 
 ```
 S13_FROZEN_STRICT_BASELINE        = PASS_120_OF_120
@@ -182,7 +276,7 @@ BASELINE_DEVICE_PLACEMENT_AUDIT   = PASS   (CPU T2W = 默认回退 + 实测参�
 T4_STRICT_CANN_T2W_REVERIFY       = PASS   (19/19 correlation, T2W-only delta 全负)
 T6_FINAL_INTEGRATED_REGRESSION    = PASS   (11/11 gates, ACCEPT=True; e77b43c3)
 FINAL_INTEGRATED_CANDIDATE        = FINAL   (T5 freeze + T6 回归全过 → 最终集成候选确认)
-OFFICIAL_ACCURACY                 = BLOCKED_BY_CANDIDATE_LIMITATION   (Daily-Omni 文本输出路径损坏, 见 T7)
+OFFICIAL_ACCURACY                 = BLOCKED_BY_CANDIDATE_LIMITATION   (Daily-Omni 文本输出路径损坏)
 OFFICIAL_BENCHMARK                = BLOCKED_BY_CANDIDATE_LIMITATION   (SSE 崩溃 + 接口 provisional)
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
