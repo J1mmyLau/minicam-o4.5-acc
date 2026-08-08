@@ -1,0 +1,26 @@
+{
+  "interval_ms": 100,
+  "A": {
+    "session_id": "bf727892b356d24786fdefef01768971",
+    "text_len": 303,
+    "audio_deltas": 50,
+    "wavs_on_disk": 50,
+    "error": null
+  },
+  "B": {
+    "session_id": "a308c2cc28c7ad4a2fadbbbb4031edf9",
+    "text_len": 300,
+    "audio_deltas": 55,
+    "wavs_on_disk": 55,
+    "error": null
+  },
+  "isolation": {
+    "text_isolation": "PASS",
+    "apple_in_b": false,
+    "blackhole_in_a": false,
+    "wav_dirs_distinct": "PASS",
+    "drain_timeout_new": 3,
+    "drain_ok": "FAIL"
+  },
+  "overall": "FAIL"
+}

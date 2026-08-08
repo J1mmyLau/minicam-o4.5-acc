@@ -1,0 +1,33 @@
+{
+  "config": {
+    "chunks": 300,
+    "chunk_dur_s": 1.0
+  },
+  "model": "Q8_0",
+  "total_wall_s": 213.82992400974035,
+  "speak_count": 300,
+  "listen_count": 0,
+  "errors": 0,
+  "threads_start": 1865,
+  "threads_end": 1874,
+  "thread_delta": 9,
+  "thread_history": [
+    [
+      0,
+      1865
+    ],
+    [
+      100,
+      1871
+    ],
+    [
+      200,
+      1880
+    ]
+  ],
+  "wall_mean_ms": 706.8357003333327,
+  "wall_p50_ms": 708.55238,
+  "wall_p95_ms": 790.22137,
+  "rtf_mean": 0.7068357003333328,
+  "rtf_drift_pct": 1.5766568905566332
+}

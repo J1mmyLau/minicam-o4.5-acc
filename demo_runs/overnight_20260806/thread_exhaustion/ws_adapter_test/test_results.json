@@ -1,0 +1,22 @@
+{
+  "gates": {
+    "session_handshake": true,
+    "text_received": true,
+    "audio_received": true,
+    "audio_field_b64": true,
+    "clean_termination": true
+  },
+  "metrics": {
+    "text_chunks": 2,
+    "audio_chunks": 4,
+    "control_chunks": 0,
+    "total_chars": 22,
+    "total_audio_b64_len": 501760,
+    "first_text_ms": 43020.98385,
+    "first_audio_ms": 48645.85086,
+    "done": true,
+    "error": null,
+    "e2e_ms": 61124.89873
+  },
+  "all_pass": true
+}

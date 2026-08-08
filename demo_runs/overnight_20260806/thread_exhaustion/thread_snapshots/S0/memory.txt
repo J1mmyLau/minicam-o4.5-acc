@@ -1,0 +1,3 @@
+VmSize:	 5366944 kB
+VmRSS:	   25160 kB
+Threads:	641

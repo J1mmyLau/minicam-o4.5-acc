@@ -1,0 +1,53 @@
+# T7/T8 Protocol Verification
+# Date: 2026-08-06
+# Binary: 2bfb2e5028c4f0cf5b8a9e17b22c2cd071505db9e0baa9afc456c00bae84ceb4
+
+WS_AUDIO_EVENT_TYPE=response.output.delta
+WS_AUDIO_KIND=audio
+WS_AUDIO_FIELD_EXISTS_audio=True
+WS_AUDIO_FIELD_EXISTS_audio_b64=False
+WS_AUDIO_FIELD=audio
+WS_AUDIO_ENCODING=base64_pcm_s16le
+WS_AUDIO_BASE64_LEN=128000
+WS_AUDIO_PCM_BYTES=96000
+WS_AUDIO_PCM_SAMPLES=48000
+WS_AUDIO_SAMPLE_MIN=-32763
+WS_AUDIO_SAMPLE_MAX=32764
+WS_AUDIO_SAMPLE_RANGE=[-32768,32767]
+WS_AUDIO_BIT_DEPTH=16
+WS_AUDIO_ENDIAN=little
+WS_AUDIO_METRICS_KEYS=['backend', 'kv_cache_length', 'wall_clock_ms', 'n_tts_tokens']
+WS_AUDIO_N_TTS_TOKENS=34
+
+RESPONSE_DONE_TYPE=response.done
+RESPONSE_DONE_KEYS=['audio', 'metrics', 'reason', 'response_id', 'server_send_ts', 'session_id', 'text', 'type']
+RESPONSE_DONE_AUDIO_IS_NULL=True
+RESPONSE_DONE_TEXT_PRESENT=True
+RESPONSE_DONE_METRICS_KEYS=['backend', 'cost_llm_ms', 'cost_tts_ms', 'generate_ms', 'kv_cache_length', 'prefill_ms', 'wall_clock_ms']
+
+T7-S: total_events=25 text_events=6 audio_events=17 done_events=1
+T7-S: all_have_audio_field=True
+T7-S: none_have_audio_b64_field=True
+T7-S: first_pcm_bytes=96000 samples=48000
+T7-S: mid_pcm_bytes=96000 samples=48000
+T7-S: last_pcm_bytes=26880 samples=13440
+
+T7-M: total_events=110 text_events=36 audio_events=72 done_events=1
+T7-M: all_have_audio_field=True
+T7-M: none_have_audio_b64_field=True
+T7-M: first_pcm_bytes=96000 samples=48000
+T7-M: mid_pcm_bytes=96000 samples=48000
+T7-M: last_pcm_bytes=80640 samples=40320
+
+T7-L: total_events=126 text_events=52 audio_events=72 done_events=1
+T7-L: all_have_audio_field=True
+T7-L: none_have_audio_b64_field=True
+T7-L: first_pcm_bytes=96000 samples=48000
+T7-L: mid_pcm_bytes=96000 samples=48000
+T7-L: last_pcm_bytes=80640 samples=40320
+
+WAV_SAMPLE_RATE=24000
+WAV_CHANNELS=1
+WAV_BIT_DEPTH=16
+WS_AUDIO_SAMPLE_RATE=24000
+WS_AUDIO_CHANNELS=1

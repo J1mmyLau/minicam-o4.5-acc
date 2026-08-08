@@ -1,0 +1,50 @@
+{
+  "gate": "PASS",
+  "chunks": [
+    {
+      "chunk_id": 0,
+      "decisive": {
+        "type": "AUDIO",
+        "wall_ms": 24779.82877,
+        "audio_bytes": 80640,
+        "audio_dur_s": 0.84,
+        "text": "",
+        "n_tokens": 0,
+        "end_of_turn": false
+      }
+    },
+    {
+      "chunk_id": 1,
+      "decisive": {
+        "type": "LISTEN",
+        "wall_ms": 1508.71661
+      }
+    },
+    {
+      "chunk_id": 2,
+      "decisive": {
+        "type": "LISTEN",
+        "wall_ms": 1703.31969
+      }
+    },
+    {
+      "chunk_id": 3,
+      "decisive": {
+        "type": "AUDIO",
+        "wall_ms": 3163.17449,
+        "audio_bytes": 96000,
+        "audio_dur_s": 1.0,
+        "text": "",
+        "n_tokens": 0,
+        "end_of_turn": false
+      }
+    },
+    {
+      "chunk_id": 4,
+      "decisive": {
+        "type": "LISTEN",
+        "wall_ms": 1630.85921
+      }
+    }
+  ]
+}

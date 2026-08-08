@@ -1,0 +1,14 @@
+{
+  "label": "S2W-3",
+  "session_id": null,
+  "total_text_tokens": 0,
+  "total_audio_chunks": 0,
+  "text_events": [],
+  "audio_events": [],
+  "speak_phase_chunks": [],
+  "tail_chunks": [],
+  "error": "exception: received 1000 (OK); then sent 1000 (OK)",
+  "wall_clock_s": 0.045,
+  "speak_phase_rtf_avg": null,
+  "speak_phase_latency_avg_ms": null
+}

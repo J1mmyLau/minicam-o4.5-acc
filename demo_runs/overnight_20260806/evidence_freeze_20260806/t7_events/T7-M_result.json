@@ -1,0 +1,66 @@
+{
+  "label": "T7-M",
+  "wav_info": {
+    "session_dir": "/tmp/omni_ws/10eff7f524807aa9f04ed9a54724dd75/round_001",
+    "tts_wav_exists": true,
+    "wav_count": 0,
+    "wav_total_bytes": 0,
+    "wav_total_duration_s": 0.0,
+    "chunk_min": null,
+    "chunk_max": null,
+    "chunk_missing": [],
+    "bad_files": [],
+    "sample_rates": "set()",
+    "wav_dir": "/tmp/omni_ws/10eff7f524807aa9f04ed9a54724dd75/round_001/tts_wav"
+  },
+  "t7a_pass": false,
+  "t7a_checks": {
+    "WAV_COUNT_GT_0": [
+      "FAIL",
+      0
+    ],
+    "CHUNK_CONTINUITY": [
+      "PASS",
+      []
+    ],
+    "ALL_WAV_VALID": [
+      "PASS",
+      []
+    ],
+    "SAMPLE_RATE_24K": [
+      "FAIL",
+      []
+    ],
+    "NO_EMPTY_WAV": [
+      "PASS",
+      []
+    ],
+    "NO_DRAIN_TIMEOUT": [
+      "FAIL",
+      "before=16 after=20 new=4"
+    ],
+    "CONTEXT_REUSABLE": [
+      "PASS",
+      "17:20:26.329 TTS Simplex: chunk 34 - keeping KV cache, n_past_tts=2048\nprefill_with_emb_tts : TTS KV cache full: text_start 2048 + offset 0 + batch 10 > n_ctx 2048, skipping chunk (truncated)\n17:20:35"
+    ]
+  },
+  "t7b_checks": {
+    "WS_AUDIO_DELTA_COUNT": 72,
+    "WS_AUDIO_DELTA_BYTES": 9195520,
+    "WS_INCREMENTAL_STREAMING": "YES",
+    "RESPONSE_DONE_RECEIVED": true,
+    "RESPONSE_DONE_AUDIO_PRESENT": false,
+    "RESPONSE_DONE_AUDIO_BYTES": 0,
+    "RESPONSE_DONE_AUDIO_BASE64_VALID": null,
+    "CLIENT_AUDIO_DELIVERY_MODE": "WS_INCREMENTAL_STREAMING",
+    "NOTE": "response.done.audio=null is EXPECTED in streaming mode (audio already delivered via deltas)",
+    "CLIENT_AUDIO_DELIVERED": true
+  },
+  "drain_checkpoint": {
+    "tag": "post_T7-M",
+    "drain_timeout": 20,
+    "errors": 0,
+    "warnings": 0,
+    "last_ctx": "17:20:26.329 TTS Simplex: chunk 34 - keeping KV cache, n_past_tts=2048\nprefill_with_emb_tts : TTS KV cache full: text_start 2048 + offset 0 + batch 10 > n_ctx 2048, skipping chunk (truncated)\n17:20:35.751 TTS Simplex: chunk 35 - keeping KV cache, n_past_tts=2048\n17:20:35.801 📍 KV cache cleared + n_past reset for next request\n75.48.062.364 I WS cleanup: KV cache cleared + n_past reset for next session"
+  }
+}

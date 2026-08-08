@@ -1,0 +1,66 @@
+{
+  "label": "T7-S",
+  "wav_info": {
+    "session_dir": "/tmp/omni_ws/fa2d8e1498caffb52535223e650ff49f/round_001",
+    "tts_wav_exists": true,
+    "wav_count": 0,
+    "wav_total_bytes": 0,
+    "wav_total_duration_s": 0.0,
+    "chunk_min": null,
+    "chunk_max": null,
+    "chunk_missing": [],
+    "bad_files": [],
+    "sample_rates": "set()",
+    "wav_dir": "/tmp/omni_ws/fa2d8e1498caffb52535223e650ff49f/round_001/tts_wav"
+  },
+  "t7a_pass": false,
+  "t7a_checks": {
+    "WAV_COUNT_GT_0": [
+      "FAIL",
+      0
+    ],
+    "CHUNK_CONTINUITY": [
+      "PASS",
+      []
+    ],
+    "ALL_WAV_VALID": [
+      "PASS",
+      []
+    ],
+    "SAMPLE_RATE_24K": [
+      "FAIL",
+      []
+    ],
+    "NO_EMPTY_WAV": [
+      "PASS",
+      []
+    ],
+    "NO_DRAIN_TIMEOUT": [
+      "FAIL",
+      "before=16 after=18 new=2"
+    ],
+    "CONTEXT_REUSABLE": [
+      "PASS",
+      "17:01:45.741 TTS Simplex: chunk 3 - keeping KV cache, n_past_tts=231\n17:02:28.193 TTS Simplex: chunk 4 - keeping KV cache, n_past_tts=325\n17:03:06.133 TTS Simplex: chunk 5 - keeping KV cache, n_past_t"
+    ]
+  },
+  "t7b_checks": {
+    "WS_AUDIO_DELTA_COUNT": 17,
+    "WS_AUDIO_DELTA_BYTES": 2083840,
+    "WS_INCREMENTAL_STREAMING": "YES",
+    "RESPONSE_DONE_RECEIVED": true,
+    "RESPONSE_DONE_AUDIO_PRESENT": false,
+    "RESPONSE_DONE_AUDIO_BYTES": 0,
+    "RESPONSE_DONE_AUDIO_BASE64_VALID": null,
+    "CLIENT_AUDIO_DELIVERY_MODE": "WS_INCREMENTAL_STREAMING",
+    "NOTE": "response.done.audio=null is EXPECTED in streaming mode (audio already delivered via deltas)",
+    "CLIENT_AUDIO_DELIVERED": true
+  },
+  "drain_checkpoint": {
+    "tag": "post_T7-S",
+    "drain_timeout": 18,
+    "errors": 0,
+    "warnings": 0,
+    "last_ctx": "17:01:45.741 TTS Simplex: chunk 3 - keeping KV cache, n_past_tts=231\n17:02:28.193 TTS Simplex: chunk 4 - keeping KV cache, n_past_tts=325\n17:03:06.133 TTS Simplex: chunk 5 - keeping KV cache, n_past_tts=409\n17:03:28.567 📍 KV cache cleared + n_past reset for next request\n58.44.204.299 I WS cleanup: KV cache cleared + n_past reset for next session"
+  }
+}

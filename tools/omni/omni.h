@@ -2,6 +2,7 @@
 #include "llama.h"
 #include "tts-condition-graph.h"
 
+#include <climits>
 #include <thread>
 #include <memory>
 #include <vector>
@@ -152,6 +153,8 @@ struct T2WOut {
     bool is_final = false;  // Whether this is the final chunk (turn end)
     bool is_chunk_end = false;  // Whether this is the end of a TTS chunk (flush buffer, but not final)
     int round_idx = -1;  // 🔧 [修复目录同步] 轮次索引，由 TTS 线程设置，T2W 线程使用此值确定输出目录
+    int chunk_seq_min = -1;  // F6 causal: earliest chunk_seq whose tokens are in this task (PURE OBSERVABILITY)
+    int chunk_seq_max = -1;  // F6 causal: latest chunk_seq whose tokens are in this task (PURE OBSERVABILITY)
     uint32_t generation_id = 0;  // F6 W5: generation at TTS submit time for correct W0 attribution
     int request_index = 0;  // F6 W5: request_index at submit time for audio profile file naming
     E2EStageTiming *profile_handle = nullptr;  // F6 C8: request-scoped profile for Flow/Vocoder
@@ -1033,7 +1036,10 @@ struct omni_context {
     // Python: self._token_buffer 是类成员变量，用于累积 audio token
     // 只有满足 chunk_size (25) 才会 yield，不足的保留到下一个 text chunk
     std::vector<int32_t> tts_token_buffer;
-    
+    int tts_first_chunk_seq = -1;  // F6 causal: simplex_round_idx when first token was added to empty buffer
+    int tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: min chunk_seq in current TTS accumulation batch (simplex)
+    int tts_causal_chunk_seq_max = -1;       // F6 causal: max chunk_seq in current TTS accumulation batch (simplex)
+
     // Timestamp for stream_decode start (used for WAV file naming)
     std::chrono::high_resolution_clock::time_point stream_decode_start_time;
 

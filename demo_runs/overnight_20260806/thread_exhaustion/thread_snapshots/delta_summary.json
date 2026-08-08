@@ -1,0 +1,164 @@
+{
+  "stages": [
+    "S0",
+    "S1",
+    "S2",
+    "S3",
+    "S4"
+  ],
+  "deltas": [
+    {
+      "stage_before": "S0",
+      "stage_after": "S1",
+      "tids_before": 641,
+      "tids_after": 960,
+      "new_tids": 319,
+      "exited_tids": 0,
+      "persisted_tids": 641,
+      "net_growth": 319,
+      "new_tid_comm_distribution": {
+        "llama-omni-serv": 319
+      },
+      "new_tid_wchan_distribution": {
+        "futex_wait_queue_me": 319
+      },
+      "new_tid_sample": [
+        "861690",
+        "861691",
+        "861692",
+        "861693",
+        "861694",
+        "861695",
+        "861696",
+        "861697",
+        "861698",
+        "861699",
+        "861700",
+        "861701",
+        "861702",
+        "861703",
+        "861704",
+        "861705",
+        "861706",
+        "861707",
+        "861708",
+        "861709"
+      ]
+    },
+    {
+      "stage_before": "S1",
+      "stage_after": "S2",
+      "tids_before": 960,
+      "tids_after": 1279,
+      "new_tids": 319,
+      "exited_tids": 0,
+      "persisted_tids": 960,
+      "net_growth": 319,
+      "new_tid_comm_distribution": {
+        "llama-omni-serv": 319
+      },
+      "new_tid_wchan_distribution": {
+        "futex_wait_queue_me": 319
+      },
+      "new_tid_sample": [
+        "866911",
+        "866912",
+        "866913",
+        "866914",
+        "866915",
+        "866916",
+        "866917",
+        "866918",
+        "866919",
+        "866920",
+        "866921",
+        "866922",
+        "866923",
+        "866924",
+        "866925",
+        "866926",
+        "866927",
+        "866928",
+        "866929",
+        "866930"
+      ]
+    },
+    {
+      "stage_before": "S2",
+      "stage_after": "S3",
+      "tids_before": 1279,
+      "tids_after": 1598,
+      "new_tids": 319,
+      "exited_tids": 0,
+      "persisted_tids": 1279,
+      "net_growth": 319,
+      "new_tid_comm_distribution": {
+        "llama-omni-serv": 319
+      },
+      "new_tid_wchan_distribution": {
+        "futex_wait_queue_me": 319
+      },
+      "new_tid_sample": [
+        "933616",
+        "933617",
+        "933618",
+        "933619",
+        "933620",
+        "933621",
+        "933622",
+        "933623",
+        "933624",
+        "933625",
+        "933626",
+        "933627",
+        "933628",
+        "933629",
+        "933630",
+        "933631",
+        "933632",
+        "933633",
+        "933634",
+        "933635"
+      ]
+    },
+    {
+      "stage_before": "S3",
+      "stage_after": "S4",
+      "tids_before": 1598,
+      "tids_after": 1917,
+      "new_tids": 319,
+      "exited_tids": 0,
+      "persisted_tids": 1598,
+      "net_growth": 319,
+      "new_tid_comm_distribution": {
+        "llama-omni-serv": 319
+      },
+      "new_tid_wchan_distribution": {
+        "futex_wait_queue_me": 319
+      },
+      "new_tid_sample": [
+        "976408",
+        "976409",
+        "976410",
+        "976411",
+        "976412",
+        "976413",
+        "976414",
+        "976415",
+        "976416",
+        "976417",
+        "976418",
+        "976419",
+        "976420",
+        "976421",
+        "976422",
+        "976423",
+        "976424",
+        "976425",
+        "976426",
+        "976427"
+      ]
+    }
+  ],
+  "pid": 856797
+}

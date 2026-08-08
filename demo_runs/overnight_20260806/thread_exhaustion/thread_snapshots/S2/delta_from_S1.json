@@ -1,0 +1,38 @@
+{
+  "stage_before": "S1",
+  "stage_after": "S2",
+  "tids_before": 960,
+  "tids_after": 1279,
+  "new_tids": 319,
+  "exited_tids": 0,
+  "persisted_tids": 960,
+  "net_growth": 319,
+  "new_tid_comm_distribution": {
+    "llama-omni-serv": 319
+  },
+  "new_tid_wchan_distribution": {
+    "futex_wait_queue_me": 319
+  },
+  "new_tid_sample": [
+    "866911",
+    "866912",
+    "866913",
+    "866914",
+    "866915",
+    "866916",
+    "866917",
+    "866918",
+    "866919",
+    "866920",
+    "866921",
+    "866922",
+    "866923",
+    "866924",
+    "866925",
+    "866926",
+    "866927",
+    "866928",
+    "866929",
+    "866930"
+  ]
+}

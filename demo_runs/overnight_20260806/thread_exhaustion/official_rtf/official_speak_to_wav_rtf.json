@@ -1,0 +1,300 @@
+{
+  "metric": "OFFICIAL_SPEAK_TO_WAV_RTF_F16",
+  "formula": "wall_time_seconds / (pcm_bytes / (24000 * 1 * 2))",
+  "audio_format": {
+    "sample_rate": 24000,
+    "bit_depth": 16,
+    "channels": 1,
+    "encoding": "PCM"
+  },
+  "sample_count": 30,
+  "aggregates": {
+    "p50": {
+      "rtf": 6.65,
+      "wall_time_s": 34.07,
+      "audio_duration_s": 5.12
+    },
+    "p90": {
+      "rtf": 11.41,
+      "wall_time_s": 56.58,
+      "audio_duration_s": 4.96
+    },
+    "p95": {
+      "rtf": 11.6,
+      "wall_time_s": 56.6,
+      "audio_duration_s": 4.88
+    }
+  },
+  "per_sample": [
+    {
+      "file": "ws_adapter_20260806-082315_1467933.jsonl",
+      "session_id": "6955c79e4cb577e7",
+      "audio_bytes": 729600,
+      "audio_duration_s": 15.2,
+      "wall_time_s": 55.29,
+      "rtf": 3.64,
+      "audio_chunks": 8
+    },
+    {
+      "file": "ws_adapter_20260806-084134_1497182.jsonl",
+      "session_id": "bad42336fd05b975",
+      "audio_bytes": 510720,
+      "audio_duration_s": 10.64,
+      "wall_time_s": 46.81,
+      "rtf": 4.4,
+      "audio_chunks": 6
+    },
+    {
+      "file": "ws_adapter_20260806-083215_1467933.jsonl",
+      "session_id": "3935750252d860fb",
+      "audio_bytes": 821760,
+      "audio_duration_s": 17.12,
+      "wall_time_s": 80.64,
+      "rtf": 4.71,
+      "audio_chunks": 9
+    },
+    {
+      "file": "ws_adapter_20260806-083323_1467933.jsonl",
+      "session_id": "7e51d77cc1d7543c",
+      "audio_bytes": 480000,
+      "audio_duration_s": 10.0,
+      "wall_time_s": 47.73,
+      "rtf": 4.77,
+      "audio_chunks": 5
+    },
+    {
+      "file": "ws_adapter_20260806-081558_1458580.jsonl",
+      "session_id": "898a79e31f1ab1bf",
+      "audio_bytes": 307200,
+      "audio_duration_s": 6.4,
+      "wall_time_s": 34.46,
+      "rtf": 5.38,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082044_1467933.jsonl",
+      "session_id": "9e6c7ca0ac144e22",
+      "audio_bytes": 326400,
+      "audio_duration_s": 6.8,
+      "wall_time_s": 37.73,
+      "rtf": 5.55,
+      "audio_chunks": 4
+    },
+    {
+      "file": "ws_adapter_20260806-082543_1467933.jsonl",
+      "session_id": "9c3b5d13a1967c2f",
+      "audio_bytes": 622080,
+      "audio_duration_s": 12.96,
+      "wall_time_s": 72.64,
+      "rtf": 5.61,
+      "audio_chunks": 7
+    },
+    {
+      "file": "ws_adapter_20260806-084027_1497182.jsonl",
+      "session_id": "cacb290068a17a7d",
+      "audio_bytes": 299520,
+      "audio_duration_s": 6.24,
+      "wall_time_s": 35.17,
+      "rtf": 5.64,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-083516_1467933.jsonl",
+      "session_id": "f5fb1c4bd9a8b8a0",
+      "audio_bytes": 318720,
+      "audio_duration_s": 6.64,
+      "wall_time_s": 38.4,
+      "rtf": 5.78,
+      "audio_chunks": 4
+    },
+    {
+      "file": "ws_adapter_20260806-083417_1467933.jsonl",
+      "session_id": "21aef9f0fd8112fb",
+      "audio_bytes": 280320,
+      "audio_duration_s": 5.84,
+      "wall_time_s": 34.28,
+      "rtf": 5.87,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-083838_1497182.jsonl",
+      "session_id": "a0d0e2eb6938b578",
+      "audio_bytes": 268800,
+      "audio_duration_s": 5.6,
+      "wall_time_s": 34.27,
+      "rtf": 6.12,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082637_1467933.jsonl",
+      "session_id": "661055a5c8b87868",
+      "audio_bytes": 268800,
+      "audio_duration_s": 5.6,
+      "wall_time_s": 34.35,
+      "rtf": 6.13,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-083744_1497182.jsonl",
+      "session_id": "adddc0338e526be5",
+      "audio_bytes": 264960,
+      "audio_duration_s": 5.52,
+      "wall_time_s": 35.19,
+      "rtf": 6.37,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-084619_1497182.jsonl",
+      "session_id": "7b1ee49e702c0f1a",
+      "audio_bytes": 249600,
+      "audio_duration_s": 5.2,
+      "wall_time_s": 34.32,
+      "rtf": 6.6,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-081503_1458580.jsonl",
+      "session_id": "98792d203d28a0c6",
+      "audio_bytes": 261120,
+      "audio_duration_s": 5.44,
+      "wall_time_s": 36.01,
+      "rtf": 6.62,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-083932_1497182.jsonl",
+      "session_id": "34730e47828fd1ac",
+      "audio_bytes": 245760,
+      "audio_duration_s": 5.12,
+      "wall_time_s": 34.07,
+      "rtf": 6.65,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082410_1467933.jsonl",
+      "session_id": "b25c52bc6dfb57ff",
+      "audio_bytes": 234240,
+      "audio_duration_s": 4.88,
+      "wall_time_s": 34.38,
+      "rtf": 7.05,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082918_1467933.jsonl",
+      "session_id": "3bf31c31910c49e3",
+      "audio_bytes": 349440,
+      "audio_duration_s": 7.28,
+      "wall_time_s": 60.3,
+      "rtf": 8.28,
+      "audio_chunks": 4
+    },
+    {
+      "file": "ws_adapter_20260806-084408_1497182.jsonl",
+      "session_id": "81c109fddefe4cbf",
+      "audio_bytes": 307200,
+      "audio_duration_s": 6.4,
+      "wall_time_s": 56.59,
+      "rtf": 8.84,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082758_1467933.jsonl",
+      "session_id": "fb2c70531056ace9",
+      "audio_bytes": 318720,
+      "audio_duration_s": 6.64,
+      "wall_time_s": 60.43,
+      "rtf": 9.1,
+      "audio_chunks": 4
+    },
+    {
+      "file": "ws_adapter_20260806-083648_1497182.jsonl",
+      "session_id": "2c6b1b64f3be74a9",
+      "audio_bytes": 280320,
+      "audio_duration_s": 5.84,
+      "wall_time_s": 55.87,
+      "rtf": 9.57,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-081720_1461892.jsonl",
+      "session_id": "8f5fde9402f9d79b",
+      "audio_bytes": 280320,
+      "audio_duration_s": 5.84,
+      "wall_time_s": 56.13,
+      "rtf": 9.61,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-084852_1497182.jsonl",
+      "session_id": "cb53847d3350ad0d",
+      "audio_bytes": 261120,
+      "audio_duration_s": 5.44,
+      "wall_time_s": 56.2,
+      "rtf": 10.33,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-085008_1497182.jsonl",
+      "session_id": "a6a1571fd4b596ab",
+      "audio_bytes": 257280,
+      "audio_duration_s": 5.36,
+      "wall_time_s": 56.13,
+      "rtf": 10.47,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-081836_1461892.jsonl",
+      "session_id": "5b0a201a83967ef9",
+      "audio_bytes": 257280,
+      "audio_duration_s": 5.36,
+      "wall_time_s": 56.15,
+      "rtf": 10.48,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-082200_1467933.jsonl",
+      "session_id": "6769b3b6c37fe0de",
+      "audio_bytes": 253440,
+      "audio_duration_s": 5.28,
+      "wall_time_s": 55.99,
+      "rtf": 10.6,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-083034_1467933.jsonl",
+      "session_id": "cf00e02ab292733b",
+      "audio_bytes": 249600,
+      "audio_duration_s": 5.2,
+      "wall_time_s": 56.14,
+      "rtf": 10.8,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-084251_1497182.jsonl",
+      "session_id": "7b974a92af145209",
+      "audio_bytes": 238080,
+      "audio_duration_s": 4.96,
+      "wall_time_s": 56.58,
+      "rtf": 11.41,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-084524_1497182.jsonl",
+      "session_id": "f6dd4d7695c427ca",
+      "audio_bytes": 234240,
+      "audio_duration_s": 4.88,
+      "wall_time_s": 56.6,
+      "rtf": 11.6,
+      "audio_chunks": 3
+    },
+    {
+      "file": "ws_adapter_20260806-084735_1497182.jsonl",
+      "session_id": "fb9d743478963593",
+      "audio_bytes": 230400,
+      "audio_duration_s": 4.8,
+      "wall_time_s": 56.38,
+      "rtf": 11.75,
+      "audio_chunks": 3
+    }
+  ]
+}

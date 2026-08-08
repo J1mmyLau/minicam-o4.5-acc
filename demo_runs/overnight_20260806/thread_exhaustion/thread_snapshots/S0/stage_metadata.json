@@ -1,0 +1,19 @@
+{
+  "stage": "S0",
+  "timestamp": "2026-08-06T03:43:10Z",
+  "unix_epoch": 1785987790.3679996,
+  "pid": 856797,
+  "thread_count": 641,
+  "tid_count": 641,
+  "vmrss_kb": 25160,
+  "fd_count": 4,
+  "cgroup_pids_current": "1560",
+  "comm_distribution": {
+    "llama-omni-serv": 641
+  },
+  "wchan_distribution": {
+    "inet_csk_wait_for_connect": 1,
+    "futex_wait_queue_me": 640
+  },
+  "description": "Fresh server startup, no sessions"
+}

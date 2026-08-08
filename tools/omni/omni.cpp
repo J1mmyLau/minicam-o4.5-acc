@@ -1466,6 +1466,7 @@ struct LLMOut {
     // 此状态随数据一起传递，避免全局状态 current_turn_ended 的时序问题
     // 只有当 LLM 检测到 TURN_EOS/TTS_EOS/EOS 时才设置为 true
     bool is_end_of_turn = false;
+    int chunk_seq = -1;  // F6 causal: simplex_round_idx at LLMOut creation time (PURE OBSERVABILITY)
 };
 
  struct TTSThreadInfo{
@@ -7411,6 +7412,8 @@ static bool generate_audio_tokens_local_simplex(
                                          ctx_omni->tts_token_buffer.begin() + CHUNK_SIZE);
             t2w_out->is_final = false;
             t2w_out->round_idx = ctx_omni->simplex_round_idx;
+            t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+            t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
             t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5: correct attribution
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
@@ -7518,13 +7521,15 @@ static bool generate_audio_tokens_local_simplex(
                 // yield audio chunks
                 while ((int)ctx_omni->tts_token_buffer.size() >= CHUNK_SIZE && ctx_omni->t2w_thread_info) {
                     T2WOut *t2w_out = new T2WOut();
-                    t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(), 
+                    t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(),
                                                  ctx_omni->tts_token_buffer.begin() + CHUNK_SIZE);
                     t2w_out->is_final = false;
                     t2w_out->round_idx = ctx_omni->simplex_round_idx;
+                    t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                    t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
-       
+
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -7555,10 +7560,12 @@ static bool generate_audio_tokens_local_simplex(
     // Python: if finished.all() and text_finished: yield all remaining; buffer = []
     if (is_final_text_chunk && !ctx_omni->tts_token_buffer.empty() && ctx_omni->t2w_thread_info) {
         T2WOut *t2w_out = new T2WOut();
-        t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(), 
+        t2w_out->audio_tokens.assign(ctx_omni->tts_token_buffer.begin(),
                                      ctx_omni->tts_token_buffer.end());
         t2w_out->is_final = false;  // 注意：这里不设 is_final=true，is_final 由 tts_thread_func 在 llm_finish 时发送
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+        t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -7583,6 +7590,8 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->is_final = false;  // Not final (turn not ended)
         t2w_out->is_chunk_end = true;  // 🔧 标记 chunk 结束，T2W 需要 flush buffer
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+        t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -8251,6 +8260,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
     bool llm_finish = false;
     int chunk_idx = 0;
     std::string incomplete_bytes;
+    int llm_chunk_seq_min = INT_MAX;  // F6 causal: chunk_seq range from LLMOut accumulation
+    int llm_chunk_seq_max = -1;
     
     // 双工模式：固定输出目录（不使用 round_XXX 子目录）
     // 🔧 [多实例支持] 使用可配置的 base_output_dir
@@ -8363,6 +8374,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
             current_chunk_hidden_states.clear();
             current_chunk_n_embd = 0;
             accumulated_is_end_of_turn = false;
+            llm_chunk_seq_min = INT_MAX;  // F6 causal: reset chunk_seq range each iteration
+            llm_chunk_seq_max = -1;
             
             // 累积所有队列中的数据
             while (!queue.empty()) {
@@ -8370,19 +8383,25 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                 llm_finish |= llm_out->llm_finish;
                 bool item_is_eot = llm_out->is_end_of_turn;
                 accumulated_is_end_of_turn |= item_is_eot;
-                
+
+                // F6 causal: track chunk_seq range across accumulated LLMOut items
+                if (llm_out->chunk_seq >= 0) {
+                    llm_chunk_seq_min = std::min(llm_chunk_seq_min, llm_out->chunk_seq);
+                    llm_chunk_seq_max = std::max(llm_chunk_seq_max, llm_out->chunk_seq);
+                }
+
                 if (!ctx_omni->speek_done || ctx_omni->duplex_mode) {
                     llm_text += llm_out->text;
                     debug_dir = llm_out->debug_dir;
                 }
-                
+
                 // 累积数据
                 if (!llm_out->token_ids.empty() && !llm_out->hidden_states.empty()) {
-                    current_chunk_token_ids.insert(current_chunk_token_ids.end(), 
-                                                   llm_out->token_ids.begin(), 
+                    current_chunk_token_ids.insert(current_chunk_token_ids.end(),
+                                                   llm_out->token_ids.begin(),
                                                    llm_out->token_ids.end());
-                    current_chunk_hidden_states.insert(current_chunk_hidden_states.end(), 
-                                                       llm_out->hidden_states.begin(), 
+                    current_chunk_hidden_states.insert(current_chunk_hidden_states.end(),
+                                                       llm_out->hidden_states.begin(),
                                                        llm_out->hidden_states.end());
                     current_chunk_n_embd = llm_out->n_embd;
                 }
@@ -8438,6 +8457,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = false;
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                        t2w_out->chunk_seq_min = (llm_chunk_seq_min < INT_MAX) ? llm_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                        t2w_out->chunk_seq_max = (llm_chunk_seq_max >= 0)     ? llm_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -8774,6 +8795,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = false;
                         t2w_out->is_chunk_end = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                        t2w_out->chunk_seq_min = (llm_chunk_seq_min < INT_MAX) ? llm_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                        t2w_out->chunk_seq_max = (llm_chunk_seq_max >= 0)     ? llm_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -8793,6 +8816,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->audio_tokens.clear();
                         t2w_out->is_final = true;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                        t2w_out->chunk_seq_min = (llm_chunk_seq_min < INT_MAX) ? llm_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                        t2w_out->chunk_seq_max = (llm_chunk_seq_max >= 0)     ? llm_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -8845,6 +8870,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                         t2w_out->is_final = true;
                         t2w_out->is_chunk_end = false;
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                        t2w_out->chunk_seq_min = (llm_chunk_seq_min < INT_MAX) ? llm_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                        t2w_out->chunk_seq_max = (llm_chunk_seq_max >= 0)     ? llm_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -8901,6 +8928,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
     bool llm_finish = false;
     int chunk_idx = 0;
     std::string incomplete_bytes;
+    int llm_chunk_seq_min = INT_MAX;  // F6 causal: chunk_seq range from LLMOut accumulation
+    int llm_chunk_seq_max = -1;
     
     // 🔧 [多实例支持] 使用可配置的 base_output_dir
     const std::string& base_output_dir = ctx_omni->base_output_dir;
@@ -9092,6 +9121,13 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
             if (!queue.empty()) {
                 LLMOut *llm_out = queue.front();
                 llm_finish |= llm_out->llm_finish;
+                // F6 causal: accumulate chunk_seq range across LLMOut items in this batch
+                if (llm_out->chunk_seq >= 0) {
+                    ctx_omni->tts_causal_chunk_seq_min = std::min(ctx_omni->tts_causal_chunk_seq_min, llm_out->chunk_seq);
+                    ctx_omni->tts_causal_chunk_seq_max = std::max(ctx_omni->tts_causal_chunk_seq_max, llm_out->chunk_seq);
+                    llm_chunk_seq_min = std::min(llm_chunk_seq_min, llm_out->chunk_seq);
+                    llm_chunk_seq_max = std::max(llm_chunk_seq_max, llm_out->chunk_seq);
+                }
                 // 只取一个 chunk 的数据
                 if (!ctx_omni->speek_done || ctx_omni->duplex_mode) {
                     llm_text = llm_out->text;  // 注意：= 而不是 +=
@@ -9216,7 +9252,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                                              ctx_omni->tts_token_buffer.end());
                 t2w_out->is_final = false;  // 先发送剩余 tokens
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
-        t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+                t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
@@ -9225,11 +9262,13 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
-                print_with_timestamp("TTS: flushed %zu remaining tokens from tts_token_buffer\n", 
+                print_with_timestamp("TTS: flushed %zu remaining tokens from tts_token_buffer\n",
                                     ctx_omni->tts_token_buffer.size());
                 ctx_omni->tts_token_buffer.clear();
+                ctx_omni->tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: reset for next batch
+                ctx_omni->tts_causal_chunk_seq_max = -1;
             }
-            
+
             // 🔧 [修复] 发送 is_final=true 到 T2W，让 T2W 写入 generation_done.flag
             if (ctx_omni->t2w_thread_info) {
                 // 🔧 保存当前 round_idx 用于 T2W（递增前的值）
@@ -9245,7 +9284,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_final->audio_tokens.clear();
                 t2w_final->is_final = true;
                 t2w_final->round_idx = current_round_idx;  // 🔧 使用递增前的值
-                t2w_final->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
+                t2w_final->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : current_round_idx;  // F6 causal
+                t2w_final->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : current_round_idx;
        
         t2w_final->request_index = ctx_omni->e2e_stage.request_index;
                 {
@@ -9569,6 +9609,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     // Clear partial output from failed generation
                     audio_tokens.clear();
                     ctx_omni->tts_token_buffer.clear();
+                    ctx_omni->tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: reset on retry
+                    ctx_omni->tts_causal_chunk_seq_max = -1;
                     ctx_omni->e2e_stage.cannerror = 0;  // reset flag
 
                     // Re-seed RNG for different sampling path
@@ -9599,6 +9641,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     tts_gen_success = false;
                     audio_tokens.clear();
                     ctx_omni->tts_token_buffer.clear();
+                    ctx_omni->tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: reset on block
+                    ctx_omni->tts_causal_chunk_seq_max = -1;
                     ctx_omni->e2e_stage.cannerror = -6;  // -6 = F005 blocked output
                 } else if (degenerated && f005_retry_enabled) {
                     g_f005_stat_retry_exhausted++;
@@ -9664,6 +9708,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         );
                         t2w_out->is_final = false;  // 还不是最后一个，后面还有 turn_end 的 is_final
                         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                        t2w_out->chunk_seq_min = (llm_chunk_seq_min < INT_MAX) ? llm_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                        t2w_out->chunk_seq_max = (llm_chunk_seq_max >= 0)     ? llm_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -9676,8 +9722,10 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
                     ctx_omni->tts_token_buffer.clear();
+                    ctx_omni->tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: reset after llm_finish flush
+                    ctx_omni->tts_causal_chunk_seq_max = -1;
                 }
-                
+
                 tts_finish = true;
                 tts_mark_producer_done(ctx_omni);
                 ctx_omni->warmup_done = true;  // 第一轮对话结束，后续 prefill 需要等待
@@ -9709,9 +9757,11 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                     t2w_out->audio_tokens.clear();  // 空tokens，只是通知final
                     t2w_out->is_final = true;
                     t2w_out->round_idx = current_round_idx;  // 🔧 使用递增前的值
+                    t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : current_round_idx;  // F6 causal
+                    t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : current_round_idx;
                     t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
-       
+
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
@@ -10318,6 +10368,8 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 t2w_out->audio_tokens.clear();  // 空tokens，只是通知final
                 t2w_out->is_final = true;
                 t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+                t2w_out->chunk_seq_min = (ctx_omni->tts_causal_chunk_seq_min < INT_MAX) ? ctx_omni->tts_causal_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+                t2w_out->chunk_seq_max = (ctx_omni->tts_causal_chunk_seq_max >= 0)     ? ctx_omni->tts_causal_chunk_seq_max : ctx_omni->simplex_round_idx;
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
        
@@ -11258,7 +11310,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         bool is_final = false;
         bool is_chunk_end = false;  // 标记 TTS chunk 结束
         int received_round_idx = -1;  // 🔧 保存传入的 round_idx
-        
+        int received_chunk_seq_min = INT_MAX;  // F6 causal: min chunk_seq across dequeued items
+        int received_chunk_seq_max = -1;       // F6 causal: max chunk_seq across dequeued items
+
         std::chrono::steady_clock::time_point oldest_enqueue_time = dequeue_time;
         bool have_enqueue_time = false;
         int  dequeued_count  = 0;  // F6 R8: diagnostic counter
@@ -11313,6 +11367,11 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             if (t2w_out->round_idx >= 0) {
                 received_round_idx = t2w_out->round_idx;
             }
+            // F6 causal: track chunk_seq range across dequeued T2WOut items
+            if (t2w_out->chunk_seq_min >= 0) {
+                received_chunk_seq_min = std::min(received_chunk_seq_min, t2w_out->chunk_seq_min);
+                received_chunk_seq_max = std::max(received_chunk_seq_max, t2w_out->chunk_seq_max);
+            }
             delete t2w_out;
         }
 
@@ -11348,10 +11407,14 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // F6 R12: Update per-generation dequeue accounting.
         ctx_omni->t2w_thread_info->generation_dequeue_count.fetch_add(dequeued_count, std::memory_order_relaxed);
 
-        // F6 R8: Diagnostic logging — show what was dequeued each cycle
+        // F6 R8: Diagnostic logging — show what was dequeued each cycle.
+        // Use max_dequeued_gen (max generation_id across ALL dequeued items)
+        // rather than final_task_gen (only set for is_final items).
+        // For non-final batches (chunk_end), this shows which chunk the batch belongs to.
+        uint32_t diag_gen = max_dequeued_gen > 0 ? max_dequeued_gen : final_task_gen;
         print_with_timestamp("T2W(C++) dequeued: %d items, %zu tokens, is_final=%d, chunk_end=%d, gen=%u, req_gen=%u\n",
                              dequeued_count, new_tokens.size(), is_final ? 1 : 0, is_chunk_end ? 1 : 0,
-                             final_task_gen,
+                             diag_gen,
                              ctx_omni->request_generation.load(std::memory_order_relaxed));
 
         lock.unlock();
@@ -11415,7 +11478,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // 原因：TTS 线程在发送 is_final 之前会递增 simplex_round_idx，导致竞态条件
         // 现在 T2WOut.round_idx 保存的是递增前的值，确保 WAV 写入正确的目录
         int effective_round_idx = (received_round_idx >= 0) ? received_round_idx : ctx_omni->simplex_round_idx;
-        
+        int effective_chunk_seq_min = (received_chunk_seq_min < INT_MAX) ? received_chunk_seq_min : ctx_omni->simplex_round_idx;  // F6 causal
+        int effective_chunk_seq_max = (received_chunk_seq_max >= 0) ? received_chunk_seq_max : ctx_omni->simplex_round_idx;  // F6 causal
+
         if (!ctx_omni->duplex_mode && effective_round_idx != last_round_idx) {
             print_with_timestamp("T2W线程(C++): 轮次切换 (%d -> %d)，更新输出目录\n",
                                 last_round_idx, effective_round_idx);
@@ -11648,9 +11713,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                             uint32_t wav_gen = ctx_omni->e2e_stage.t2w_thread_generation;
                             int wav_cnt = ctx_omni->t2w_thread_info->wav_count.load(std::memory_order_relaxed);
                             fprintf(stderr,
-                                "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d\n",
+                                "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d req_min=%d req_max=%d\n",
                                 (long long)wav_complete_ns, wav_gen, wav_cnt,
-                                ctx_omni->wav_turn_base + wav_idx, audio_duration, effective_round_idx);
+                                ctx_omni->wav_turn_base + wav_idx, audio_duration,
+                                effective_round_idx, effective_chunk_seq_min, effective_chunk_seq_max);
                         }
                         wav_idx++;
                         // P7.3: track WAV count for drain verification
@@ -12623,6 +12689,7 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
             llm_out->hidden_states   = chunk_hidden_states;
             llm_out->n_embd          = llm_n_embd;
             llm_out->is_end_of_turn  = local_is_end_of_turn;
+            llm_out->chunk_seq       = ctx_omni->simplex_round_idx;  // F6 causal: capture chunk_seq at LLMOut creation
 
             {
                 std::unique_lock<std::mutex> lock(ctx_omni->tts_thread_info->mtx);
@@ -13347,6 +13414,65 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
 }
 
 bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int round_idx) {
+    // F6 causal: sync simplex_round_idx from caller BEFORE any duplex/simplex routing.
+    // The ws_handler spawns decode in a background thread with chunk_seq=round_idx.
+    // Without this sync, the background thread reads a simplex_round_idx that has
+    // already been advanced by the ws_handler for the next chunk (race condition).
+    if (round_idx >= 0) {
+        ctx_omni->simplex_round_idx = round_idx;
+    }
+
+    // F6 A5: Generation-based request lifecycle.
+    // NOTE: Must run BEFORE the duplex routing below so that BOTH simplex and
+    // duplex paths increment request_generation and pass the context_state guard.
+    // Previously the lifecycle was after the duplex routing, so duplex_decode
+    // never incremented request_generation → all T2W tasks had generation_id=0
+    // → per-chunk drain predicates could never distinguish generations.
+    {
+        int state = ctx_omni->context_state.load();
+        if (state != CTX_STATE_REUSABLE && state != CTX_STATE_DRAINING) {
+            print_with_timestamp("❌ F6 lifecycle: context_state=%d (not REUSABLE/DRAINING), "
+                                "rejecting request\n", state);
+            return false;
+        }
+        uint32_t prev_gen = ctx_omni->request_generation.load();
+        uint32_t drain_gen = ctx_omni->drain_complete_generation.load();
+        if (drain_gen < prev_gen) {
+            // Previous generation's drain hasn't completed yet
+            size_t queued = ctx_omni->t2w_thread_info
+                ? ctx_omni->t2w_thread_info->queued_t2w_task_count.load() : 0;
+            size_t active = ctx_omni->t2w_thread_info
+                ? ctx_omni->t2w_thread_info->active_t2w_task_count.load() : 0;
+            print_with_timestamp("❌ F6 lifecycle: drain_gen=%u < request_gen=%u, "
+                                "queued=%zu active=%zu — rejecting request\n",
+                                drain_gen, prev_gen, queued, active);
+            return false;
+        }
+        uint32_t my_gen = prev_gen + 1;
+        ctx_omni->request_generation.store(my_gen);
+        ctx_omni->context_state.store(CTX_STATE_ACTIVE);
+        print_with_timestamp("📍 F6 lifecycle: generation %u started (prev=%u, drain_gen=%u, "
+                             "need_speek=%d, speek_done=%d, prefill_done=%d)\n",
+                             my_gen, prev_gen, drain_gen,
+                             ctx_omni->need_speek.load(), ctx_omni->speek_done.load(),
+                             prefill_done.load());
+    }
+
+    // F6 A5: Record start time and reset e2e_stage for per-generation timing.
+    // MUST run BEFORE the duplex routing below so that BOTH simplex and duplex
+    // paths get a valid active_generation_id for capture_generation().
+    // Previously e2e_stage.reset() was after the duplex routing, so the
+    // full-duplex path always had active_generation_id=0 → gen=0 in all
+    // [bench_wav] and T2W logs.
+    ctx_omni->stream_decode_start_time = std::chrono::high_resolution_clock::now();
+    ctx_omni->e2e_stage.reset();
+    ctx_omni->e2e_stage.record_unsafe(STAGE_request_received);
+    // Reset global flow/vocoder atomics for new request
+    g_e2e_flow_start_ns.store(0, std::memory_order_relaxed);
+    g_e2e_flow_end_ns.store(0, std::memory_order_relaxed);
+    g_e2e_vocoder_start_ns.store(0, std::memory_order_relaxed);
+    g_e2e_vocoder_end_ns.store(0, std::memory_order_relaxed);
+
     // 🔧 [Duplex Pipeline Stage 1] 路由：
     //   duplex_mode && async && system prompt 已初始化时，走新 duplex 路径。
     //   duplex_decode 内部会把请求 post 到 duplex_llm_thread 并同步等待完成，
@@ -13368,7 +13494,11 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     // 
     // 注意：新 session 时的 KV cache 清理在 update_session_config 中处理
     // 这里只处理同一 session 内的轮次同步
-    if (round_idx >= 0 && !ctx_omni->duplex_mode) {
+    // F6 causal: sync simplex_round_idx from caller-specified round_idx in BOTH
+    // simplex and duplex modes.  In duplex mode the ws_handler spawns a background
+    // thread that calls stream_decode; without the sync the thread reads a stale
+    // simplex_round_idx that the ws_handler has already advanced for the next chunk.
+    if (round_idx >= 0) {
         if (ctx_omni->simplex_round_idx != round_idx) {
             print_with_timestamp("📍 [轮次同步] 调用方指定 round_idx=%d，当前 simplex_round_idx=%d，强制同步\n",
                                 round_idx, ctx_omni->simplex_round_idx);
@@ -13386,17 +13516,6 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     //   3. 第二轮 stream_decode 清空了 round_XXX/llm_debug/chunk_*
     //   4. 导致 TTS 已经写入的 chunk_0-9 被删除，只剩下后续的 chunk_10 等
     // 现在每个 round 有独立的目录（round_000, round_001...），不需要清空旧数据
-    
-    // Record start time (t=0) for WAV file naming
-    ctx_omni->stream_decode_start_time = std::chrono::high_resolution_clock::now();
-    // F6 S9: reset per-request stage timestamps so once-guards fire correctly
-    ctx_omni->e2e_stage.reset();
-    ctx_omni->e2e_stage.record_unsafe(STAGE_request_received);
-    // Reset global flow/vocoder atomics for new request
-    g_e2e_flow_start_ns.store(0, std::memory_order_relaxed);
-    g_e2e_flow_end_ns.store(0, std::memory_order_relaxed);
-    g_e2e_vocoder_start_ns.store(0, std::memory_order_relaxed);
-    g_e2e_vocoder_end_ns.store(0, std::memory_order_relaxed);
 
     // F6 S13: Per-request runtime evidence — reset counters
     ctx_omni->generated_token_count = 0;
@@ -13456,41 +13575,6 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
         ctx_omni->text_queue.clear();
         ctx_omni->text_done_flag = false;
         ctx_omni->text_streaming = true;
-    }
-
-    // F6 A5: Generation-based request lifecycle.
-    // Instead of unconditionally resetting cross-request state (which can
-    // mask a stale context), verify the context is REUSABLE and advance the
-    // generation counter.  CV predicates use ">= my_gen" so stale state
-    // from a previous request cannot falsely satisfy them.
-    {
-        int state = ctx_omni->context_state.load();
-        if (state != CTX_STATE_REUSABLE && state != CTX_STATE_DRAINING) {
-            print_with_timestamp("❌ F6 lifecycle: context_state=%d (not REUSABLE/DRAINING), "
-                                "rejecting request\n", state);
-            return false;
-        }
-        uint32_t prev_gen = ctx_omni->request_generation.load();
-        uint32_t drain_gen = ctx_omni->drain_complete_generation.load();
-        if (drain_gen < prev_gen) {
-            // Previous generation's drain hasn't completed yet
-            size_t queued = ctx_omni->t2w_thread_info
-                ? ctx_omni->t2w_thread_info->queued_t2w_task_count.load() : 0;
-            size_t active = ctx_omni->t2w_thread_info
-                ? ctx_omni->t2w_thread_info->active_t2w_task_count.load() : 0;
-            print_with_timestamp("❌ F6 lifecycle: drain_gen=%u < request_gen=%u, "
-                                "queued=%zu active=%zu — rejecting request\n",
-                                drain_gen, prev_gen, queued, active);
-            return false;
-        }
-        uint32_t my_gen = prev_gen + 1;
-        ctx_omni->request_generation.store(my_gen);
-        ctx_omni->context_state.store(CTX_STATE_ACTIVE);
-        print_with_timestamp("📍 F6 lifecycle: generation %u started (prev=%u, drain_gen=%u, "
-                             "need_speek=%d, speek_done=%d, prefill_done=%d)\n",
-                             my_gen, prev_gen, drain_gen,
-                             ctx_omni->need_speek.load(), ctx_omni->speek_done.load(),
-                             prefill_done.load());
     }
 
     if (ctx_omni->async){
@@ -14027,6 +14111,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
                 // 🔧 [修复双工缺字问题] 传递 is_end_of_turn 状态
                 // 此状态随数据一起传递，确保 TTS 处理的是与当前 chunk 对应的状态
                 llm_out->is_end_of_turn = local_is_end_of_turn;
+                llm_out->chunk_seq = ctx_omni->simplex_round_idx;  // F6 causal
                 
                 // 🔧 [诊断日志] 打印 LLM 推送给 TTS 的数据
                 {
@@ -14129,6 +14214,7 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             llm_out->hidden_states = {};
             llm_out->n_embd = 0;
             llm_out->is_end_of_turn = true;
+            llm_out->chunk_seq = ctx_omni->simplex_round_idx;  // F6 causal
             std::unique_lock<std::mutex> lock(ctx_omni->tts_thread_info->mtx);
             ctx_omni->tts_thread_info->queue.push(llm_out);
             ctx_omni->tts_thread_info->cv.notify_all();

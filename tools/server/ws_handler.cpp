@@ -1292,8 +1292,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             }
 
             const auto t_generate_start = std::chrono::steady_clock::now();
-            std::thread decode_thread([octx, debug_dir]() {
-                stream_decode(octx, debug_dir, -1);
+            std::thread decode_thread([octx, debug_dir, chunk_seq = input_index]() {
+                stream_decode(octx, debug_dir, chunk_seq);
             });
 
             // Collect full text for response.done
@@ -1376,8 +1376,12 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 decode_thread.join();
             }
 
-            // F6 Session Lifecycle: reset context_state for text-only
-            // full-duplex decodes so the next turn can proceed.
+            // F6 Session Lifecycle: drain TTS audio BEFORE resetting context_state.
+            // The turn-based path (line 1180) already does this; the full-duplex
+            // path was missing it, causing T2W tasks to accumulate across chunks
+            // and per-chunk generation tracking to fail (gen stayed 0).
+            // omni_duplex_drain_tts_audio is a no-op when !use_tts.
+            omni_duplex_drain_tts_audio(octx, /*max_wait_ms*/120000, /*idle_ms*/3000);
             ws_finalize_context_reusable(octx);
 
             double generate_ms = elapsed_ms(t_generate_start);
@@ -1445,12 +1449,12 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 uint32_t current_gen = octx->request_generation.load(std::memory_order_relaxed);
 
                 fprintf(stderr,
-                    "[bench] session=%.8s frame=%d gen=%u state=%s "
+                    "[bench] session=%.8s frame=%d chunk_seq=%d gen=%u state=%s "
                     "prefill_start=%lld prefill_end=%lld "
                     "llm_start=%lld llm_end=%lld "
                     "text_len=%zu text_done_ts=%lld emitted_audio=%d "
                     "t2w_final_processed_gen=%u t2w_active_gen=%u t2w_queued=%zu t2w_active=%zu t2w_wav_count=%d\n",
-                    session_id.c_str(), input_index, current_gen, bench_state,
+                    session_id.c_str(), input_index, octx->simplex_round_idx, current_gen, bench_state,
                     (long long)pf_start_ns, (long long)pf_end_ns,
                     (long long)llm_start_ns, (long long)llm_end_ns,
                     full_text.size(), (long long)t_now_ns, emitted_audio ? 1 : 0,

@@ -1,0 +1,33 @@
+{
+  "server_pid": 1018787,
+  "threads_start": 644,
+  "threads_end": 671,
+  "total_growth": 27,
+  "avg_delta_per_session": 1.12,
+  "drain_timeout_start": 1,
+  "drain_timeout_end": 2,
+  "drain_timeout_new": 1,
+  "total_sessions": 25,
+  "errors": 2,
+  "error_details": [
+    {
+      "label": "L03",
+      "error": "ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK)"
+    },
+    {
+      "label": "L04",
+      "error": "ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK)"
+    }
+  ],
+  "total_audio_chunks": 623,
+  "total_wall_seconds": 3471.7000000000003,
+  "total_elapsed_seconds": 3672.009937763214,
+  "pids_current": "2237",
+  "pids_max": "10000",
+  "growth_pct": 4.192546583850932,
+  "gates": {
+    "THREAD_COUNT_GROWTH_AFTER_WARMUP": "PASS",
+    "DRAIN_TIMEOUT_COUNT": "FAIL",
+    "CGROUP_PIDS_HEADROOM": "PASS"
+  }
+}

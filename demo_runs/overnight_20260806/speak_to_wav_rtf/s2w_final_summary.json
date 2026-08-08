@@ -1,0 +1,37 @@
+{
+  "official_baseline": {
+    "speak_to_wav_rtf": 1.087,
+    "all_chunk_avg_rtf": 0.618,
+    "avg_latency_per_chunk_ms": 1087.3,
+    "precision": "F16",
+    "concurrency": 1
+  },
+  "measurements": [
+    {
+      "label": "S2W-1",
+      "session_id": "5a5c64e16a15abab7a340754562d3394",
+      "text_tokens": 3,
+      "audio_chunks": 7,
+      "wall_clock_s": 107.613,
+      "wall_clock_rtf": 7.6,
+      "generate_ms": 95137.16875,
+      "cost_tts_ms": 3487.1195699999953
+    },
+    {
+      "label": "S2W-2",
+      "session_id": "abe6ad9fb4c1be339f9b38551203b444",
+      "text_tokens": 20,
+      "audio_chunks": 60,
+      "wall_clock_s": 776.837,
+      "wall_clock_rtf": 6.45,
+      "generate_ms": 763712.12858,
+      "cost_tts_ms": 4141.409199999995
+    }
+  ],
+  "harness_status": {
+    "benchmark_client_py": "FOUND",
+    "websocket_adapter": "NOT_IMPLEMENTED",
+    "run_status": "CANNOT_RUN",
+    "reason": "No HTTP /v1/stream endpoint on frozen WebSocket-only binary"
+  }
+}
