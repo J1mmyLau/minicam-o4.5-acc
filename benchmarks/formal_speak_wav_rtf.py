@@ -130,6 +130,7 @@ def start_server(env_overrides=None):
     env["OMNI_T2W_DEVICE"] = "cann-flow-only"
     env["OMNI_T2W_DRAIN_TIMEOUT_MS"] = "120000"  # F6 causal: extended for complete WAV drain
     env["OMNI_T2W_PROFILE"] = "2"  # per-call T2W timing
+    env["OMNI_PER_CHUNK_DRAIN"] = "0"  # Default OFF: continuous pipeline for official RTF
     env["ASCEND_RT_VISIBLE_DEVICES"] = "0"
     if env_overrides:
         env.update(env_overrides)
