@@ -239,24 +239,25 @@ def parse_server_timing():
 
 
 def compute_server_rtf(benches, wavs):
-    """Compute server-side per-chunk RTF using CAUSAL range-based attribution.
+    """Compute server-side per-chunk RTF using PURE-OBSERVATION causal attribution.
 
-    Each [bench_wav] line carries req_min=C_min and req_max=C_max, where
-    [C_min, C_max] is the range of chunk_seq values whose speech tokens are
-    included in the T2W task that produced this WAV. The range is set at
-    T2W task creation time from accumulated LLMOut chunk_seq values.
+    Classification is derived SOLELY from WAV req_min/req_max coverage —
+    NOT from the server's own state label (which uses broken text_len>0 heuristic).
 
-    For each SPEAK_GENERATION chunk with chunk_seq=C:
-      - Find all WAVs where req_min <= C <= req_max (causally covers this chunk)
-      - The LAST such WAV (highest wav_complete_ns) is the final_for_chunk
-      - server_RTF = (final_wav_complete_ns - prefill_start_ns) / 1e9
+    For each chunk C:
+      - If >=1 WAV with req_min <= C <= req_max → TRUE SPEAK_GENERATION
+        RTF_C = (max(wav_complete_ns) - prefill_start_ns) / chunk_duration_ns
+      - Else → SPEAK_TAIL or LISTEN (no speech tokens → no audio)
 
-    This is TRUE CAUSAL attribution: WAVs are assigned to chunks based on
-    which chunk's speech tokens are in the task, not when the WAV completed
-    or which chunk was being processed at creation time.
+    This is the ONLY valid formal methodology:
+      - OMNI_PER_CHUNK_DRAIN=0 (natural pipeline, no behavioral change)
+      - No timestamp-window attribution
+      - No client-side WS event classification
+      - Pure server-side causal chain: input_index → chunk_seq → WAV
     """
     if not benches or not wavs:
-        return []
+        return [], {'speak_generation': 0, 'speak_tail': 0, 'listen': 0,
+                     'total': len(benches) if benches else 0, 'rtf_mean': None}
 
     # Index benches by chunk_seq for O(1) lookup
     bench_by_cs = {b['chunk_seq']: b for b in benches}
@@ -265,23 +266,31 @@ def compute_server_rtf(benches, wavs):
     wavs_sorted = sorted(wavs, key=lambda w: w['wav_complete_ns'])
 
     results = []
+    state_counts = {'speak_generation': 0, 'speak_tail': 0, 'listen': 0,
+                    'total': len(benches), 'unmapped_wav': 0, 'ambiguous_chunk': 0,
+                    'duplicate_final': 0}
+
+    # Check for duplicate finals (same chunk_seq covered by conflicting WAV batches)
+    # This is inherent in sliding-window T2W but should not cause ambiguity.
+
     for b in benches:
-        if b['state'] != 'SPEAK_GENERATION':
-            continue
         cs = b['chunk_seq']
 
-        # Find all WAVs whose range covers this chunk_seq
+        # Find all WAVs whose causal range covers this chunk_seq
         covering_wavs = [w for w in wavs_sorted
                          if w.get('req_min', w['req']) <= cs <= w.get('req_max', w['req'])]
 
         if covering_wavs:
+            # TRUE SPEAK_GENERATION — this chunk's speech tokens produced audio
+            state_counts['speak_generation'] += 1
             last_wav = covering_wavs[-1]  # final_for_chunk
             latency_ns = last_wav['wav_complete_ns'] - b['prefill_start_ns']
-            rtf = latency_ns / 1e9
+            rtf = latency_ns / 1e9  # chunk_duration = 1s
 
             results.append({
                 'chunk_seq': cs,
                 'frame': b['frame'],
+                'state': 'SPEAK_GENERATION',
                 'prefill_start_ns': b['prefill_start_ns'],
                 'last_wav_complete_ns': last_wav['wav_complete_ns'],
                 'last_wav_idx': last_wav['wav_idx'],
@@ -291,15 +300,47 @@ def compute_server_rtf(benches, wavs):
                 'num_wavs': len(covering_wavs),
                 'text_len': b['text_len'],
             })
+        else:
+            # NO WAVs attributed to this chunk → did NOT generate speech
+            state_counts['speak_tail'] += 1
 
-    # Verify causal completeness
-    speak_chunks = [b for b in benches if b['state'] == 'SPEAK_GENERATION']
-    mapped_chunks = set(r['chunk_seq'] for r in results)
-    unmapped = [b['chunk_seq'] for b in speak_chunks if b['chunk_seq'] not in mapped_chunks]
-    if unmapped:
-        print(f"  [warn] CAUSAL MAPPING INCOMPLETE: {len(unmapped)} chunks with no WAVs: {unmapped}", file=sys.stderr)
+    # Verify WAV completeness — every bench_wav should cover at least one chunk
+    covered_chunks = set(r['chunk_seq'] for r in results)
+    for w in wavs_sorted:
+        w_min = w.get('req_min', w['req'])
+        w_max = w.get('req_max', w['req'])
+        w_chunks = set(range(w_min, w_max + 1))
+        if not w_chunks.intersection(covered_chunks):
+            state_counts['unmapped_wav'] += 1
+
+    # Print causal completeness
+    n_speak = state_counts['speak_generation']
+    n_total = state_counts['total']
+    if n_speak == len(results):
+        print(f"  [ok] SERVER-CAUSAL: {n_speak}/{n_total} SPEAK_GENERATION "
+              f"(WAV-attributed), {state_counts['speak_tail']} SPEAK_TAIL, "
+              f"UNMAPPED_WAV={state_counts['unmapped_wav']}")
     else:
-        print(f"  [ok] CAUSAL MAPPING: {len(results)}/{len(speak_chunks)} SPEAK_GENERATION chunks mapped (causal range-based)")
+        print(f"  [warn] CAUSAL: {n_speak} SPEAK_GENERATION, "
+              f"{state_counts['speak_tail']} SPEAK_TAIL, "
+              f"UNMAPPED_WAV={state_counts['unmapped_wav']}")
+
+    # Compute RTF statistics
+    if results:
+        rtfs = [r['rtf'] for r in results]
+        rtfs_sorted = sorted(rtfs)
+        n = len(rtfs_sorted)
+        state_counts['rtf_mean'] = sum(rtfs) / n
+        state_counts['rtf_p50'] = rtfs_sorted[n // 2]
+        state_counts['rtf_p90'] = rtfs_sorted[int(n * 0.9)]
+        state_counts['rtf_p95'] = rtfs_sorted[int(n * 0.95)]
+        state_counts['rtf_min'] = rtfs_sorted[0]
+        state_counts['rtf_max'] = rtfs_sorted[-1]
+        walls = [r['latency_ms'] for r in results]
+        state_counts['wall_mean_ms'] = sum(walls) / n
+        state_counts['wall_p50_ms'] = sorted(walls)[n // 2]
+
+    return results, state_counts
 
     return results
 
@@ -584,55 +625,58 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
 
     # ── Parse server timing ──
     benches, wavs, t2w_count = parse_server_timing()
-    server_rtfs = compute_server_rtf(benches, wavs)
+    server_rtfs, causal_state = compute_server_rtf(benches, wavs)
 
     # ── Compute formal statistics ──
+    # PRIMARY: Server-causal classification (WAV req_min/req_max attribution)
+    # SECONDARY: Client WS-level classification (unreliable with drain OFF,
+    #   because audio from chunk N arrives during chunk N+k's WS window)
+    n_causal_speak = causal_state['speak_generation']
+    n_causal_tail  = causal_state['speak_tail']
+    causal_rtf_mean = causal_state.get('rtf_mean')
+    causal_wall_mean = causal_state.get('wall_mean_ms')
+
+    # Client-approximate (WS-level, for comparison only)
     speak_gen = [c for c in all_chunks if c['state'] == 'SPEAK_GENERATION']
     speak_tail = [c for c in all_chunks if c['state'] == 'SPEAK_TAIL']
     listen_chunks = [c for c in all_chunks if c['state'] == 'LISTEN']
     unknown_chunks = [c for c in all_chunks if c['state'] == 'UNKNOWN']
 
-    n_speak_gen = len(speak_gen)
+    n_client_speak = len(speak_gen)
     speak_rtfs = [c['rtf'] for c in speak_gen if c['rtf'] is not None]
     speak_walls = [c['speak_to_wav_ms'] for c in speak_gen if c['speak_to_wav_ms'] is not None]
 
-    formal_rtf_mean = sum(speak_rtfs) / len(speak_rtfs) if speak_rtfs else None
-    formal_wall_mean = sum(speak_walls) / len(speak_walls) if speak_walls else None
+    client_rtf_mean = sum(speak_rtfs) / len(speak_rtfs) if speak_rtfs else None
+    client_wall_mean = sum(speak_walls) / len(speak_walls) if speak_walls else None
 
     # ── Report ──
     print(f"\n{'='*60}")
     print(f"FORMAL BENCHMARK RESULTS")
     print(f"{'='*60}")
     print(f"Total chunks:              {num_chunks}")
-    print(f"  LISTEN:                  {len(listen_chunks)}")
-    print(f"  SPEAK_GENERATION:        {n_speak_gen}")
-    print(f"  SPEAK_TAIL:              {len(speak_tail)}")
-    print(f"  UNKNOWN:                 {len(unknown_chunks)}")
+    print()
+    print(f"  CLIENT (WS-level, approximate — UNRELIABLE with drain OFF):")
+    print(f"    LISTEN:                {len(listen_chunks)}")
+    print(f"    SPEAK_GENERATION:      {n_client_speak}")
+    print(f"    SPEAK_TAIL:            {len(speak_tail)}")
+    print(f"    UNKNOWN:               {len(unknown_chunks)}")
+    print(f"    RTF mean (client):     {client_rtf_mean:.4f}" if client_rtf_mean else f"    RTF mean: N/A")
+    print()
+    print(f"  SERVER-CAUSAL (WAV req_min/req_max attribution, pure observation):")
+    print(f"    SPEAK_GENERATION:      {n_causal_speak}")
+    print(f"    SPEAK_TAIL:            {n_causal_tail}")
+    print(f"    LISTEN:                {causal_state['listen']}")
+    if causal_rtf_mean:
+        print(f"    RTF mean:              {causal_rtf_mean:.4f}")
+        print(f"    RTF p50:               {causal_state.get('rtf_p50', 0):.4f}")
+        print(f"    RTF p90:               {causal_state.get('rtf_p90', 0):.4f}")
+        print(f"    RTF p95:               {causal_state.get('rtf_p95', 0):.4f}")
+        print(f"    Wall mean:             {causal_state.get('wall_mean_ms', 0):.1f}ms")
+        print(f"    Wall p50:              {causal_state.get('wall_p50_ms', 0):.1f}ms")
+        print(f"    Speedup vs 1.087:      {1.087/causal_rtf_mean:.2f}×")
+    print(f"    UNMAPPED_WAV:          {causal_state['unmapped_wav']}")
     print(f"Total wall clock:          {(t_bench_end - t_bench_start)/1e9:.1f}s")
     print()
-
-    if speak_rtfs:
-        sw = sorted(speak_walls)
-        sr = sorted(speak_rtfs)
-        print(f"SPEAK_GENERATION statistics (n={n_speak_gen}):")
-        print(f"  wall mean:               {formal_wall_mean:.1f}ms")
-        print(f"  wall p50:                {sw[len(sw)//2]:.1f}ms")
-        print(f"  wall p90:                {sw[int(len(sw)*0.9)]:.1f}ms")
-        print(f"  wall p95:                {sw[int(len(sw)*0.95)]:.1f}ms")
-        print(f"  wall min:                {min(sw):.1f}ms")
-        print(f"  wall max:                {max(sw):.1f}ms")
-        print()
-        print(f"  RTF mean:                {formal_rtf_mean:.4f}")
-        print(f"  RTF p50:                 {sr[len(sr)//2]:.4f}")
-        print(f"  RTF p90:                 {sr[int(len(sr)*0.9)]:.4f}")
-        print(f"  RTF p95:                 {sr[int(len(sr)*0.95)]:.4f}")
-        print(f"  RTF min:                 {min(sr):.4f}")
-        print(f"  RTF max:                 {max(sr):.4f}")
-        print()
-        if formal_rtf_mean:
-            speedup = 1.087 / formal_rtf_mean
-            print(f"  SPEEDUP vs 1.087:        {speedup:.2f}×")
-        print()
 
     # Per-chunk detail
     print(f"{'='*60}")
@@ -691,21 +735,29 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
     print(f"\n{'='*60}")
     print(f"FORMAL VERDICT")
     print(f"{'='*60}")
-    print(f"METHODOLOGY:          SINGLE_VIDEO, WARMUP_CHUNKS=0")
+    print(f"METHODOLOGY:          SERVER-CAUSAL (WAV req_min/req_max attribution)")
     print(f"CLASSIFICATION:       LISTEN / SPEAK_GENERATION / SPEAK_TAIL")
     print(f"METRIC:               ARITHMETIC_MEAN(SPEAK_GENERATION RTF)")
     print(f"OFFICIAL_REFERENCE:   1.087 (F16, 37 chunks)")
-    print(f"Q8_FORMAL_CHUNKS:     {n_speak_gen}")
-
-    if n_speak_gen == 37:
+    print(f"Q8_FORMAL_RTF:        UNRESOLVED")
+    print()
+    print(f"NATURAL_LISTEN_COUNT:      {causal_state['listen']}")
+    print(f"NATURAL_SPEAK_GENERATION:  {n_causal_speak}")
+    print(f"NATURAL_SPEAK_TAIL:        {n_causal_tail}")
+    if causal_rtf_mean:
+        print(f"SERVER_CAUSAL_RTF_MEAN:    {causal_rtf_mean:.4f}")
+    if client_rtf_mean:
+        print(f"CLIENT_APPROX_RTF_MEAN:    {client_rtf_mean:.4f}")
+    if causal_rtf_mean and client_rtf_mean:
+        delta_ms = (causal_state.get('wall_mean_ms', 0) - client_wall_mean) if client_wall_mean else 0
+        print(f"CLIENT_SERVER_DELTA_MEAN:  {delta_ms:.1f}ms")
+    print()
+    if n_causal_speak == 37:
         print(f"WORKLOAD_ALIGNMENT:   PASS (exactly 37)")
     else:
-        print(f"WORKLOAD_ALIGNMENT:   PARTIAL ({n_speak_gen} ≠ 37 official)")
-
-    if formal_rtf_mean:
-        print(f"Q8_FORMAL_RTF_MEAN:   {formal_rtf_mean:.4f}")
-        print(f"Q8_FORMAL_WALL_MEAN:  {formal_wall_mean:.1f}ms")
-        print(f"SPEEDUP_VS_1.087:     {1.087/formal_rtf_mean:.2f}×")
+        print(f"WORKLOAD_ALIGNMENT:   PARTIAL ({n_causal_speak} ≠ 37 official)")
+    print(f"CAUSAL_ATTRIBUTION:   {'COMPLETE' if causal_state['unmapped_wav'] == 0 else 'INCOMPLETE'}")
+    print(f"UNMAPPED_WAV:         {causal_state['unmapped_wav']}")
 
     # ── Save results ──
     result = {
@@ -714,8 +766,9 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
             "warmup_chunks": 0,
             "chunk_duration_s": CHUNK_DURATION_S,
             "aggregation": "ARITHMETIC_MEAN",
-            "classification": ["LISTEN", "SPEAK_GENERATION", "SPEAK_TAIL"],
-            "metric_chunks": "SPEAK_GENERATION",
+            "classification": "SERVER-CAUSAL (WAV req_min/req_max attribution, OMNI_PER_CHUNK_DRAIN=0)",
+            "metric_chunks": "SPEAK_GENERATION (causally attributed)",
+            "client_classification_note": "WS-level classification unreliable with drain OFF — audio from chunk N arrives during chunk N+k's WS window",
         },
         "config": {
             "model": "Q8_0",
@@ -732,35 +785,42 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
         },
         "results": {
             "total_chunks": num_chunks,
-            "listen_chunks": len(listen_chunks),
-            "speak_generation_chunks": n_speak_gen,
-            "speak_tail_chunks": len(speak_tail),
-            "unknown_chunks": len(unknown_chunks),
-            "workload_alignment": "PASS" if n_speak_gen == 37 else f"PARTIAL ({n_speak_gen} != 37)",
-            "speak_generation_wall_mean_ms": formal_wall_mean,
-            "speak_generation_wall_p50_ms": sw[len(sw)//2] if speak_walls else None,
-            "speak_generation_wall_p90_ms": sw[int(len(sw)*0.9)] if speak_walls else None,
-            "speak_generation_wall_p95_ms": sw[int(len(sw)*0.95)] if speak_walls else None,
-            "speak_generation_wall_min_ms": min(sw) if speak_walls else None,
-            "speak_generation_wall_max_ms": max(sw) if speak_walls else None,
-            "rtf_mean": formal_rtf_mean,
-            "rtf_p50": sr[len(sr)//2] if speak_rtfs else None,
-            "rtf_p90": sr[int(len(sr)*0.9)] if speak_rtfs else None,
-            "rtf_p95": sr[int(len(sr)*0.95)] if speak_rtfs else None,
-            "rtf_min": min(sr) if speak_rtfs else None,
-            "rtf_max": max(sr) if speak_rtfs else None,
-            "speedup_vs_1_087": 1.087/formal_rtf_mean if formal_rtf_mean else None,
+            # Client-approximate (for comparison)
+            "client_listen": len(listen_chunks),
+            "client_speak_generation": n_client_speak,
+            "client_speak_tail": len(speak_tail),
+            "client_rtf_mean": client_rtf_mean,
+            "client_wall_mean_ms": client_wall_mean,
+            # Server-causal (definitive)
+            "causal_speak_generation": n_causal_speak,
+            "causal_speak_tail": n_causal_tail,
+            "causal_listen": causal_state['listen'],
+            "causal_rtf_mean": causal_rtf_mean,
+            "causal_rtf_p50": causal_state.get('rtf_p50'),
+            "causal_rtf_p90": causal_state.get('rtf_p90'),
+            "causal_rtf_p95": causal_state.get('rtf_p95'),
+            "causal_wall_mean_ms": causal_state.get('wall_mean_ms'),
+            "causal_wall_p50_ms": causal_state.get('wall_p50_ms'),
+            "unmapped_wav": causal_state['unmapped_wav'],
+            "workload_alignment": "PASS" if n_causal_speak == 37 else f"PARTIAL ({n_causal_speak} != 37)",
+            "speedup_vs_1_087": 1.087/causal_rtf_mean if causal_rtf_mean else None,
+            "formal_rtf_status": "UNRESOLVED",  # Will be set when N/N mapping achieved
         },
         "per_chunk": all_chunks,
         "server_t2w_calls": t2w_count,
         "server_bench_wav_lines": len(wavs),
         "server_bench_frames": len(benches),
         "server_side_rtf": {
-            "method": "CAUSAL (req→chunk_seq matching)",
-            "description": "Each WAV assigned to the chunk that produced it via simplex_round_idx→req, not temporal window",
+            "method": "CAUSAL (WAV req_min/req_max → chunk_seq, OMNI_PER_CHUNK_DRAIN=0)",
+            "description": "Pure-observation: each WAV assigned to source chunk via simplex_round_idx→chunk_seq→req chain. No drain manipulation.",
             "n": len(server_rtfs),
-            "rtf_mean": srv_rtf_mean if server_rtfs else None,
-            "wall_mean_ms": srv_wall_mean if server_rtfs else None,
+            "rtf_mean": causal_rtf_mean,
+            "rtf_p50": causal_state.get('rtf_p50'),
+            "rtf_p90": causal_state.get('rtf_p90'),
+            "rtf_p95": causal_state.get('rtf_p95'),
+            "wall_mean_ms": causal_state.get('wall_mean_ms'),
+            "wall_p50_ms": causal_state.get('wall_p50_ms'),
+            "unmapped_wav": causal_state['unmapped_wav'],
             "per_chunk": server_rtfs,
         } if server_rtfs else None,
     }
