@@ -1113,7 +1113,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                         octx->text_queue.pop_front();
                     }
 
-                    if (octx->text_done_flag && octx->text_queue.empty()) {
+                    // P0 formal: only break on done+empty when we have no pending frag
+                    if (frag.empty() && octx->text_done_flag && octx->text_queue.empty()) {
                         break;
                     }
                 }
@@ -1130,7 +1131,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                                                  elapsed_ms(t_generate_start),
                                                  elapsed_ms(t_request_start), 0,
                                                  turn_vision_slices)));
-                        break;
+                        // Continue polling — text_done_flag is set, next
+                        // iteration will break naturally on empty queue.
                     } else if (frag == "__END_OF_TURN__") {
                         // handled by response.done
                     } else {
@@ -1313,7 +1315,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                         octx->text_queue.pop_front();
                     }
 
-                    if (octx->text_done_flag && octx->text_queue.empty()) {
+                    // P0 formal: only break on done+empty when we have no pending frag.
+                    // If frag was just popped (e.g. __IS_LISTEN__ from force_listen),
+                    // we must process it first. The next iteration will see empty queue
+                    // + done flag and break cleanly.
+                    if (frag.empty() && octx->text_done_flag && octx->text_queue.empty()) {
                         break;
                     }
                 }
@@ -1328,7 +1334,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                                                  elapsed_ms(t_generate_start),
                                                  elapsed_ms(t_request_start), 0,
                                                  turn_vision_slices)));
-                        break; // Done for this input
+                        // Continue polling — text_done_flag is set, next
+                        // iteration will break naturally on empty queue.
                     } else if (frag == "__END_OF_TURN__") {
                         // Turn ended — will be handled by response.done
                     } else {
