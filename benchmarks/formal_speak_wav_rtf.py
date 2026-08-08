@@ -5,7 +5,7 @@ Single video request, 1-second full-duplex chunks, WARMUP_CHUNKS=0.
 Three-state classification: LISTEN / SPEAK_GENERATION / SPEAK_TAIL.
 Only SPEAK_GENERATION chunks counted for RTF (arithmetic mean).
 
-Official baseline: OFFICIAL_F16_SPEAK_RTF_MEAN=1.087 (37 valid SPEAK_GENERATION chunks).
+Official baseline (published): OFFICIAL_F16_SPEAK_RTF_MEAN=1.087. Chunk count NOT_SPECIFIED in official spec.
 
 Usage:
     python3 benchmarks/formal_speak_wav_rtf.py [--video VIDEO.mp4] [--force-listen 0]
@@ -763,7 +763,7 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
     print(f"METHODOLOGY:          SERVER-CAUSAL (WAV req_min/req_max attribution)")
     print(f"CLASSIFICATION:       LISTEN / SPEAK_GENERATION / SPEAK_TAIL")
     print(f"METRIC:               ARITHMETIC_MEAN(SPEAK_GENERATION RTF)")
-    print(f"OFFICIAL_REFERENCE:   1.087 (F16, 37 chunks)")
+    print(f"OFFICIAL_REFERENCE:   1.087 (F16, chunk count NOT_SPECIFIED)")
     print(f"Q8_FORMAL_RTF:        UNRESOLVED")
     print()
     print(f"NATURAL_LISTEN_COUNT:      {causal_state['listen']}")
@@ -777,10 +777,7 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
         delta_ms = (causal_state.get('wall_mean_ms', 0) - client_wall_mean) if client_wall_mean else 0
         print(f"CLIENT_SERVER_DELTA_MEAN:  {delta_ms:.1f}ms")
     print()
-    if n_causal_speak == 37:
-        print(f"WORKLOAD_ALIGNMENT:   PASS (exactly 37)")
-    else:
-        print(f"WORKLOAD_ALIGNMENT:   PARTIAL ({n_causal_speak} ≠ 37 official)")
+    print(f"SPEAK_GENERATION_CHUNKS: {n_causal_speak} (natural distribution, NOT benchmarked against 37)")
     print(f"CAUSAL_ATTRIBUTION:   {'COMPLETE' if causal_state['unmapped_wav'] == 0 else 'INCOMPLETE'}")
     print(f"UNMAPPED_WAV:         {causal_state['unmapped_wav']}")
 
@@ -806,7 +803,7 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
         "official_baseline": {
             "rtf_mean": 1.087,
             "wall_mean_ms": 1087.3,
-            "valid_chunks": 37,
+            "valid_chunks": "NOT_SPECIFIED_IN_OFFICIAL_SPEC",
         },
         "results": {
             "total_chunks": num_chunks,
@@ -827,7 +824,7 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
             "causal_wall_mean_ms": causal_state.get('wall_mean_ms'),
             "causal_wall_p50_ms": causal_state.get('wall_p50_ms'),
             "unmapped_wav": causal_state['unmapped_wav'],
-            "workload_alignment": "PASS" if n_causal_speak == 37 else f"PARTIAL ({n_causal_speak} != 37)",
+            "workload_alignment": f"NATURAL_DISTRIBUTION ({n_causal_speak} SPEAK_GENERATION, official count NOT_SPECIFIED)",
             "speedup_vs_1_087": 1.087/causal_rtf_mean if causal_rtf_mean else None,
             "formal_rtf_status": "UNRESOLVED",  # Will be set when N/N mapping achieved
         },

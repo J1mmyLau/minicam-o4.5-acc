@@ -31,9 +31,10 @@ CAVEATS:
   - Window-based classification may not match semantic SPEAK_GENERATION definition
   - Causal provenance (emit_chunk) is DIAGNOSTIC_ONLY, not scoring
 
-Fixed decisions (2026-08-06):
+Default config (INTERNAL REGRESSION ONLY — NOT official Track-A config):
   BENCH_CONFIG_SOURCE   = PINNED_MINICPM_O_DEMO
   ROUNDS=5, CHUNKS_PER_ROUND=30, WARMUP=3, CHUNK_DURATION_MS=1000
+  OFFICIAL_TRACK_A_CONFIG = NO  (5x30+warmup3 is internal convenience, not official)
 
 Supports two transport paths:
   --transport backend   → direct backend WS  (PRIMARY competition metric)
