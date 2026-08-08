@@ -1382,11 +1382,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // and per-chunk generation tracking to fail (gen stayed 0).
             // omni_duplex_drain_tts_audio is a no-op when !use_tts.
             //
-            // Per-chunk drain ensures correct per-generation tracking (gen=4..35
-            // instead of gen=0 for all WAVs), but adds ~2.7s overhead per chunk.
-            // Set OMNI_PER_CHUNK_DRAIN=0 to disable for continuous-pipeline RTF
-            // benchmarks matching official methodology (no per-chunk drain).
-            if (getenv("OMNI_PER_CHUNK_DRAIN") == nullptr || strcmp(getenv("OMNI_PER_CHUNK_DRAIN"), "0") != 0) {
+            // Per-chunk drain ensures causal per-generation WAV attribution but
+            // serializes the pipeline (T2W/prefill no longer overlap).
+            // DEFAULT OFF: natural full-duplex pipeline with T2W/prefill overlap.
+            // Set OMNI_PER_CHUNK_DRAIN=1 ONLY for debug/validation of causal mapping.
+            if (getenv("OMNI_PER_CHUNK_DRAIN") != nullptr && strcmp(getenv("OMNI_PER_CHUNK_DRAIN"), "1") == 0) {
                 omni_duplex_drain_tts_audio(octx, /*max_wait_ms*/120000, /*idle_ms*/3000);
             }
             ws_finalize_context_reusable(octx);

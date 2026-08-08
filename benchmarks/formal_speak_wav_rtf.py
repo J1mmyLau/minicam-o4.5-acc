@@ -130,7 +130,7 @@ def start_server(env_overrides=None):
     env["OMNI_T2W_DEVICE"] = "cann-flow-only"
     env["OMNI_T2W_DRAIN_TIMEOUT_MS"] = "120000"  # F6 causal: extended for complete WAV drain
     env["OMNI_T2W_PROFILE"] = "2"  # per-call T2W timing
-    env["OMNI_PER_CHUNK_DRAIN"] = os.environ.get("OMNI_PER_CHUNK_DRAIN", "1")  # ON for causal SPEAK→WAV RTF
+    env["OMNI_PER_CHUNK_DRAIN"] = os.environ.get("OMNI_PER_CHUNK_DRAIN", "0")  # Default OFF: natural pipeline (debug: set to 1)
     env["ASCEND_RT_VISIBLE_DEVICES"] = "0"
     if env_overrides:
         env.update(env_overrides)
@@ -312,10 +312,10 @@ def classify_chunk_state(events):
     Classify chunk state from ALL WS events collected until response.done.
 
     LISTEN:            kind=='listen' received
-    SPEAK_GENERATION:  LLM actively produced text for this chunk
-                       (text was generated → LLM is active → generation)
-    SPEAK_TAIL:        audio produced but NO new text generated
-                       (TTS residual after LLM finished turn)
+    SPEAK_GENERATION:  LLM produced speech tokens → TTS → audio deltas
+                       (num_audio_deltas > 0 — audio IS the speech signal)
+    SPEAK_TAIL:        text generated but NO audio deltas
+                       (LLM still producing text but speech has ended)
     """
     has_listen = any(e.get('kind') == 'listen' for e in events)
     has_audio = any(e.get('kind') == 'audio' and e.get('audio', '') for e in events)
@@ -325,13 +325,13 @@ def classify_chunk_state(events):
     if has_listen:
         return 'LISTEN'
 
-    # If text was generated → LLM is active → SPEAK_GENERATION
-    # (regardless of whether audio arrived in this exact WS message batch)
-    if has_text:
+    # Audio deltas → LLM generated speech tokens → SPEAK_GENERATION
+    # (NOT text — text without audio means speech has ended)
+    if has_audio:
         return 'SPEAK_GENERATION'
 
-    # Audio without text → TTS residual after LLM finished → SPEAK_TAIL
-    if has_audio:
+    # Text without audio → speech ended, model still producing text output
+    if has_text:
         return 'SPEAK_TAIL'
 
     # No audio, no text, no listen → assume tail/idle
