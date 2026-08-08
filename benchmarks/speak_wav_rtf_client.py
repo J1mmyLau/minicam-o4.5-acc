@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
 """SPEAK→WAV RTF Benchmark (Client-Side) — Subtrack A (llama.cpp-omni on CANN).
 
-PROVENANCE: Reimplementation by Claude based on official competition spec (2026-08-05).
-NOT the official evaluator script — the official RTF harness was never distributed.
-Baseline RTF=1.087 (F16, 37 SPEAK_GENERATION chunks) from official spec.
-This script implements the SAME classification logic described in the spec:
-  LISTEN / SPEAK_GENERATION / SPEAK_TAIL
-using WS-window-based event observation (first decisive delta per chunk).
+PROVENANCE: Best-effort reimplementation by Claude based on official competition
+spec (2026-08-05). NOT the official evaluator — the official RTF harness and
+evaluation script were never distributed.
 
-OFFICIAL_EVALUATOR_SCRIPT       = NOT_AVAILABLE
-OFFICIAL_SPEC_DESCRIPTION       = AVAILABLE (RTF=1.087, 37 chunks, 3 states)
-THIS_SCRIPT                     = BEST_EFFORT_REIMPLEMENTATION
-F16_CALIBRATION_REQUIRED        = YES (validate against known baseline)
+OFFICIAL SPEC — WHAT IS KNOWN:
+  Primary metric:      SPEAK_GENERATION stage, SPEAK→WAV full-chain RTF
+  F16 baseline:        SPEAK_RTF=1.087 (avg 1087.3ms), ALL_CHUNK_RTF=0.618
+  States:              LISTEN / SPEAK_GENERATION / SPEAK_TAIL (semantic only)
+  Hardware:            Ascend 910C, CANN 9.1.0-beta1, F16, concurrency=1
+  Pre-test warmup:     REQUIRED (multiple rounds before formal test)
+  Demo:                Full interactive flow (audio+video+text, duplex streaming)
+
+OFFICIAL SPEC — WHAT IS NOT SPECIFIED:
+  Evaluator script:    NOT_DISTRIBUTED
+  Timer start/end:     NOT_SPECIFIED (prefill_start vs input.append recv vs LLM start)
+  classify_chunk():    NOT_DISTRIBUTED (formula not provided, only semantic description)
+  37 chunk count:      NOT in official spec (may come from external baseline data)
+  Per-request warmup:  NOT_SPECIFIED (chunk exclusion policy unknown)
+
+THIS SCRIPT:
+  Classification:      OUR best-effort reimplementation (n_tokens, audio_bytes, n_tts_tokens)
+  Timer:               send → first audio delta (TTFP/TTFA-like, NOT proven as SPEAK→WAV RTF)
+  F16 calibration:     REQUIRED — dual-anchor: ALL_CHUNK≈0.618 AND SPEAK≈1.087
+
+CAVEATS:
+  - first-audio-delta ≠ proven "WAV chunk complete" boundary
+  - With drain OFF, backlog audio may arrive in later chunks' WS windows
+  - Window-based classification may not match semantic SPEAK_GENERATION definition
+  - Causal provenance (emit_chunk) is DIAGNOSTIC_ONLY, not scoring
 
 Fixed decisions (2026-08-06):
   BENCH_CONFIG_SOURCE   = PINNED_MINICPM_O_DEMO

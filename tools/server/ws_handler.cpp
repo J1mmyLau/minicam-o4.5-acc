@@ -1429,7 +1429,14 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // Only logs; does NOT change inference behavior or event ordering.
             {
                 // Per-chunk counters for SPEAK_GENERATION classification.
-                // Implements the same logic as benchmarks/speak_wav_rtf_client.py:classify_chunk()
+                // Implements same logic as benchmarks/speak_wav_rtf_client.py:classify_chunk()
+                // NOTE: this is OUR best-effort reimplementation, NOT the official formula.
+                // The official competition spec describes states semantically:
+                //   SPEAK_GENERATION: VPM+APM+LLM+TTS+T2W all active
+                //   SPEAK_TAIL:       LLM ended, only TTS/T2W continue
+                //   LISTEN:           VPM+APM+LLM only (no TTS/T2W)
+                // but does NOT provide the classify_chunk() formula.
+                // Our reimplementation uses per-chunk observable counters as proxy.
                 int chunk_text_tokens = 0;
                 int chunk_audio_bytes = 0;
                 int chunk_tts_tokens = 0;
@@ -1440,12 +1447,13 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                     chunk_tts_tokens = (int)octx->tts_all_generated_tokens.size() - audio_state->chunk_tts_tokens_before;
                 }
 
-                // classify_chunk() — reimplementation of official spec logic:
+                // Our reimplemented classification (NOT official):
                 //   SPEAK_GENERATION: n_tokens > 0 && audio_bytes > 0
                 //   SPEAK_TAIL:       n_tokens == 0 && (n_tts_tokens > 0 || audio_bytes > 0)
-                //   LISTEN:           emitted_listen (kind=listen delta observed)
-                // SPEAK_GENERATION parity: PASS (both conditions tracked)
-                // SPEAK_TAIL parity:       PASS (n_tts_tokens now tracked via tts_all_generated_tokens delta)
+                //   LISTEN:           emitted_listen
+                //
+                // Parity: SERVER_CLIENT_REIMPLEMENTATION_PARITY = PASS
+                //         OFFICIAL_CLASSIFICATION_PARITY        = NOT_PROVEN
                 const char * bench_state = "UNKNOWN";
                 if (emitted_listen) {
                     bench_state = "LISTEN";
