@@ -1413,15 +1413,19 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             // ── F6 formal benchmark: server-side per-chunk timing ──
             // Only logs; does NOT change inference behavior or event ordering.
             {
+                // State machine mirrors official benchmark semantics:
+                // SPEAK_GENERATION = audio delta observed during chunk's window
+                //   (with drain OFF, previous-chunk audio may arrive now — this
+                //    is the official window-based approximation, not a bug)
+                // SPEAK_TAIL = text may continue but no audio in this window
+                // LISTEN = model asks for more audio input
                 const char * bench_state = "UNKNOWN";
                 if (emitted_listen)
                     bench_state = "LISTEN";
-                else if (emitted_audio && !full_text.empty())
-                    bench_state = "SPEAK_GENERATION";
                 else if (emitted_audio)
-                    bench_state = "SPEAK_TAIL";
+                    bench_state = "SPEAK_GENERATION";
                 else if (!full_text.empty())
-                    bench_state = "SPEAK_GENERATION";  // text-only = LLM active
+                    bench_state = "SPEAK_TAIL";  // text present but no audio → tail
                 else
                     bench_state = "SPEAK_TAIL";
 

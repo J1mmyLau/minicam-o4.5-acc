@@ -7655,7 +7655,9 @@ static bool generate_audio_tokens_local(
     int chunk_idx,
     std::vector<int32_t>& output_audio_tokens,
     bool is_end_of_turn = false,  // 🔧 [与 Python 对齐] 是否是轮次结束
-    const std::string& output_dir = ""
+    const std::string& output_dir = "",
+    int llm_chunk_seq_min = -1,  // F6 causal: min chunk_seq for provenance tracking
+    int llm_chunk_seq_max = -1   // F6 causal: max chunk_seq for provenance tracking
 ) {
     print_with_timestamp("TTS Local: generating audio tokens for chunk %d (n_tokens=%d, tts_n_embd=%d, emb_size=%zu)\n", 
                          chunk_idx, n_tokens, tts_n_embd, merged_embeddings.size());
@@ -7939,11 +7941,13 @@ static bool generate_audio_tokens_local(
             t2w_out->is_final = false;
             t2w_out->is_chunk_end = false;  // 🔧 中间推送，不是 chunk 结束
             t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+            t2w_out->chunk_seq_min = llm_chunk_seq_min;  // F6 causal: per-item provenance
+            t2w_out->chunk_seq_max = llm_chunk_seq_max;  // F6 causal: per-item provenance
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
-       
+
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
-            
+
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
                 t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
@@ -7951,10 +7955,10 @@ static bool generate_audio_tokens_local(
             ctx_omni->t2w_thread_info->cv.notify_one();
             stream_buffer.clear();
         }
-        
+
         if (t < 5 || (t + 1) % 25 == 0) {
         }
-        
+
         // 如果是 EOS，在完成上述处理后退出循环
         if (is_eos) {
             break;
@@ -7972,11 +7976,13 @@ static bool generate_audio_tokens_local(
         t2w_out->is_final = is_end_of_turn;
         t2w_out->is_chunk_end = !is_end_of_turn;  // 非 turn 结束时才用 is_chunk_end
         t2w_out->round_idx = ctx_omni->simplex_round_idx;  // 🔧 传递轮次索引
+        t2w_out->chunk_seq_min = llm_chunk_seq_min;  // F6 causal: per-item provenance
+        t2w_out->chunk_seq_max = llm_chunk_seq_max;  // F6 causal: per-item provenance
         t2w_out->generation_id = ctx_omni->e2e_stage.tts_thread_generation;  // F6 W5
         t2w_out->profile_handle = &ctx_omni->e2e_stage;  // F6 C8: request-scoped Flow/Vocoder
-       
+
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
-        
+
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
             t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
@@ -8763,7 +8769,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                 
                 bool tts_gen_success = generate_audio_tokens_local(ctx_omni, params, merged_embeddings,
                                                 n_tokens_filtered, tts_n_embd, current_chunk_idx,
-                                                audio_tokens_out, is_end_of_turn, tts_wav_output_dir);
+                                                audio_tokens_out, is_end_of_turn, tts_wav_output_dir,
+                                                llm_chunk_seq_min, llm_chunk_seq_max);
                 
                 if (tts_gen_success) {
                     all_audio_tokens.insert(all_audio_tokens.end(), audio_tokens_out.begin(), audio_tokens_out.end());
@@ -8859,7 +8866,8 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
                 
                 bool tts_gen_success = generate_audio_tokens_local(ctx_omni, params, empty_embeddings,
                                                 n_tokens_for_tts, tts_n_embd, current_chunk_idx,
-                                                audio_tokens_out, true, tts_wav_output_dir);
+                                                audio_tokens_out, true, tts_wav_output_dir,
+                                                llm_chunk_seq_min, llm_chunk_seq_max);
                 
                 if (tts_gen_success) {
                     all_audio_tokens.insert(all_audio_tokens.end(), audio_tokens_out.begin(), audio_tokens_out.end());
@@ -11190,6 +11198,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
     // Buffer to accumulate tokens (for sliding window)
     // Python: buffer = [4218] * 3  # 预先放入3个前缀静音token
     std::vector<int32_t> token_buffer = {4218, 4218, 4218};
+    // F6 causal: parallel per-token chunk_seq provenance buffer.
+    // -1 = system/initialization (silence prefix tokens have no chunk provenance)
+    // Must ALWAYS stay in sync with token_buffer: same size, same operations.
+    std::vector<int32_t> token_chunk_seq = {-1, -1, -1};
     
     // 🔧 [多实例支持] 使用可配置的 base_output_dir
     const std::string& base_output_dir = ctx_omni->base_output_dir;
@@ -11230,6 +11242,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             // 重置 break_event 后继续等待新任务
             ctx_omni->break_event = false;
             token_buffer = {4218, 4218, 4218};  // 重置 buffer
+            token_chunk_seq = {-1, -1, -1};     // F6 causal: sync provenance reset
             wav_idx = 0;  // 重置 wav index
             
             // 🔧 [修复竞态条件] 在 T2W 线程处理完打断后递增 wav_turn_base
@@ -11307,6 +11320,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         
         // Get all available tokens from queue
         std::vector<llama_token> new_tokens;
+        std::vector<int32_t> new_token_chunk_seqs;  // F6 causal: per-token chunk_seq provenance
         bool is_final = false;
         bool is_chunk_end = false;  // 标记 TTS chunk 结束
         int received_round_idx = -1;  // 🔧 保存传入的 round_idx
@@ -11361,6 +11375,19 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             }
 
             new_tokens.insert(new_tokens.end(), t2w_out->audio_tokens.begin(), t2w_out->audio_tokens.end());
+            // F6 causal: assign per-token chunk_seq provenance.
+            // Use chunk_seq_max as best-effort when per-token mapping is unavailable.
+            // When chunk_seq_min == chunk_seq_max (single-chunk batch), this is exact.
+            // When chunk_seq_min < chunk_seq_max (multi-chunk batch), this is approximate
+            // because the TTS model mixes embeddings from multiple chunks before
+            // generating tokens — per-token attribution within a batch is architecturally
+            // impossible without splitting TTS calls per-chunk.
+            {
+                int32_t token_cs = (t2w_out->chunk_seq_max >= 0) ? t2w_out->chunk_seq_max
+                    : (t2w_out->chunk_seq_min >= 0) ? t2w_out->chunk_seq_min : -1;
+                new_token_chunk_seqs.insert(new_token_chunk_seqs.end(),
+                    t2w_out->audio_tokens.size(), token_cs);
+            }
             is_final = is_final || t2w_out->is_final;  // 任何一个是 final 就是 final
             is_chunk_end = is_chunk_end || t2w_out->is_chunk_end;  // 任何一个是 chunk_end 就是 chunk_end
             // 🔧 保存最后一个有效的 round_idx（优先使用非负值）
@@ -11497,6 +11524,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             wav_idx = 0;                                                    // WAV 文件编号从 0 开始
             ctx_omni->wav_turn_base = effective_round_idx * 1000;           // 更新全局 WAV 编号基数
             token_buffer = {4218, 4218, 4218};                              // 重置 token buffer（3个静音前缀）
+            token_chunk_seq = {-1, -1, -1};                                 // F6 causal: sync provenance reset
 
             // P7.3: reset drain state machine for new round
             ctx_omni->t2w_thread_info->drain_state.store(T2W_DRAIN_RUNNING, std::memory_order_release);
@@ -11514,6 +11542,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         // Add new tokens to buffer
         size_t buffer_before = token_buffer.size();
         token_buffer.insert(token_buffer.end(), new_tokens.begin(), new_tokens.end());
+        token_chunk_seq.insert(token_chunk_seq.end(), new_token_chunk_seqs.begin(), new_token_chunk_seqs.end());
+        // F6 causal: invariant — provenance buffer must always stay in sync
+        if (token_buffer.size() != token_chunk_seq.size()) {
+            LOG_ERR("T2W: token_buffer/chunk_seq size mismatch: %zu vs %zu\n",
+                token_buffer.size(), token_chunk_seq.size());
+        }
         const double queue_wait_ms = have_enqueue_time
             ? std::chrono::duration<double, std::milli>(dequeue_time - oldest_enqueue_time).count()
             : 0.0;
@@ -11712,11 +11746,33 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                                 t_wav_steady.time_since_epoch()).count();
                             uint32_t wav_gen = ctx_omni->e2e_stage.t2w_thread_generation;
                             int wav_cnt = ctx_omni->t2w_thread_info->wav_count.load(std::memory_order_relaxed);
+
+                            // F6 causal: compute context and emit chunk_seq ranges from
+                            // the per-token provenance buffer.  The 28-token window is:
+                            //   [0..PRE_LOOKAHEAD-1]  = overlap tokens (history context)
+                            //   [PRE_LOOKAHEAD..N-1]  = new tokens (primary audio drivers)
+                            int ctx_min = INT_MAX, ctx_max = -1;
+                            int emit_min = INT_MAX, emit_max = -1;
+                            for (size_t ti = 0; ti < process_size && ti < token_chunk_seq.size(); ti++) {
+                                int cs = token_chunk_seq[ti];
+                                if (cs < 0) continue;  // skip silence prefix / uninitialized
+                                ctx_min = std::min(ctx_min, cs);
+                                ctx_max = std::max(ctx_max, cs);
+                                if ((int)ti >= PRE_LOOKAHEAD) {
+                                    emit_min = std::min(emit_min, cs);
+                                    emit_max = std::max(emit_max, cs);
+                                }
+                            }
+                            if (ctx_min == INT_MAX) ctx_min = -1;
+                            if (emit_min == INT_MAX) emit_min = -1;
+
                             fprintf(stderr,
-                                "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d req_min=%d req_max=%d\n",
+                                "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d "
+                                "context_chunk_min=%d context_chunk_max=%d emit_chunk_min=%d emit_chunk_max=%d\n",
                                 (long long)wav_complete_ns, wav_gen, wav_cnt,
                                 ctx_omni->wav_turn_base + wav_idx, audio_duration,
-                                effective_round_idx, effective_chunk_seq_min, effective_chunk_seq_max);
+                                effective_round_idx,
+                                ctx_min, ctx_max, emit_min, emit_max);
                         }
                         wav_idx++;
                         // P7.3: track WAV count for drain verification
@@ -11730,14 +11786,16 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             
             // Slide window by CHUNK_SIZE (25), keep last PRE_LOOKAHEAD (3) for overlap
             size_t buffer_before_slide = token_buffer.size();
-            
+
             if (!ctx_omni->duplex_mode) {
                 // 🔧 [单工模式] 保持原有逻辑，绝对不改动
                 // Slide window by CHUNK_SIZE (25), keep last PRE_LOOKAHEAD (3) for overlap
                 if (token_buffer.size() > CHUNK_SIZE) {
                     token_buffer.erase(token_buffer.begin(), token_buffer.begin() + CHUNK_SIZE);
+                    token_chunk_seq.erase(token_chunk_seq.begin(), token_chunk_seq.begin() + CHUNK_SIZE);
                 } else {
                     token_buffer.clear();
+                    token_chunk_seq.clear();
                 }
             } else {
                 // 🔧 [双工模式-与 Python 对齐]
@@ -11755,11 +11813,13 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 } else {
                     slide_amount = 0;  // 太少了，不滑动
                 }
-                
+
                 if (slide_amount > 0 && slide_amount <= token_buffer.size()) {
                     token_buffer.erase(token_buffer.begin(), token_buffer.begin() + slide_amount);
+                    token_chunk_seq.erase(token_chunk_seq.begin(), token_chunk_seq.begin() + slide_amount);
                 } else if (slide_amount > token_buffer.size()) {
                     token_buffer.clear();
+                    token_chunk_seq.clear();
                 }
             }
             process_count++;
@@ -11788,6 +11848,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     // 单工和双工模式都只重置 token_buffer，保持 Token2Wav 的 stream 状态
                     // 重新初始化buffer（3个静音token作为前缀）
                     token_buffer = {4218, 4218, 4218};
+                    token_chunk_seq = {-1, -1, -1};  // F6 causal: sync provenance reset
                     
                     // 🔧 [修复竞态条件] 在 T2W 线程处理完 is_final 后递增 wav_turn_base
                     // 原因：确保当前轮次的所有 wav 文件使用旧的编号，然后再切换到新编号

@@ -199,20 +199,44 @@ def parse_server_timing():
             if '[timing]' in line:
                 t2w_count += 1
             elif '[bench_wav]' in line and 'wav_idx' in line:
-                m = re.search(
-                    r'wav_complete_ns=(\d+).*?gen=(\d+).*?wav_count=(\d+).*?wav_idx=(\d+).*?audio_dur=([\d.]+)\s+req=(\d+)\s+req_min=(\d+)\s+req_max=(\d+)',
-                    line)
-                if m:
-                    wavs.append({
-                        'wav_complete_ns': int(m.group(1)),
-                        'gen': int(m.group(2)),
-                        'wav_count': int(m.group(3)),
-                        'wav_idx': int(m.group(4)),
-                        'audio_dur': float(m.group(5)),
-                        'req': int(m.group(6)),       # legacy round_idx
-                        'req_min': int(m.group(7)),   # F6 causal: earliest chunk_seq
-                        'req_max': int(m.group(8)),   # F6 causal: latest chunk_seq
-                    })
+                # F6 causal: parse both old (req_min/req_max) and new (context_chunk_min/max, emit_chunk_min/max) formats
+                if 'context_chunk_min' in line:
+                    # NEW format with context/emit provenance split
+                    m = re.search(
+                        r'wav_complete_ns=(\d+).*?gen=(\d+).*?wav_count=(\d+).*?wav_idx=(\d+).*?audio_dur=([\d.]+)\s+req=(\d+)\s+'
+                        r'context_chunk_min=(-?\d+)\s+context_chunk_max=(-?\d+)\s+emit_chunk_min=(-?\d+)\s+emit_chunk_max=(-?\d+)',
+                        line)
+                    if m:
+                        wavs.append({
+                            'wav_complete_ns': int(m.group(1)),
+                            'gen': int(m.group(2)),
+                            'wav_count': int(m.group(3)),
+                            'wav_idx': int(m.group(4)),
+                            'audio_dur': float(m.group(5)),
+                            'req': int(m.group(6)),
+                            'context_chunk_min': int(m.group(7)),
+                            'context_chunk_max': int(m.group(8)),
+                            'emit_chunk_min': int(m.group(9)),
+                            'emit_chunk_max': int(m.group(10)),
+                        })
+                else:
+                    # LEGACY format (req_min/req_max only — context coverage, no ownership split)
+                    m = re.search(
+                        r'wav_complete_ns=(\d+).*?gen=(\d+).*?wav_count=(\d+).*?wav_idx=(\d+).*?audio_dur=([\d.]+)\s+req=(\d+)\s+req_min=(\d+)\s+req_max=(\d+)',
+                        line)
+                    if m:
+                        wavs.append({
+                            'wav_complete_ns': int(m.group(1)),
+                            'gen': int(m.group(2)),
+                            'wav_count': int(m.group(3)),
+                            'wav_idx': int(m.group(4)),
+                            'audio_dur': float(m.group(5)),
+                            'req': int(m.group(6)),
+                            'context_chunk_min': int(m.group(7)),   # legacy: req_min → context
+                            'context_chunk_max': int(m.group(8)),   # legacy: req_max → context
+                            'emit_chunk_min': -1,                    # LEGACY: unavailable
+                            'emit_chunk_max': -1,                    # LEGACY: unavailable
+                        })
             elif '[bench]' in line and 'prefill_start' in line:
                 m = re.search(
                     r'frame=(\d+)\s+chunk_seq=(\d+)\s+gen=(\d+)\s+state=(\S+)\s+'
@@ -239,110 +263,129 @@ def parse_server_timing():
 
 
 def compute_server_rtf(benches, wavs):
-    """Compute server-side per-chunk RTF using PURE-OBSERVATION causal attribution.
+    """Compute server-side per-chunk provenance using emit_chunk range.
 
-    Classification is derived SOLELY from WAV req_min/req_max coverage —
-    NOT from the server's own state label (which uses broken text_len>0 heuristic).
+    F6 causal provenance architecture:
+      - context_chunk_min/max = ALL chunks whose tokens are in the 28-token T2W window
+        (3 overlap + 25 new).  This is context coverage, NOT ownership.
+      - emit_chunk_min/max = chunks whose NEW tokens (post-overlap) drive the
+        emitted audio segment.  This is output ownership.
 
-    For each chunk C:
-      - If >=1 WAV with req_min <= C <= req_max → TRUE SPEAK_GENERATION
-        RTF_C = (max(wav_complete_ns) - prefill_start_ns) / chunk_duration_ns
-      - Else → SPEAK_TAIL or LISTEN (no speech tokens → no audio)
+    Classification:
+      - chunk appears in >=1 WAV emit range → SPEAK_GENERATION
+      - chunk has bench entry but never in any emit range → SPEAK_TAIL
+      - chunk before first SPEAK_GENERATION → LISTEN
 
-    This is the ONLY valid formal methodology:
-      - OMNI_PER_CHUNK_DRAIN=0 (natural pipeline, no behavioral change)
-      - No timestamp-window attribution
-      - No client-side WS event classification
-      - Pure server-side causal chain: input_index → chunk_seq → WAV
+    RTF computation is DEFERRED until ownership structure is validated.
+    Step ①→② are complete; step ③ (verify single-owner) comes next.
     """
     if not benches or not wavs:
         return [], {'speak_generation': 0, 'speak_tail': 0, 'listen': 0,
-                     'total': len(benches) if benches else 0, 'rtf_mean': None}
+                     'total': len(benches) if benches else 0,
+                     'context_only_wavs': 0, 'multichunk_emit_wavs': 0}
 
-    # Index benches by chunk_seq for O(1) lookup
+    # Index benches by chunk_seq
     bench_by_cs = {b['chunk_seq']: b for b in benches}
 
     # Sort wavs by completion time
     wavs_sorted = sorted(wavs, key=lambda w: w['wav_complete_ns'])
 
+    # Analyze WAV provenance structure first
+    wavs_with_emit = [w for w in wavs_sorted if w.get('emit_chunk_min', -1) >= 0]
+    wavs_context_only = [w for w in wavs_sorted if w.get('emit_chunk_min', -1) < 0]
+
+    # Count multi-chunk emit WAVs (emit_min != emit_max)
+    multichunk_emit = [w for w in wavs_with_emit
+                       if w['emit_chunk_min'] != w['emit_chunk_max']]
+
     results = []
     state_counts = {'speak_generation': 0, 'speak_tail': 0, 'listen': 0,
-                    'total': len(benches), 'unmapped_wav': 0, 'ambiguous_chunk': 0,
-                    'duplicate_final': 0}
-
-    # Check for duplicate finals (same chunk_seq covered by conflicting WAV batches)
-    # This is inherent in sliding-window T2W but should not cause ambiguity.
+                    'total': len(benches),
+                    'context_only_wavs': len(wavs_context_only),
+                    'multichunk_emit_wavs': len(multichunk_emit),
+                    'wavs_with_emit': len(wavs_with_emit)}
 
     for b in benches:
         cs = b['chunk_seq']
 
-        # Find all WAVs whose causal range covers this chunk_seq
-        covering_wavs = [w for w in wavs_sorted
-                         if w.get('req_min', w['req']) <= cs <= w.get('req_max', w['req'])]
+        # CLASSIFICATION: use emit_chunk_min/max (ownership), NOT context_chunk (coverage)
+        if wavs_with_emit:
+            owned_wavs = [w for w in wavs_with_emit
+                          if w['emit_chunk_min'] <= cs <= w['emit_chunk_max']]
+        else:
+            # LEGACY fallback: use context_chunk range if emit not available
+            owned_wavs = [w for w in wavs_sorted
+                          if w.get('context_chunk_min', w.get('req_min', w['req'])) <= cs
+                          <= w.get('context_chunk_max', w.get('req_max', w['req']))]
 
-        if covering_wavs:
-            # TRUE SPEAK_GENERATION — this chunk's speech tokens produced audio
+        if owned_wavs:
+            # TRUE SPEAK_GENERATION — this chunk produced new audio output
             state_counts['speak_generation'] += 1
-            last_wav = covering_wavs[-1]  # final_for_chunk
-            latency_ns = last_wav['wav_complete_ns'] - b['prefill_start_ns']
-            rtf = latency_ns / 1e9  # chunk_duration = 1s
-
+            # RTF DEFERRED — do not compute final_for_chunk until ownership validated
             results.append({
                 'chunk_seq': cs,
                 'frame': b['frame'],
                 'state': 'SPEAK_GENERATION',
                 'prefill_start_ns': b['prefill_start_ns'],
-                'last_wav_complete_ns': last_wav['wav_complete_ns'],
-                'last_wav_idx': last_wav['wav_idx'],
-                'latency_ns': latency_ns,
-                'latency_ms': latency_ns / 1e6,
-                'rtf': rtf,
-                'num_wavs': len(covering_wavs),
+                'num_owned_wavs': len(owned_wavs),
+                'emit_min': min(w['emit_chunk_min'] for w in owned_wavs if w.get('emit_chunk_min', -1) >= 0) if owned_wavs else -1,
+                'emit_max': max(w['emit_chunk_max'] for w in owned_wavs if w.get('emit_chunk_max', -1) >= 0) if owned_wavs else -1,
                 'text_len': b['text_len'],
+                'rtf': None,  # DEFERRED
             })
         else:
-            # NO WAVs attributed to this chunk → did NOT generate speech
+            # NO audio produced by this chunk
             state_counts['speak_tail'] += 1
 
-    # Verify WAV completeness — every bench_wav should cover at least one chunk
+    # Verify WAV completeness — every WAV should own at least one chunk
     covered_chunks = set(r['chunk_seq'] for r in results)
+    unmapped_wavs = 0
     for w in wavs_sorted:
-        w_min = w.get('req_min', w['req'])
-        w_max = w.get('req_max', w['req'])
+        if wavs_with_emit:
+            w_min = w.get('emit_chunk_min', -1)
+            w_max = w.get('emit_chunk_max', -1)
+        else:
+            w_min = w.get('context_chunk_min', w.get('req_min', w['req']))
+            w_max = w.get('context_chunk_max', w.get('req_max', w['req']))
+        if w_min < 0:
+            continue  # skip uninitialized provenance
         w_chunks = set(range(w_min, w_max + 1))
         if not w_chunks.intersection(covered_chunks):
-            state_counts['unmapped_wav'] += 1
+            unmapped_wavs += 1
+    state_counts['unmapped_wav'] = unmapped_wavs
 
-    # Print causal completeness
+    # Print provenance completeness
     n_speak = state_counts['speak_generation']
     n_total = state_counts['total']
-    if n_speak == len(results):
-        print(f"  [ok] SERVER-CAUSAL: {n_speak}/{n_total} SPEAK_GENERATION "
-              f"(WAV-attributed), {state_counts['speak_tail']} SPEAK_TAIL, "
-              f"UNMAPPED_WAV={state_counts['unmapped_wav']}")
-    else:
-        print(f"  [warn] CAUSAL: {n_speak} SPEAK_GENERATION, "
-              f"{state_counts['speak_tail']} SPEAK_TAIL, "
-              f"UNMAPPED_WAV={state_counts['unmapped_wav']}")
+    n_wavs_with = state_counts['wavs_with_emit']
+    n_multichunk = state_counts['multichunk_emit_wavs']
+    n_context_only = state_counts['context_only_wavs']
 
-    # Compute RTF statistics
-    if results:
-        rtfs = [r['rtf'] for r in results]
-        rtfs_sorted = sorted(rtfs)
-        n = len(rtfs_sorted)
-        state_counts['rtf_mean'] = sum(rtfs) / n
-        state_counts['rtf_p50'] = rtfs_sorted[n // 2]
-        state_counts['rtf_p90'] = rtfs_sorted[int(n * 0.9)]
-        state_counts['rtf_p95'] = rtfs_sorted[int(n * 0.95)]
-        state_counts['rtf_min'] = rtfs_sorted[0]
-        state_counts['rtf_max'] = rtfs_sorted[-1]
-        walls = [r['latency_ms'] for r in results]
-        state_counts['wall_mean_ms'] = sum(walls) / n
-        state_counts['wall_p50_ms'] = sorted(walls)[n // 2]
+    print(f"  PROVENANCE: {n_speak}/{n_total} SPEAK_GENERATION (emit-attributed), "
+          f"{state_counts['speak_tail']} SPEAK_TAIL")
+    print(f"  WAVs: {len(wavs_sorted)} total, {n_wavs_with} with emit provenance, "
+          f"{n_context_only} context-only (legacy)")
+    print(f"  Multi-chunk emit WAVs: {n_multichunk} "
+          f"({'OWNERSHIP_AMBIGUOUS' if n_multichunk > 0 else 'SINGLE_OWNER'})")
+    print(f"  UNMAPPED_WAV={unmapped_wavs}")
+
+    # RTF computation DEFERRED until ownership structure validated (step ③)
+    # When emit provenance confirms single-owner per chunk, RTF will be:
+    #   RTF_C = (last_wav where emit range owns C).wav_complete_ns - prefill_start(C)
+    state_counts['rtf_mean'] = None
+    state_counts['rtf_note'] = 'DEFERRED — validate ownership structure first'
+
+    # Emit range width distribution (diagnostic)
+    if wavs_with_emit:
+        emit_widths = [w['emit_chunk_max'] - w['emit_chunk_min']
+                       for w in wavs_with_emit]
+        state_counts['emit_width_p50'] = sorted(emit_widths)[len(emit_widths) // 2]
+        state_counts['emit_width_max'] = max(emit_widths)
+        state_counts['emit_width_mean'] = sum(emit_widths) / len(emit_widths)
+        print(f"  Emit range width: p50={state_counts['emit_width_p50']}, "
+              f"max={state_counts['emit_width_max']}, mean={state_counts['emit_width_mean']:.1f}")
 
     return results, state_counts
-
-    return results
 
 
 # ═══════════════════════════════════════════════════════════
@@ -693,43 +736,25 @@ async def run_formal_benchmark(video_path, force_listen_count=None):
     print(f"Server [bench_wav] lines: {len(wavs)}")
     print(f"Server [bench] frames:    {len(benches)}")
 
-    # ── Server-side RTF ──
-    srv_rtf_mean = None
-    srv_wall_mean = None
+    # ── Server-side provenance analysis ──
     if server_rtfs:
-        srv_rtf_vals = [r['rtf'] for r in server_rtfs]
-        srv_wall_vals = [r['latency_ms'] for r in server_rtfs]
-        srv_rtf_mean = sum(srv_rtf_vals) / len(srv_rtf_vals) if srv_rtf_vals else None
-        srv_wall_mean = sum(srv_wall_vals) / len(srv_wall_vals) if srv_wall_vals else None
-        sw_srv = sorted(srv_wall_vals)
-        sr_srv = sorted(srv_rtf_vals)
         n_srv = len(server_rtfs)
-
         print(f"\n{'='*60}")
-        print(f"SERVER-SIDE SPEAK→WAV RTF (prefill_start → wav_complete)")
+        print(f"SERVER-SIDE PROVENANCE (emit range attribution, RTF DEFERRED)")
         print(f"{'='*60}")
         print(f"Server-side SPEAK_GENERATION chunks: {n_srv}")
-        print(f"  wall mean:               {srv_wall_mean:.1f}ms")
-        print(f"  wall p50:                {sw_srv[len(sw_srv)//2]:.1f}ms")
-        print(f"  wall p90:                {sw_srv[int(len(sw_srv)*0.9)]:.1f}ms")
-        print(f"  wall p95:                {sw_srv[int(len(sw_srv)*0.95)]:.1f}ms")
-        print(f"  wall min:                {min(sw_srv):.1f}ms")
-        print(f"  wall max:                {max(sw_srv):.1f}ms")
-        print()
-        print(f"  RTF mean:                {srv_rtf_mean:.4f}")
-        print(f"  RTF p50:                 {sr_srv[len(sr_srv)//2]:.4f}")
-        print(f"  RTF p90:                 {sr_srv[int(len(sr_srv)*0.9)]:.4f}")
-        print(f"  RTF p95:                 {sr_srv[int(len(sr_srv)*0.95)]:.4f}")
-        print(f"  RTF min:                 {min(sr_srv):.4f}")
-        print(f"  RTF max:                 {max(sr_srv):.4f}")
+        print(f"  RTF computation:         DEFERRED (validate ownership structure first)")
+        print(f"  Provenance granularity:  batch-level (T2WOut chunk_seq_max per token)")
         if srv_rtf_mean:
             print(f"\n  SPEEDUP vs 1.087:        {1.087/srv_rtf_mean:.2f}×")
 
-        # Per-chunk server-side detail (causal attribution)
-        print(f"\n  Per-chunk server-side RTF (causal req→chunk_seq):")
-        print(f"  {'chunk':>5s} {'frame':>5s} {'latency_ms':>10s} {'RTF':>8s} {'wavs':>5s} {'last_wav':>8s} {'text_ch':>7s}")
+        # Per-chunk provenance detail (emit attribution, RTF deferred)
+        print(f"\n  Per-chunk emit provenance (ownership, RTF deferred):")
+        print(f"  {'chunk':>5s} {'frame':>5s} {'wavs':>5s} {'emit_min':>8s} {'emit_max':>8s} {'text_ch':>7s} {'RTF':>8s}")
         for r in server_rtfs:
-            print(f"  {r['chunk_seq']:5d} {r['frame']:5d} {r['latency_ms']:10.1f} {r['rtf']:8.4f} {r['num_wavs']:5d} {r['last_wav_idx']:8d} {r['text_len']:7d}")
+            print(f"  {r['chunk_seq']:5d} {r['frame']:5d} {r.get('num_owned_wavs', r.get('num_wavs', 0)):5d} "
+                  f"{r.get('emit_min', -1):8d} {r.get('emit_max', -1):8d} {r['text_len']:7d} "
+                  f"{'DEFERRED':>8s}")
 
     # ── Formal verdict ──
     print(f"\n{'='*60}")
