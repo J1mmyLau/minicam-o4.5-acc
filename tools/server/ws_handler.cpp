@@ -849,6 +849,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
         // Reset at each input.append; accumulated during chunk processing.
         int chunk_text_tokens_before = 0;  // snapshot of ctx->generated_token_count before decode
         int chunk_audio_byte_count = 0;    // float32 PCM bytes in audio deltas this chunk
+        int chunk_tts_tokens_before = 0;   // snapshot of ctx->tts_all_generated_tokens.size() before decode
     };
     auto audio_state = std::make_shared<AudioCbState>();
     audio_state->session_id = session_id;
@@ -1276,10 +1277,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             tmp_files.image_path.clear();
 
             // F6 formal: snapshot token count after prefill (before decode)
-            // for per-chunk classify_chunk() n_tokens delta.
+            // for per-chunk classify_chunk() n_tokens / n_tts_tokens delta.
             {
                 std::lock_guard<std::mutex> lk(audio_state->mtx);
                 audio_state->chunk_text_tokens_before = octx->generated_token_count;
+                audio_state->chunk_tts_tokens_before = (int)octx->tts_all_generated_tokens.size();
             }
 
             // force_listen: caller forces this step to LISTEN — skip decoding
@@ -1428,24 +1430,22 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             {
                 // Per-chunk counters for SPEAK_GENERATION classification.
                 // Implements the same logic as benchmarks/speak_wav_rtf_client.py:classify_chunk()
-                // Classification parity status:
-                //   SPEAK_GENERATION: PASS (n_tokens>0 && audio_bytes>0)
-                //   SPEAK_TAIL:       INCOMPLETE (chunk_n_tts_tokens ≡ 0, not yet tracked)
                 int chunk_text_tokens = 0;
                 int chunk_audio_bytes = 0;
-                int chunk_tts_tokens = 0;  // TODO: track from T2W callback (n_tts_tokens)
+                int chunk_tts_tokens = 0;
                 {
                     std::lock_guard<std::mutex> lk(audio_state->mtx);
                     chunk_text_tokens = octx->generated_token_count - audio_state->chunk_text_tokens_before;
                     chunk_audio_bytes = audio_state->chunk_audio_byte_count;
+                    chunk_tts_tokens = (int)octx->tts_all_generated_tokens.size() - audio_state->chunk_tts_tokens_before;
                 }
 
                 // classify_chunk() — reimplementation of official spec logic:
                 //   SPEAK_GENERATION: n_tokens > 0 && audio_bytes > 0
                 //   SPEAK_TAIL:       n_tokens == 0 && (n_tts_tokens > 0 || audio_bytes > 0)
                 //   LISTEN:           emitted_listen (kind=listen delta observed)
-                // NOTE: n_tts_tokens is NOT tracked yet (≡0), so pure-TTS tail
-                //       (n_tokens=0, n_tts>0, audio=0) will fall through to OTHER.
+                // SPEAK_GENERATION parity: PASS (both conditions tracked)
+                // SPEAK_TAIL parity:       PASS (n_tts_tokens now tracked via tts_all_generated_tokens delta)
                 const char * bench_state = "UNKNOWN";
                 if (emitted_listen) {
                     bench_state = "LISTEN";
