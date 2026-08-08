@@ -130,7 +130,7 @@ def start_server(env_overrides=None):
     env["OMNI_T2W_DEVICE"] = "cann-flow-only"
     env["OMNI_T2W_DRAIN_TIMEOUT_MS"] = "120000"  # F6 causal: extended for complete WAV drain
     env["OMNI_T2W_PROFILE"] = "2"  # per-call T2W timing
-    env["OMNI_PER_CHUNK_DRAIN"] = "0"  # Default OFF: continuous pipeline for official RTF
+    env["OMNI_PER_CHUNK_DRAIN"] = os.environ.get("OMNI_PER_CHUNK_DRAIN", "1")  # ON for causal SPEAK→WAV RTF
     env["ASCEND_RT_VISIBLE_DEVICES"] = "0"
     if env_overrides:
         env.update(env_overrides)
@@ -779,7 +779,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Formal SPEAK→WAV RTF Benchmark")
     parser.add_argument("--video", type=str, default=DEFAULT_VIDEO,
                         help="MP4 video or WAV audio file")
-    parser.add_argument("--force-listen", type=int, default=None,
+    parser.add_argument("--force-listen", type=int, default=0,
                         help="force_listen_count (None=use server default)")
     args = parser.parse_args()
 
