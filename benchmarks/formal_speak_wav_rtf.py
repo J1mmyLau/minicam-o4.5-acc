@@ -82,11 +82,12 @@ def make_chunk_b64(chunk):
 # ═══════════════════════════════════════════════════════════
 
 def stop_server():
-    """Stop server via PID file with TERM→KILL escalation."""
+    """Stop server via PID file with TERM→KILL escalation.
+
+    PID-file discipline: only acts on the PID recorded in SERVER_PID_FILE.
+    No pkill/killall — shared 910C environment, must not affect other instances.
+    """
     if not os.path.exists(SERVER_PID_FILE):
-        # Fallback: try pkill for legacy cleanup
-        subprocess.run(["pkill", "-f", "llama-omni-server"], capture_output=True)
-        time.sleep(3)
         return
 
     pid = int(open(SERVER_PID_FILE).read().strip())
