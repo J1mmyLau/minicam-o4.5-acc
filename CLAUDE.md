@@ -4,6 +4,45 @@ IMPORTANT: Ensure you've thoroughly reviewed the [AGENTS.md](AGENTS.md) file bef
 
 # AUTONOMOUS CONTEXT MANAGEMENT POLICY
 
+IMPORTANT: GitHub push works. Do NOT claim it's unreachable.
+
+## Git Push Workflow (READ FIRST — DO NOT REDISCOVER)
+
+```
+Remote:    private = ssh.github.com:Phoenix3334/minicpmo45-ascend-private.git
+Auth:      ~/.ssh/minicpmo45_ascend_private deploy key (SSH, port 443)
+Push:      git push private <branch>     (DO NOT push to origin)
+Force:     NEVER git push --force
+```
+
+Quick check before pushing:
+```bash
+git push --dry-run private $(git branch --show-current)   # must PASS
+```
+
+If dry-run passes, push directly (NO timeout wrapper, let it complete):
+```bash
+GIT_SSH_COMMAND="ssh -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=20 -o Compression=yes" \
+git push --progress -u private $(git branch --show-current)
+```
+
+Scripts (commit 312a18c):
+- `scripts/push-to-private.sh [tag-name]` — push current branch + optional tag
+- `scripts/strip-large-files.sh` — remove >50MB blobs from history (uses git-filter-repo)
+
+Large files — GitHub rejects >100MB. .gitignore covers:
+- `profiles/`, `*.db`, `mindstudio_profiler_output/`, `benchmarks/results/`
+
+If push rejected with GH001: run `scripts/strip-large-files.sh`, then retry.
+
+DO NOT:
+- Claim "GitHub unreachable" without first running `git push --dry-run private`
+- Use HTTP proxy (agent.baidu.com won't resolve in this container)
+- Force push, rebase, or merge private/main
+- Push to origin (tc-mb/llama.cpp-omni) — upstream only, never push there
+
+---
+
 本项目属于长时间自主调试任务。
 
 你必须主动管理上下文，不得等到 context 100% 或 API 报 maximum context length 后才处理。
