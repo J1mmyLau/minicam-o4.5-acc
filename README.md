@@ -39,9 +39,19 @@
 
 **关键发现**：此前 "TTS crash fix"（tts_gpu_layers=99→0）在 ecee7de 上不需要且有害——F16 TTS 在 CPU 上产生 zero-norm embedding。RoPE 修复后，tts_gpu_layers=99（GPU TTS）完全正常工作。
 
-**双锚点校准**：Pipeline RTF = (26.2s LLM + 18.2s T2W + 0.7s prefill) / 98s audio = 0.46。P0-D Fitness Gate ALL PASS。
+**Fitness Gate**：P0-D ALL PASS — 服务启动、TTS GPU 加载（tts_gpu_layers=99）、CANN RoPE、Full Duplex、T2W 音频输出全部正常。
 
-✅ F16 可运行 baseline 锁定 | ✅ 双锚点方法论验证 | ✅ P0-D 全部通过
+**Aggregate RTF（吞吐指标，非 per-chunk 均值）**：
+- `AGGREGATE_COMPUTE_RTF = 0.46` = (26.2s LLM + 18.2s T2W + 0.7s prefill) / 98s generated audio
+- `AGGREGATE_WALL_RTF = 0.45` = 43.7s first→last WAV span / 98s generated audio
+- `T2W_THROUGHPUT_RTF = 0.19` = 18.2s T2W / 98s generated audio
+- ⚠️ Wall < Compute (0.45 < 0.46) → 两者使用不同时间窗口，非同一量纲
+- ⚠️ 分母 98s 是生成音频总时长（35 个 1s 输入 chunk 产出了 98 个 WAV），不是 35s 输入时长
+- ⚠️ 这些是 aggregate throughput RTF，**不可直接与官方 per-chunk mean RTF（0.618/1.087）比较**
+
+**双锚点校准状态**：`NOT_COMPLETE` — 需要 per-chunk state-aware 均值（而非 aggregate ratio），需要 2W+5M 协议。
+
+✅ F16 最小可运行 baseline 锁定（ecee7de） | ✅ P0-D Fitness Gate 全部通过 | ⏳ 双锚点校准待完成
 
 ### 第二阶段：CANN T2W 迁移（7月28日–8月1日）
 
