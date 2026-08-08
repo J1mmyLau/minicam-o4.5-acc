@@ -32,6 +32,8 @@ extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
 // e2e_record_ns() reads this to determine which per-request timestamps_ns[] slot
 // to mirror each Flow/Vocoder stage write into.
 thread_local C8FlowVocoderTargets g_c8_thread_targets;
+// T2W decomposition: encoder time from pre-built gf_enc graph (set in inference_chunk)
+thread_local double g_last_enc_ms = 0.0;
 
 // ============================================================================
 // P3: Vocoder path hit counters (default OFF, zero overhead when OFF)
@@ -352,6 +354,7 @@ flowSetupCacheOut flowCausalMaskedDiffWithXvec::build_setup_cache_graph(
     ggml_tensor * spk_proj_cb = flow_build_linear_cb(ctx, spk_norm_cb, spk_affine_weight_, spk_affine_bias_);
     auto enc_out = encoder_->forward_chunk(ctx, xs_ctb, false, nullptr, nullptr);
     ggml_tensor * mu_ctb = flow_build_linear_ctb(ctx, enc_out.ys_ctb, encoder_proj_weight_, encoder_proj_bias_);
+    ggml_set_name(mu_ctb, "enc_mu_ctb_boundary");  // marks encoder/FM split point
     out.mu_ctb = mu_ctb;
     flow_matching::fmCFMCache   tmp_cache;
     flow_matching::fmCFMCache * cache_out_ptr = estimator_cache_out ? estimator_cache_out : &tmp_cache;
@@ -417,6 +420,7 @@ flowInferenceChunkOut flowCausalMaskedDiffWithXvec::build_inference_chunk_graph(
     ggml_tensor * spk_proj_cb = flow_build_linear_cb(ctx, spk_norm_cb, spk_affine_weight_, spk_affine_bias_);
     auto enc_out = encoder_->forward_chunk(ctx, xs_ctb, last_chunk, conformer_cnn_cache_in, conformer_att_cache_in);
     ggml_tensor * mu_ctb = flow_build_linear_ctb(ctx, enc_out.ys_ctb, encoder_proj_weight_, encoder_proj_bias_);
+    ggml_set_name(mu_ctb, "enc_mu_ctb_boundary");  // marks encoder/FM split point for T2W decomposition
     ggml_tensor * cond_ctb = ggml_scale(ctx, mu_ctb, 0.0f);
     flow_matching::fmCFMCache   tmp_cache;
     flow_matching::fmCFMCache * cache_out_ptr = estimator_cache_out ? estimator_cache_out : &tmp_cache;
@@ -7813,6 +7817,7 @@ struct flowGGUFModelRunner::streamSession {
     ggml_cgraph * gf_setup   = nullptr;
     ggml_cgraph * gf_nonlast = nullptr;
     ggml_cgraph * gf_last    = nullptr;
+    ggml_cgraph * gf_enc     = nullptr;  // encoder-only graph for T2W decomposition timing
     int call_id_setup   = -1;
     int call_id_nonlast = -1;
     int call_id_last    = -1;
@@ -8050,7 +8055,24 @@ bool flowGGUFModelRunner::setup_cache(const int32_t *       token_bt,
         ggml_build_forward_expand(sess_->gf_last, cpy_est_cnn_2);
         ggml_build_forward_expand(sess_->gf_last, cpy_est_att_2);
 
-        
+        // Build encoder-only graph for T2W decomposition timing.
+        // mu_ctb is named "enc_mu_ctb_boundary" in build_inference_chunk_graph.
+        ggml_tensor * mu_enc = ggml_graph_get_tensor(sess_->gf_nonlast, "enc_mu_ctb_boundary");
+        if (!mu_enc) {
+            mu_enc = ggml_graph_get_tensor(sess_->gf_last, "enc_mu_ctb_boundary");
+        }
+        if (mu_enc) {
+            std::fprintf(stderr, "[t2w-debug] gf_enc built: mu_enc found, n_nodes_nonlast=%d n_nodes_last=%d\n",
+                         ggml_graph_n_nodes(sess_->gf_nonlast), ggml_graph_n_nodes(sess_->gf_last));
+            sess_->gf_enc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+            ggml_build_forward_expand(sess_->gf_enc, mu_enc);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_att_1);
+        } else {
+            std::fprintf(stderr, "[t2w-debug] WARNING: mu_enc NOT found in gf_nonlast or gf_last\n");
+        }
+
+
         ggml_cgraph * gf_alloc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 1024, false);
         ggml_build_forward_expand(gf_alloc, cpy_conf_cnn);
         ggml_build_forward_expand(gf_alloc, cpy_conf_att);
@@ -8066,6 +8088,12 @@ bool flowGGUFModelRunner::setup_cache(const int32_t *       token_bt,
         ggml_build_forward_expand(gf_alloc, cpy_conf_att_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_cnn_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_att_2);
+        // Include encoder-only graph nodes for gallocr memory planning
+        if (mu_enc) {
+            ggml_build_forward_expand(gf_alloc, mu_enc);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_att_1);
+        }
 
         ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(loader_.backend());
         sess_->galloc = ggml_gallocr_new(buft);
@@ -8198,6 +8226,23 @@ bool flowGGUFModelRunner::inference_chunk(const int32_t *             token_bt,
             ggml_graph_print(gf);
         }
     }
+    // T2W decomposition: compute pre-built encoder-only graph to measure HG2 encoder time.
+    // gf_enc is built during setup_cache from the encoder portion of the fused graph.
+    if (sess_->gf_enc) {
+        const auto t_enc0 = std::chrono::steady_clock::now();
+        const ggml_status st = ggml_backend_graph_compute(loader_.backend(), sess_->gf_enc);
+        if (st != GGML_STATUS_SUCCESS) {
+            return false;
+        }
+        if (runner_backend_is_device(loader_.backend())) {
+            ggml_backend_synchronize(loader_.backend());
+        }
+        const auto t_enc1 = std::chrono::steady_clock::now();
+        g_last_enc_ms = std::chrono::duration<double, std::milli>(t_enc1 - t_enc0).count();
+        omni::flow::profile::record_ms("t2m.encoder", g_last_enc_ms, false);
+    }
+    // Compute full fused graph (encoder + flow matching).
+    // FM time = t2m.compute - t2m.encoder (recorded by Profiler).
     {
         omni::flow::profile::ScopeTimer _t("t2m.compute");
         // [PR25-GF_LAST-EAGER] 默认对 last_chunk 走 eager path：
@@ -8692,6 +8737,23 @@ bool flowGGUFModelRunner::init_from_host_caches(const flowStreamCacheHost & cach
         ggml_build_forward_expand(sess_->gf_last, cpy_est_cnn_2);
         ggml_build_forward_expand(sess_->gf_last, cpy_est_att_2);
 
+        // Build encoder-only graph for T2W decomposition timing.
+        // mu_ctb is named "enc_mu_ctb_boundary" in build_inference_chunk_graph.
+        ggml_tensor * mu_enc = ggml_graph_get_tensor(sess_->gf_nonlast, "enc_mu_ctb_boundary");
+        if (!mu_enc) {
+            mu_enc = ggml_graph_get_tensor(sess_->gf_last, "enc_mu_ctb_boundary");
+        }
+        if (mu_enc) {
+            std::fprintf(stderr, "[t2w-debug] gf_enc built (init_from_host_caches): mu_enc found, n_nodes_nonlast=%d n_nodes_last=%d\n",
+                         ggml_graph_n_nodes(sess_->gf_nonlast), ggml_graph_n_nodes(sess_->gf_last));
+            sess_->gf_enc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+            ggml_build_forward_expand(sess_->gf_enc, mu_enc);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_att_1);
+        } else {
+            std::fprintf(stderr, "[t2w-debug] WARNING (init_from_host_caches): mu_enc NOT found in gf_nonlast or gf_last\n");
+        }
+
         ggml_cgraph * gf_alloc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 1024, false);
         ggml_build_forward_expand(gf_alloc, sess_->out_feat_nonlast_ctb);
         ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
@@ -8703,6 +8765,12 @@ bool flowGGUFModelRunner::init_from_host_caches(const flowStreamCacheHost & cach
         ggml_build_forward_expand(gf_alloc, cpy_conf_att_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_cnn_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_att_2);
+        // Include encoder-only graph nodes for gallocr memory planning
+        if (mu_enc) {
+            ggml_build_forward_expand(gf_alloc, mu_enc);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_att_1);
+        }
 
         ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(loader_.backend());
         sess_->galloc = ggml_gallocr_new(buft);
@@ -10006,10 +10074,11 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
         omni::flow::profile::record_ms("vocoder", 0.0, is_first);
         omni::flow::profile::record_ms("total", total_ms, is_first);
         if (omni::flow::profile::verbose()) {
+            const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
             std::fprintf(stderr,
-                         "[timing] call=%lld%s tokens=%lld final=%d token2mel=%.3fms vocoder=%.3fms total=%.3fms\n",
-                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final, t2m_ms,
-                         0.0, total_ms);
+                         "[timing] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms vocoder=%.3fms total=%.3fms\n",
+                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                         g_last_enc_ms, fm_ms, t2m_ms, 0.0, total_ms);
         }
         return true;
     }
@@ -10074,10 +10143,12 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     omni::flow::profile::record_audio_samples((int64_t) out_T_audio, (int32_t) Token2Wav::kSampleRate);
 
     if (omni::flow::profile::verbose()) {
+        const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
         std::fprintf(
             stderr,
-            "[timing] call=%lld%s tokens=%lld final=%d token2mel=%.3fms vocoder=%.3fms total=%.3fms audio=%lld\n",
-            (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final, t2m_ms, voc_ms, total_ms,
+            "[timing] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms vocoder=%.3fms total=%.3fms audio=%lld\n",
+            (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+            g_last_enc_ms, fm_ms, t2m_ms, voc_ms, total_ms,
             (long long) out_T_audio);
     }
 
