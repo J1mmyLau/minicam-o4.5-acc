@@ -2393,12 +2393,23 @@ static bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params
             batch.pos[j] = *n_past + j;  // 从当前 n_past 位置开始
         }
 
+        if (getenv("OMNI_WS_DIAG")) {
+            print_with_timestamp("[diag] llama_decode: n_past=%d n_eval=%d batch_size=%d\n",
+                                *n_past, n_eval, batch.n_tokens);
+        }
         if (llama_decode(ctx_omni->ctx_llama, batch)) {
             LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
+            if (getenv("OMNI_WS_DIAG")) {
+                print_with_timestamp("[diag] llama_decode FAILED: n_past=%d n_eval=%d\n", *n_past, n_eval);
+            }
             llama_set_embeddings(ctx_omni->ctx_llama, false);
             free(hidden_states);
             hidden_states = nullptr;
             return false;
+        }
+        if (getenv("OMNI_WS_DIAG")) {
+            print_with_timestamp("[diag] llama_decode OK: n_past_before=%d n_past_after=%d\n",
+                                *n_past, *n_past + n_eval);
         }
 
         // 获取当前 batch 的 embeddings 并复制到 hidden_states
@@ -12581,7 +12592,9 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
     }
 
     // ---- 采样主循环（搬自老 stream_decode duplex 分支） ----
-    const int max_tgt_len = params->n_predict < 0 ? params->n_ctx : params->n_predict;
+    const int max_tgt_len = ctx_omni->request_max_tokens > 0
+        ? ctx_omni->request_max_tokens
+        : (params->n_predict < 0 ? params->n_ctx : params->n_predict);
     const int step_size   = 10;   // chunk 推送给 TTS 的 LLM token 数量
     bool is_first_duplex_chunk = true;  // B6b: first chunk uses step=5 for faster TTS wake
     // C6: env var for strict A/B testing

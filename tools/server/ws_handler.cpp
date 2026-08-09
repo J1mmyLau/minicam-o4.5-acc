@@ -1295,6 +1295,10 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 continue;
             }
 
+            // Propagate generation.max_new_tokens to the omni context so the
+            // duplex decode path can pick it up (matching turn_based path L1032).
+            octx->request_max_tokens = parsed_input.max_new_tokens;
+
             // Decode: start background thread, poll text_queue on this thread
             std::string debug_dir = session_output_dir;
 
