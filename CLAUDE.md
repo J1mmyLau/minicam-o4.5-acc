@@ -287,35 +287,28 @@ NEEDS_MORE_EVIDENCE 等状态时，必须自动执行下一项，不得停止汇
 
 ---
 
-# CURRENT PHASE: KV Cache Production Gates
+# CURRENT PHASE: Phase C — W8A8 CANN Quantized Matmul Pipeline
 
-Closed from: `perf/ngl8-e2e-stage-profiling` (tag: `ngl8-e2e-closeout-20260726`, HEAD: `a70c085`)
-Current branch: `perf/kv-cache-production-gates`
-Worktree: `/workspace/llama.cpp-omni-kvcache-prod`
+**Primary branch:** `main` (final submission branch), currently at `e23b8d9`
+**Worktree:** `/workspace/llama.cpp-omni-session-fix`
 
-Baseline conclusions (DO NOT MODIFY):
-- T2W lifecycle VALIDATED (91e5674, P9: 150/150, 0 rc0_without_audio)
-- KV cache functional PASS (62 reused tokens, cache_miss=0)
-- KV cache performance PASS_FOR_TESTED_STATIC_PREFIX_WORKLOAD (30 pairs, 9642ms p50, CI [8742,11470])
-- KV cache production OPT_IN_READY / DEFAULT_OFF
-- General production readiness NOT_YET_APPROVED (8 boundary conditions NOT_TESTED)
+## Phase Status
+| Phase | Status | Summary |
+|-------|--------|---------|
+| Phase A (F16 baseline) | COMPLETE | F16_LOCAL_SPEAK_RTF_MEAN=1.560, reliable local baseline |
+| Phase B (Q8_0 A/B) | COMPLETE | Q8_0 10.3% SLOWER than F16, confirms CANN quant path loss |
+| Phase C1 (W8A8 V3) | COMPLETE | QuantMatmulV3 1.27× (F16) / 2.22× (Q8_0); V5=DEAD_END |
+| Phase C4 1a (W8A8 prototype) | COMPLETE | W8A8 pipeline NO CRASH, non-regression confirmed |
+| Phase C4 1b (numerical) | COMPLETE | 0 Q8_0 failures W8A8=1, 5 bugs fixed |
+| Phase C4 1c (perf A/B) | COMPLETE | 4.76× model-weighted vs V2, Gate 3 PASS → PROCEED_TO_PHASE2 |
+| **Phase C4 2 (integration)** | **CURRENT** | Gate 1 correctness, shape dispatch, ACT_SCALE optimization |
 
-当前任务优先级：
-1. P0: Phase initialization — 创建计划文档、gate matrix、soak status
-2. P1: Production-grade cache file storage — 可配置路径、原子写入、锁、损坏恢复、cache key coverage
-3. P2: 8 项边界条件 Gate matrix — 逐项测试，不靠代码审计判定
-4. P3: 分级稳定性长测 — 1h→6h→24h→72h→168h，逐级 Gate
-5. P4: DEFAULT_ON / OPT_IN 最终决策
-6. P5: 状态与提交
+## Phase 2 Priority
+1. **P0**: Verify W8A8 correctness against test-backend-ops criterion (Gate 1 closure)
+2. **P1**: Shape-dependent dispatch — skip W8A8 for S2/S3 (K=1024, N≤1024)
+3. **P2**: Eliminate ACT_SCALE overhead — NPU-side dynamic quantization
+4. **P3**: Per-group weight×act scale for accuracy
 
-禁止：
-- 修改旧 closeout 分支
-- 覆盖已有实验报告
-- 在完成全部 Gate 前宣称 DEFAULT_ON
-- 从 168h 直接开始（必须先过 1h/6h/24h/72h Gate）
-- 前台阻塞长时间运行
-- 仅凭代码审计判定边界测试 PASS
-
-最终停止条件：
-A. 全部 Gate 通过 + 生产决策文档化
-B. 外部硬阻塞（缺失文件/凭据/硬件故障/权限不足）
+## Key Artifacts
+- Benchmark: `phase1c_w8a8_bench.cpp`
+- Results: `benchmarks/results/phase1c_formal_results.csv`
