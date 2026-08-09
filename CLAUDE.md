@@ -287,10 +287,16 @@ NEEDS_MORE_EVIDENCE 等状态时，必须自动执行下一项，不得停止汇
 
 ---
 
-# CURRENT PHASE: Phase C — W8A8 CANN Quantized Matmul Pipeline
+# CURRENT PHASE: Phase C — COMPLETE (W8A8 CANN Quantized Matmul Pipeline)
 
-**Primary branch:** `main` (final submission branch), currently at `e23b8d9`
+**Primary branch:** `main` (final submission branch), currently at `f12b59a`
 **Worktree:** `/workspace/llama.cpp-omni-session-fix`
+
+## Phase C Conclusion
+
+**ROUTE A:** F16 primary for all MUL_MAT. W8A8 as Q8_0 opt-in behind `GGML_CANN_W8A8=1`.
+W8A8 is 4.76× faster than V2 but 2.5× slower than F16. Oracle = F16 for every shape.
+Full documentation: `docs/w8a8-cann-quant-matmul.md`
 
 ## Phase Status
 | Phase | Status | Summary |
