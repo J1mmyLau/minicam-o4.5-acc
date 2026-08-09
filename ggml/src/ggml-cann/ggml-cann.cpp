@@ -125,6 +125,18 @@ static void cannd_runtime_diag_dump() {
 #define CANND_DIAG_INC(field) \
     do { if (cannd_runtime_diag_enabled()) g_runtime_diag.field.fetch_add(1, std::memory_order_relaxed); } while(0)
 
+bool cannd_w8a8_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_W8A8");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            GGML_LOG_INFO("%s: W8A8 path enabled (aclnnQuantMatmulV3, deprecated)\n", __func__);
+        }
+    }
+    return enabled == 1;
+}
+
 /**
  * @brief Set the CANN device to be used.
  *

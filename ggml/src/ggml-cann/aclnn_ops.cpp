@@ -85,6 +85,11 @@
 #include <aclnnop/aclnn_masked_fill_scalar.h>
 #include <aclnnop/aclnn_upsample_nearest_2d.h>
 #include <aclnnop/aclnn_weight_quant_batch_matmul_v2.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#include <aclnnop/aclnn_quant_matmul_v3.h>
+#pragma GCC diagnostic pop
+#include <aclnnop/aclnn_quantize.h>
 #include <aclnnop/aclnn_zero.h>
 #include <float.h>
 
@@ -2169,6 +2174,35 @@ static void ggml_cann_mat_mul_fp(ggml_backend_cann_context & ctx, ggml_tensor * 
 /**
  * @brief Performs matrix multiplication with quantized weights and
  * floating-point inputs using the CANN backend.
+ */
+
+// Create 1-element scalar tensor for aclnnQuantize and QuantMatmulV3
+// scale/zeroPoint parameters. Uses raw aclCreateTensor for types not
+// covered by ggml_cann_create_tensor template.
+template<typename T>
+static acl_tensor_ptr make_scalar_tensor(T *val, aclDataType dtype) {
+    int64_t sh[] = {1}, st[] = {(int64_t)sizeof(T)};
+    int64_t sl = (int64_t)sizeof(T);
+    return acl_tensor_ptr(aclCreateTensor(sh, 1, dtype, st, 0, ACL_FORMAT_ND, &sl, 1, val));
+}
+
+// Find max per-group weight scale for per-tensor approximation.
+// Phase 1a uses fixed act_scale=1.0f.
+// Phase 1b will compute act_scale from activation min/max.
+static float max_weight_scale(const char* scale_data, size_t scale_stride,
+                              int64_t ne2, int64_t ne3, int64_t N, int64_t K_groups) {
+    float max_w = 0.0f;
+    for (int64_t b = 0; b < ne3 * ne2; b++) {
+        const uint16_t* s = (const uint16_t*)(scale_data + b * scale_stride);
+        for (int64_t n = 0; n < N; n++)
+            for (int64_t k = 0; k < K_groups; k++)
+                max_w = std::max(max_w, GGML_FP16_TO_FP32(s[k + n * K_groups]));
+    }
+    return max_w > 0 ? max_w : 1.0f;
+}
+
+/**
+ * @brief Performs quantized matrix multiplication for W8A8 (Q8_0 weights).
  *
  * This function performs matrix multiplication of the input tensor `src1` and
  * the weight tensor `src0`, handling broadcasting, transposing, and
@@ -2319,6 +2353,254 @@ static void ggml_cann_mul_mat_quant(ggml_backend_cann_context & ctx, ggml_tensor
     }
 }
 
+// W8A8 Q8_0 MUL_MAT using aclnnQuantize + aclnnQuantMatmulV3.
+// Gated behind GGML_CANN_W8A8=1. Phase 1a: fixed act_scale=1.0f.
+static void ggml_cann_mul_mat_w8a8(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
+    ggml_tensor * src0 = dst->src[0];  // weight (Q8_0, de-interleaved: [K,N] INT8)
+    ggml_tensor * src1 = dst->src[1];  // input (FP16)
+
+    // ── Weight extraction: dequant Q8_0 + requant to per-tensor INT8 ──
+    // (Q8_0 uses per-group scales; V3 needs per-tensor scale.
+    //  We dequantize with per-group scales, then requantize with a single
+    //  per-tensor w_scale so that V3's combined scale is correct.)
+    const int64_t K = src0->ne[0];
+    const int64_t N = src0->ne[1];
+
+    constexpr float weight_elem_size = float(sizeof(int8_t));
+    float  weight_nb[]   = { src0->ne[0] * weight_elem_size, weight_elem_size };
+    size_t weight_stride = (size_t)K * N * weight_elem_size;  // per-batch requantized weight stride
+
+    // Scale offset in original Q8_0 de-interleaved layout (for D2H copy)
+    constexpr size_t scale_elem_size = sizeof(uint16_t);
+    size_t scale_stride = src0->ne[1] * src0->ne[0] / QK8_0 * scale_elem_size;
+    size_t weight_size  = (size_t)K * N * sizeof(uint8_t) * src0->ne[2] * src0->ne[3];
+    char * scale_offset = (char *)src0->data + weight_size;
+
+    // ── Input (same as V2 path) ──
+    constexpr size_t input_elem_size = sizeof(uint16_t);
+    int64_t          input_ne[]      = { src1->ne[0], src1->ne[1] };
+    size_t           input_nb[]      = { input_elem_size, input_ne[0] * input_elem_size };
+    size_t           input_stride    = input_ne[0] * input_ne[1] * input_elem_size;
+    ggml_cann_pool_alloc input_alloctor(ctx.pool());
+    void *           input_buffer = src1->data;
+
+    if (src1->type != GGML_TYPE_F16) {
+        acl_tensor_ptr acl_src1_tensor = ggml_cann_create_tensor(src1);
+        input_buffer = input_alloctor.alloc(ggml_nelements(src1) * input_elem_size);
+
+        int64_t * input_cast_ne = src1->ne;
+        size_t    input_cast_nb[GGML_MAX_DIMS];
+        input_cast_nb[0] = sizeof(uint16_t);
+        for (int i = 1; i < GGML_MAX_DIMS; i++) {
+            input_cast_nb[i] = input_cast_nb[i - 1] * input_cast_ne[i - 1];
+        }
+
+        acl_tensor_ptr acl_input_tensor = ggml_cann_create_tensor(input_buffer, ACL_FLOAT16, input_elem_size,
+                                                                   input_cast_ne, input_cast_nb, GGML_MAX_DIMS);
+        aclnn_cast(ctx, acl_src1_tensor.get(), acl_input_tensor.get(), ACL_FLOAT16);
+    }
+
+    // ── Output (same as V2 path) ──
+    constexpr size_t output_elem_size = sizeof(uint16_t);
+    size_t           output_nb[]      = { output_elem_size, dst->ne[0] * output_elem_size };
+    ggml_cann_pool_alloc output_allocator(ctx.pool());
+    void *           output_buffer = output_allocator.alloc(ggml_nelements(dst) * output_elem_size);
+    size_t           output_stride = dst->ne[0] * dst->ne[1] * output_elem_size;
+
+    // ── INT8 activation buffer (per-batch, same K×S shape) ──
+    size_t act_int8_nb[] = { sizeof(int8_t), (size_t)input_ne[0] * sizeof(int8_t) };
+    size_t act_int8_sz   = (size_t)input_ne[0] * input_ne[1] * sizeof(int8_t);
+    ggml_cann_pool_alloc act_int8_allocator(ctx.pool());
+    void * act_int8_buffer = act_int8_allocator.alloc(act_int8_sz);
+
+    // ── Per-tensor scale: dequant Q8_0 weights with per-group scales,
+    //     then requantize with a single per-tensor scale for V3.
+    //     Weight scales are in device memory → copy to host.
+    size_t host_scale_bytes = scale_stride * src0->ne[2] * src0->ne[3];
+    size_t weight_n_elems  = (size_t)K * N * src0->ne[2] * src0->ne[3];
+    size_t weight_n_groups = weight_n_elems / QK8_0;  // one scale per 32 elements
+    size_t weight_bytes    = weight_n_elems * sizeof(uint8_t);
+
+    std::vector<uint16_t> host_scales(host_scale_bytes / sizeof(uint16_t));
+    aclrtMemcpy(host_scales.data(), host_scale_bytes, scale_offset, host_scale_bytes,
+                ACL_MEMCPY_DEVICE_TO_HOST);
+
+    std::vector<uint8_t> host_weight_qs(weight_n_elems);
+    aclrtMemcpy(host_weight_qs.data(), weight_bytes, src0->data, weight_bytes,
+                ACL_MEMCPY_DEVICE_TO_HOST);
+
+    // Dequantize Q8_0 → FP32 using per-group scales
+    std::vector<float> host_weight_f32(weight_n_elems);
+    float weight_max_abs = 0.0f;
+    for (size_t i = 0; i < weight_n_elems; i++) {
+        size_t gi = i / QK8_0;  // group index (flat across all batches)
+        float group_scale = GGML_FP16_TO_FP32(host_scales[gi]);
+        float val = (float)(int8_t)host_weight_qs[i] * group_scale;
+        host_weight_f32[i] = val;
+        weight_max_abs = std::max(weight_max_abs, std::abs(val));
+    }
+    float weight_scale_f32 = weight_max_abs / 127.0f;
+    if (weight_scale_f32 == 0.0f) weight_scale_f32 = 1.0f;
+
+    // Requantize FP32 → INT8 with per-tensor scale
+    std::vector<int8_t> host_weight_i8(weight_n_elems);
+    for (size_t i = 0; i < weight_n_elems; i++) {
+        float clamped = std::max(-128.0f, std::min(127.0f,
+                          std::round(host_weight_f32[i] / weight_scale_f32)));
+        host_weight_i8[i] = (int8_t)clamped;
+    }
+
+    // Allocate device buffer for requantized INT8 weights
+    ggml_cann_pool_alloc weight_i8_allocator(ctx.pool());
+    void * weight_i8_dev = weight_i8_allocator.alloc(weight_n_elems * sizeof(int8_t));
+    aclrtMemcpy(weight_i8_dev, weight_n_elems * sizeof(int8_t), host_weight_i8.data(),
+                weight_n_elems * sizeof(int8_t), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    // Compute activation scale from max absolute value of FP16 input
+    // (D2H copy of input tensor — small for typical MUL_MAT sizes)
+    size_t input_elems  = (size_t)input_ne[0] * input_ne[1] * src1->ne[2] * src1->ne[3];
+    size_t input_bytes  = input_elems * input_elem_size;
+    std::vector<uint16_t> host_input(input_elems);
+    aclrtMemcpy(host_input.data(), input_bytes, input_buffer, input_bytes,
+                ACL_MEMCPY_DEVICE_TO_HOST);
+    float act_max_abs = 0.0f;
+    for (auto v : host_input) {
+        act_max_abs = std::max(act_max_abs, std::abs(GGML_FP16_TO_FP32(v)));
+    }
+    float act_scale_f32 = act_max_abs / 127.0f;
+    if (act_scale_f32 == 0.0f) act_scale_f32 = 1.0f;
+    float    combined_scale = weight_scale_f32 * act_scale_f32;
+    int32_t  zero_point     = 0;
+
+    // Device memory for scalar tensors (CANN kernels need device pointers, not host stack)
+    // V3 scale: uint64 with combined_scale f32 bits in lower 32 (upper 32 ignored by V3).
+    // Quantize uses act_scale_f32 (float32) for FP16→INT8 quantization step.
+    // V3 uses combined_scale = weight_scale × act_scale for INT32 acc→FP16 output dequant.
+    ggml_cann_pool_alloc scalar_allocator(ctx.pool());
+    char *   d_scalars = (char *)scalar_allocator.alloc(sizeof(float) + sizeof(int32_t) + sizeof(uint64_t));
+    float *  d_scale   = (float *)d_scalars;
+    int32_t *d_zp      = (int32_t *)(d_scalars + sizeof(float));
+    uint64_t *d_comb   = (uint64_t *)(d_scalars + sizeof(float) + sizeof(int32_t));
+    {
+        // Quantize: act_scale_f32 converts FP16→INT8 (scalar per-tensor, axis=-1)
+        // V3 Matmul: combined_scale = weight_scale × act_scale, stored as f32 bits
+        //            in lower 32 bits of uint64 (V3 ignores upper 32 bits)
+        float   tmp_scale  = act_scale_f32;
+        int32_t tmp_zp     = zero_point;
+        uint32_t c_bits    = *reinterpret_cast<const uint32_t *>(&combined_scale);
+        uint64_t tmp_comb  = (uint64_t)c_bits;
+        aclrtMemcpy(d_scale, sizeof(float), &tmp_scale, sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(d_zp, sizeof(int32_t), &tmp_zp, sizeof(int32_t), ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(d_comb, sizeof(uint64_t), &tmp_comb, sizeof(uint64_t), ACL_MEMCPY_HOST_TO_DEVICE);
+    }
+
+    // ── K-split (reuse 65535 limit from V2) ──
+    constexpr int64_t max_elem_size = 65535;
+    int64_t           split_size    = (N / max_elem_size) + 1;
+    ggml_cann_pool_alloc workspace_allocator(ctx.pool());
+    for (int64_t n1 = 0; n1 < src1->ne[3]; n1++) {
+        for (int64_t c1 = 0; c1 < src1->ne[2]; c1++) {
+            int64_t n0 = n1 / (src1->ne[3] / src0->ne[3]);
+            int64_t c0 = c1 / (src1->ne[2] / src0->ne[2]);
+
+            int64_t batch1 = (n1 * src1->ne[2]) + c1;
+            int64_t batch0 = (n0 * src0->ne[2]) + c0;
+
+            // ── V3 requires CANN-native [K,S] ordering (not ggml-reversed [S,K]).
+            //     ggml_cann_create_tensor reverses ne/nb: pass {S,K} → CANN [K,S].
+            int64_t input_ne_cann[] = { input_ne[1], input_ne[0] };            // {S, K}
+            size_t  input_nb_cann[] = { input_nb[1], input_nb[0] };            // {K*elem, elem}
+            size_t  act_int8_nb_cann[] = { act_int8_nb[1], act_int8_nb[0] };    // {K*sizeof, sizeof}
+
+            // Activation FP16 tensor for this batch (CANN-native [K,S] for V3)
+            acl_tensor_ptr acl_input_tensor = ggml_cann_create_tensor(
+                (char *) input_buffer + batch1 * input_stride, ACL_FLOAT16,
+                input_elem_size, input_ne_cann, input_nb_cann, 2);
+
+            // Quantize: FP16 → INT8 (per-tensor) via aclnnQuantize
+            acl_tensor_ptr acl_act_int8_tensor = ggml_cann_create_tensor(
+                act_int8_buffer, ACL_INT8, sizeof(int8_t), input_ne_cann, act_int8_nb_cann, 2);
+            acl_tensor_ptr acl_scale_tensor = make_scalar_tensor(d_scale, ACL_FLOAT);
+            acl_tensor_ptr acl_zp_tensor    = make_scalar_tensor(d_zp, ACL_INT32);
+            acl_tensor_ptr acl_v3_scale     = make_scalar_tensor(d_comb, ACL_UINT64);
+
+            GGML_CANN_CALL_ACLNN_OP(ctx, Quantize,
+                                    acl_input_tensor.get(),
+                                    acl_scale_tensor.get(),
+                                    acl_zp_tensor.get(),
+                                    ACL_INT8, -1,  // dtype=INT8, axis=-1 (per-tensor)
+                                    acl_act_int8_tensor.get());
+
+            // ── MatMul: INT8×INT8 → FP16 via QuantMatmulV3 ──
+            // x1=weight[K,split_N], x2=activation_int8[K,S], scale=float32[1]
+            // transposeX1=true: weight^T [split_N,K] · activation [K,S] → [split_N,S]
+
+            // First split
+            int64_t weight_ne_offset = 0;
+            int64_t weight_ne[2]     = { max_elem_size > N ? N : max_elem_size, K };
+            int64_t output_ne_offset = 0;
+            // V3 output in CANN-native [N,S] order → ggml passes {S,N}
+            int64_t output_ne_cann[2] = { dst->ne[1], weight_ne[0] };            // {S, N}
+            size_t  output_nb_cann[2] = { weight_ne[0] * output_elem_size, output_elem_size };  // {N*elem, elem}
+
+            acl_tensor_ptr acl_weight_tensor =
+                ggml_cann_create_tensor((char *) weight_i8_dev + batch0 * weight_stride, ACL_INT8,
+                                        weight_elem_size, weight_ne, weight_nb, 2, ACL_FORMAT_ND, weight_ne_offset);
+            acl_tensor_ptr acl_output_tensor =
+                ggml_cann_create_tensor((char *) output_buffer + batch1 * output_stride, ACL_FLOAT16,
+                                        output_elem_size, output_ne_cann, output_nb_cann, 2,
+                                        ACL_FORMAT_ND, output_ne_offset);
+
+            GGML_CANN_CALL_ACLNN_OP(ctx, QuantMatmulV3,
+                                    acl_weight_tensor.get(),     // x1: weight
+                                    acl_act_int8_tensor.get(),   // x2: activation INT8
+                                    acl_v3_scale.get(),           // scale: uint64 packed
+                                    nullptr,                      // offset
+                                    nullptr,                      // bias
+                                    true, false,                 // transposeX1, transposeX2
+                                    acl_output_tensor.get());
+
+            // Other splits
+            for (int64_t split = 1; split < split_size; split++) {
+                weight_ne_offset += weight_elem_size * weight_ne[0] * weight_ne[1];
+                weight_ne[0] = max_elem_size * (split + 1) > N ? N - (max_elem_size * split) : max_elem_size;
+                output_ne_offset += output_elem_size * output_ne_cann[0] * output_ne_cann[1];
+                output_ne_cann[1] = weight_ne[0];  // S stays same, N changes
+
+                acl_weight_tensor =
+                    ggml_cann_create_tensor((char *) weight_i8_dev + batch0 * weight_stride, ACL_INT8,
+                                            weight_elem_size, weight_ne, weight_nb, 2, ACL_FORMAT_ND, weight_ne_offset);
+                acl_output_tensor =
+                    ggml_cann_create_tensor((char *) output_buffer + batch1 * output_stride, ACL_FLOAT16,
+                                            output_elem_size, output_ne_cann, output_nb_cann, 2,
+                                            ACL_FORMAT_ND, output_ne_offset);
+                GGML_CANN_CALL_ACLNN_OP(ctx, QuantMatmulV3,
+                                        acl_weight_tensor.get(),
+                                        acl_act_int8_tensor.get(),
+                                        acl_v3_scale.get(),
+                                        nullptr, nullptr,
+                                        true, false,
+                                        acl_output_tensor.get());
+            }
+        }
+    }
+
+    // ── Output cast (same as V2 path) ──
+    if (dst->type != GGML_TYPE_F16) {
+        int64_t * output_cast_ne = dst->ne;
+        size_t    output_cast_nb[GGML_MAX_DIMS];
+        output_cast_nb[0] = sizeof(uint16_t);
+        for (int i = 1; i < GGML_MAX_DIMS; i++) {
+            output_cast_nb[i] = output_cast_nb[i - 1] * output_cast_ne[i - 1];
+        }
+
+        acl_tensor_ptr acl_output_tensor = ggml_cann_create_tensor(output_buffer, ACL_FLOAT16, output_elem_size,
+                                                                   output_cast_ne, output_cast_nb, GGML_MAX_DIMS);
+        acl_tensor_ptr acl_dst_tensor    = ggml_cann_create_tensor(dst);
+        aclnn_cast(ctx, acl_output_tensor.get(), acl_dst_tensor.get(), ggml_cann_type_mapping(dst->type));
+    }
+}
+
 void ggml_cann_mul_mat(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     const enum ggml_type type = dst->src[0]->type;
     switch (type) {
@@ -2330,8 +2612,14 @@ void ggml_cann_mul_mat(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
             ggml_cann_mat_mul_fp(ctx, dst);
             break;
         case GGML_TYPE_Q4_0:
-        case GGML_TYPE_Q8_0:
             ggml_cann_mul_mat_quant(ctx, dst, type);
+            break;
+        case GGML_TYPE_Q8_0:
+            if (cannd_w8a8_enabled()) {
+                ggml_cann_mul_mat_w8a8(ctx, dst);
+            } else {
+                ggml_cann_mul_mat_quant(ctx, dst, type);
+            }
             break;
         default:
             GGML_ABORT("Unsupported type for mul_mat");

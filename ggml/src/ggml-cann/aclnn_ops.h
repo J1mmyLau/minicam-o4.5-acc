@@ -574,6 +574,8 @@ void ggml_cann_set_rows(ggml_backend_cann_context & ctx, ggml_tensor * dst);
  */
 void ggml_cann_mul_mat(ggml_backend_cann_context & ctx, ggml_tensor * dst);
 
+bool cannd_w8a8_enabled();
+
 /**
  * @brief Applies Rotary Positional Embedding (RoPE) to the input tensor.
  *
