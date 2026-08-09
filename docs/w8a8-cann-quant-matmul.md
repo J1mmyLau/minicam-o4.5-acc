@@ -8,7 +8,7 @@
 
 W8A8 replaces the default Q8_0 matmul path (`aclnnWeightQuantBatchmatmulV2`, W8A16) with an INT8×INT8→FP16 pipeline (`aclnnQuantize` + `aclnnQuantMatmulV3`) on Ascend NPU via CANN 9.1.0-beta.1.
 
-The default Q8_0 path (V2) is **10.3% slower** than F16 on Ascend 910B2C because CANN lacks a native W8A16→FP16 kernel for the Q8_0 non-zero (NZ) layout. W8A8 recovers ~86% of this gap by using INT8×INT8→FP32→FP16 matmul, which CANN does support natively.
+The default Q8_0 path (V2) is **10.3% slower** than F16 on Ascend 910B2C because CANN lacks a native W8A16→FP16 kernel for the Q8_0 non-zero (NZ) layout. W8A8 recovers ~86% of this gap at the MUL_MAT level by using INT8×INT8→FP32→FP16 matmul, which CANN does support natively. (End-to-end SPEAK RTF recovery is not measured — only kernel-level speedup is quantified.)
 
 ## Quick Start
 
