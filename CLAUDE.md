@@ -301,7 +301,10 @@ NEEDS_MORE_EVIDENCE 等状态时，必须自动执行下一项，不得停止汇
 | Phase C4 1a (W8A8 prototype) | COMPLETE | W8A8 pipeline NO CRASH, non-regression confirmed |
 | Phase C4 1b (numerical) | COMPLETE | 0 Q8_0 failures W8A8=1, 5 bugs fixed |
 | Phase C4 1c (perf A/B) | COMPLETE | 4.76× model-weighted vs V2, Gate 3 PASS → PROCEED_TO_PHASE2 |
-| **Phase C4 2 (integration)** | **CURRENT** | Gate 1 correctness, shape dispatch, ACT_SCALE optimization |
+| **Phase C4 Sanity Gate** | **PASS** | **G1: 12/12 NMSE ≤ 5e-4, benchmark correctness validated** |
+| Phase C4 2 (integration) | COMPLETE | P0 Gate1 35/35, P1 shape dispatch, P2a weight cache |
+| Phase C4 Route Decision | DECIDED | ROUTE A: F16 primary, W8A8 as Q8_0 opt-in behind GGML_CANN_W8A8=1 |
+| **Phase C4 Docs** | **COMPLETE** | **docs/w8a8-cann-quant-matmul.md — full usage guide + gate evidence** |
 
 ## Phase 2 Priority
 1. **P0**: Verify W8A8 correctness against test-backend-ops criterion (Gate 1 closure)

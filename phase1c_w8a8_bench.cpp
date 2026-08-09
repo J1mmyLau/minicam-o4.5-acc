@@ -157,13 +157,181 @@ static aclTensor* tensor_scalar(void *data, aclDataType dtype) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Validation: CPU reference + NMSE comparison against device output
+// Criterion: NMSE ≤ 5e-4 (matching test-backend-ops MUL_MAT threshold)
+// ═══════════════════════════════════════════════════════════════
+
+static constexpr double NMSE_THRESHOLD = 5e-4;
+
+struct ValidationResult {
+    bool   pass;
+    double max_abs_err;
+    double mean_abs_err;
+    double nmse;
+};
+
+// CPU reference FP32 matmul: C[outer, inner] = sum_k A[outer, k] * B[k, inner]
+// A is col-major [K, S] (input), B is col-major [K, N] (weight), C is [S, N]
+static void cpu_matmul_fp32(const float* A, const float* B,
+                             float* C, int64_t K, int64_t N, int64_t S) {
+    for (int64_t s = 0; s < S; s++) {
+        for (int64_t n = 0; n < N; n++) {
+            float sum = 0.0f;
+            for (int64_t k = 0; k < K; k++)
+                sum += A[k + s*K] * B[k + n*K];
+            C[s*N + n] = sum;
+        }
+    }
+}
+
+// Read device output [S,N] FP16 → host float, compute NMSE vs reference
+static ValidationResult compute_nmse(void* dout, const float* ref,
+                                      int64_t N, int64_t S) {
+    ValidationResult r = {false, 0.0, 0.0, 0.0};
+    size_t out_elems = (size_t)N * S;
+    std::vector<uint16_t> h_out(out_elems);
+    ACL_CHECK(aclrtMemcpy(h_out.data(), out_elems * sizeof(uint16_t),
+                          dout, out_elems * sizeof(uint16_t),
+                          ACL_MEMCPY_DEVICE_TO_HOST));
+
+    double sum_sq_diff = 0.0, sum_sq_ref = 0.0, sum_abs_diff = 0.0;
+    r.max_abs_err = 0.0;
+    for (size_t i = 0; i < out_elems; i++) {
+        float dev_val = fp16_to_f32(h_out[i]);
+        float ref_val = ref[i];
+
+        // NaN/Inf guard
+        if (!std::isfinite(dev_val) || !std::isfinite(ref_val)) {
+            r.nmse = INFINITY;
+            return r;
+        }
+
+        float abs_diff = std::abs(dev_val - ref_val);
+        sum_sq_diff  += (double)(dev_val - ref_val) * (dev_val - ref_val);
+        sum_sq_ref   += (double)ref_val * ref_val;
+        sum_abs_diff += abs_diff;
+        if (abs_diff > r.max_abs_err) r.max_abs_err = abs_diff;
+    }
+    r.mean_abs_err = sum_abs_diff / (double)out_elems;
+    r.nmse = (sum_sq_ref > 0.0) ? sum_sq_diff / sum_sq_ref : sum_sq_diff;
+    r.pass = (r.nmse <= NMSE_THRESHOLD);
+    return r;
+}
+
+// Validate F16 path: weight [K,N] FP16 × input [K,S] FP16 → output [S,N]
+static ValidationResult validate_f16(const ShapeConfig& sh,
+                                      const std::vector<uint16_t>& h_w,
+                                      const std::vector<uint16_t>& h_in,
+                                      void* dout) {
+    int64_t K = sh.K, N = sh.N, S = sh.batch;
+    size_t w_elems = (size_t)K * N, in_elems = (size_t)K * S;
+
+    std::vector<float> w_f32(w_elems), in_f32(in_elems);
+    for (size_t i = 0; i < w_elems; i++) w_f32[i] = fp16_to_f32(h_w[i]);
+    for (size_t i = 0; i < in_elems; i++) in_f32[i] = fp16_to_f32(h_in[i]);
+
+    std::vector<float> ref((size_t)N * S);
+    cpu_matmul_fp32(in_f32.data(), w_f32.data(), ref.data(), K, N, S);
+    return compute_nmse(dout, ref.data(), N, S);
+}
+
+// Validate V2 path: dequant Q8_0 weight × input → output
+static ValidationResult validate_v2(const ShapeConfig& sh,
+                                     const std::vector<uint8_t>& h_wq,
+                                     const std::vector<uint16_t>& h_wsc,
+                                     const std::vector<uint16_t>& h_in,
+                                     void* dout) {
+    int64_t K = sh.K, N = sh.N, S = sh.batch, Kg = K / QK8_0;
+    size_t w_elems = (size_t)K * N, in_elems = (size_t)K * S;
+
+    // Dequant Q8_0 weight: w_fp32[i] = (int8_t)w_q[i] * fp16_to_f32(scale[group])
+    std::vector<float> w_f32(w_elems);
+    for (size_t i = 0; i < w_elems; i++) {
+        size_t gi = i / QK8_0;
+        w_f32[i] = (float)(int8_t)h_wq[i] * fp16_to_f32(h_wsc[gi]);
+    }
+
+    std::vector<float> in_f32(in_elems);
+    for (size_t i = 0; i < in_elems; i++) in_f32[i] = fp16_to_f32(h_in[i]);
+
+    std::vector<float> ref((size_t)N * S);
+    cpu_matmul_fp32(in_f32.data(), w_f32.data(), ref.data(), K, N, S);
+    return compute_nmse(dout, ref.data(), N, S);
+}
+
+// Validate W8A8 path: full CPU pipeline matching Quantize+QuantMatmulV3
+static ValidationResult validate_w8a8(const ShapeConfig& sh,
+                                       const std::vector<uint8_t>& h_wq,
+                                       const std::vector<uint16_t>& h_wsc,
+                                       const std::vector<uint16_t>& h_in,
+                                       void* dout) {
+    int64_t K = sh.K, N = sh.N, S = sh.batch, Kg = K / QK8_0;
+    size_t w_elems = (size_t)K * N, in_elems = (size_t)K * S;
+
+    // Step 1: Dequant Q8_0 weight → FP32
+    std::vector<float> w_f32(w_elems);
+    float w_max = 0.0f;
+    for (size_t i = 0; i < w_elems; i++) {
+        float gs = fp16_to_f32(h_wsc[i / QK8_0]);
+        float v = (float)(int8_t)h_wq[i] * gs;
+        w_f32[i] = v;
+        if (std::abs(v) > w_max) w_max = std::abs(v);
+    }
+
+    // Step 2: Per-tensor weight scale
+    float w_scale = w_max / 127.0f;
+    if (w_scale == 0.0f) w_scale = 1.0f;
+
+    // Step 3: Requant weight → per-tensor INT8
+    std::vector<int8_t> w_i8(w_elems);
+    for (size_t i = 0; i < w_elems; i++)
+        w_i8[i] = (int8_t)std::max(-128.0f, std::min(127.0f,
+                                    std::round(w_f32[i] / w_scale)));
+
+    // Step 4: Input FP16 → FP32 + compute act_scale
+    std::vector<float> in_f32(in_elems);
+    float a_max = 0.0f;
+    for (size_t i = 0; i < in_elems; i++) {
+        float v = fp16_to_f32(h_in[i]);
+        in_f32[i] = v;
+        if (std::abs(v) > a_max) a_max = std::abs(v);
+    }
+    float a_scale = a_max / 127.0f;
+    if (a_scale == 0.0f) a_scale = 1.0f;
+
+    // Step 5: Quantize input → INT8
+    std::vector<int8_t> a_i8(in_elems);
+    for (size_t i = 0; i < in_elems; i++)
+        a_i8[i] = (int8_t)std::max(-128.0f, std::min(127.0f,
+                                   std::round(in_f32[i] / a_scale)));
+
+    // Step 6: INT32 matmul: [K,N]^T × [K,S] = [N,S]
+    // w_i8 is [K,N] col-major, a_i8 is [K,S] col-major
+    // ref[n,s] = sum_k w_i8[k+n*K] * a_i8[k+s*K] (INT32 accumulation)
+    float combined_scale = w_scale * a_scale;
+    size_t out_elems = (size_t)N * S;
+    std::vector<float> ref(out_elems);
+    for (int64_t n = 0; n < N; n++) {
+        for (int64_t s = 0; s < S; s++) {
+            int32_t sum = 0;
+            for (int64_t k = 0; k < K; k++)
+                sum += (int32_t)w_i8[k + n*K] * (int32_t)a_i8[k + s*K];
+            ref[n + s*N] = (float)sum * combined_scale;  // W8A8 output is [N,S] inner-major
+        }
+    }
+
+    // W8A8 device output is [N,S] inner-major: dout[n + s*N]
+    return compute_nmse(dout, ref.data(), N, S);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // PATH: V2 (WeightQuantBatchmatmulV2)
 // Weight: inner_major {K, N} — q[k + n*K], s[g + n*Kg]
 // Input:  outer_major {S, K} — din[s*K + k]
 // Output: outer_major {S, N} — dout[s*N + n]
 // ═══════════════════════════════════════════════════════════════
 static void bench_v2(const ShapeConfig &sh, uint32_t seed,
-                     int warmup, int measure, FILE *csv_out) {
+                     int warmup, int measure, bool validate, FILE *csv_out) {
     int64_t K = sh.K, N = sh.N, S = sh.batch, Kg = K / QK8_0;
     aclrtStream st; ACL_CHECK(aclrtCreateStream(&st));
 
@@ -223,8 +391,15 @@ static void bench_v2(const ShapeConfig &sh, uint32_t seed,
     }
 
     Stats s = compute_stats(ts);
-    fprintf(csv_out, "%s,%s,%ld,%ld,%ld,V2,V2_TOTAL_US,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,,,,,\n",
-            sh.id, sh.name, K, N, S, s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv);
+    double max_ae = 0, mean_ae = 0, nmse = 0;
+    int pass = 0;
+    if (validate) {
+        auto vr = validate_v2(sh, h_wq, h_wsc, h_in, dout);
+        max_ae = vr.max_abs_err; mean_ae = vr.mean_abs_err; nmse = vr.nmse; pass = vr.pass ? 1 : 0;
+    }
+    fprintf(csv_out, "%s,%s,%ld,%ld,%ld,V2,V2_TOTAL_US,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,,%.6e,%.6e,%.6e,%d\n",
+            sh.id, sh.name, K, N, S, s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv,
+            max_ae, mean_ae, nmse, pass);
 
     aclDestroyTensor(tw); aclDestroyTensor(tsc); aclDestroyTensor(tin); aclDestroyTensor(tout);
     ACL_CHECK(aclrtFree(dw)); ACL_CHECK(aclrtFree(din)); ACL_CHECK(aclrtFree(dout));
@@ -238,7 +413,7 @@ static void bench_v2(const ShapeConfig &sh, uint32_t seed,
 // Output: outer_major {S, N} — dout[s*N + n]
 // ═══════════════════════════════════════════════════════════════
 static void bench_f16(const ShapeConfig &sh, uint32_t seed,
-                      int warmup, int measure, bool use_nz, FILE *csv_out) {
+                      int warmup, int measure, bool use_nz, bool validate, FILE *csv_out) {
     int64_t K = sh.K, N = sh.N, S = sh.batch;
     aclrtStream st; ACL_CHECK(aclrtCreateStream(&st));
 
@@ -293,9 +468,16 @@ static void bench_f16(const ShapeConfig &sh, uint32_t seed,
     }
 
     Stats s = compute_stats(ts);
-    fprintf(csv_out, "%s,%s,%ld,%ld,%ld,%s,F16_TOTAL_US,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,,,,,\n",
+    double max_ae = 0, mean_ae = 0, nmse = 0;
+    int pass = 0;
+    if (validate) {
+        auto vr = validate_f16(sh, h_w, h_in, dout);
+        max_ae = vr.max_abs_err; mean_ae = vr.mean_abs_err; nmse = vr.nmse; pass = vr.pass ? 1 : 0;
+    }
+    fprintf(csv_out, "%s,%s,%ld,%ld,%ld,%s,F16_TOTAL_US,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,,%.6e,%.6e,%.6e,%d\n",
             sh.id, sh.name, K, N, S, use_nz?"F16_NZ":"F16_ND",
-            s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv);
+            s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv,
+            max_ae, mean_ae, nmse, pass);
 
     aclDestroyTensor(tw); aclDestroyTensor(tin); aclDestroyTensor(tout);
     ACL_CHECK(aclrtFree(dw)); ACL_CHECK(aclrtFree(din)); ACL_CHECK(aclrtFree(dout));
@@ -310,7 +492,7 @@ static void bench_f16(const ShapeConfig &sh, uint32_t seed,
 // Output:   inner_major {N, S} — dout[n + s*N]
 // ═══════════════════════════════════════════════════════════════
 static void bench_w8a8(const ShapeConfig &sh, uint32_t seed,
-                       int warmup, int measure, FILE *csv_out) {
+                       int warmup, int measure, bool validate, FILE *csv_out) {
     int64_t K = sh.K, N = sh.N, S = sh.batch, Kg = K / QK8_0;
     aclrtStream st; ACL_CHECK(aclrtCreateStream(&st));
 
@@ -451,12 +633,19 @@ static void bench_w8a8(const ShapeConfig &sh, uint32_t seed,
         t_t.push_back(t1 - t0);
     }
 
+    double max_ae = 0, mean_ae = 0, nmse = 0;
+    int pass = 0;
+    if (validate) {
+        auto vr = validate_w8a8(sh, h_wq, h_wsc, h_in, dout);
+        max_ae = vr.max_abs_err; mean_ae = vr.mean_abs_err; nmse = vr.nmse; pass = vr.pass ? 1 : 0;
+    }
     auto emit = [&](const char* m, const std::vector<double>& v) {
         auto vc = v;
         Stats s = compute_stats(vc);
-        fprintf(csv_out, "%s,%s,%ld,%ld,%ld,W8A8,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%.3f,,,,,\n",
+        fprintf(csv_out, "%s,%s,%ld,%ld,%ld,W8A8,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%.3f,%.6e,%.6e,%.6e,%d\n",
                 sh.id, sh.name, K, N, S, m,
-                s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv, weight_preprocess_ms);
+                s.mean, s.p50, s.p90, s.p99, s.stddev, s.cv, weight_preprocess_ms,
+                max_ae, mean_ae, nmse, pass);
     };
     emit("T_ACT_SCALE_US", t_as);
     emit("T_QUANTIZE_US", t_q);
@@ -477,6 +666,7 @@ int main(int argc, char **argv) {
     const char *shape_id = "S1", *path = "W8A8", *out_file = nullptr;
     uint32_t seed = 42;
     int warmup = 20, measure = 200;
+    bool validate = false;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--shape") && i+1<argc)   shape_id = argv[++i];
@@ -485,7 +675,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--warmup") && i+1<argc) warmup = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--measure") && i+1<argc) measure = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--output") && i+1<argc) out_file = argv[++i];
-        else { fprintf(stderr, "Usage: %s --shape S1..S14 --path F16_NZ|F16_ND|V2|W8A8 [--seed N] [--warmup N] [--measure N] [--output f]\n", argv[0]); return 1; }
+        else if (!strcmp(argv[i], "--validate")) validate = true;
+        else { fprintf(stderr, "Usage: %s --shape S1..S14 --path F16_NZ|F16_ND|V2|W8A8 [--seed N] [--warmup N] [--measure N] [--output f] [--validate]\n", argv[0]); return 1; }
     }
 
     const ShapeConfig *sh = find_shape(shape_id);
@@ -498,10 +689,10 @@ int main(int argc, char **argv) {
         fprintf(csv, "shape_id,name,K,N,batch,path,metric,mean_us,p50_us,p90_us,p99_us,std_us,cv,weight_preprocess_ms,max_abs_err,mean_abs_err,ggml_err,correctness_pass\n");
     }
 
-    if (!strcmp(path, "V2"))           bench_v2(*sh, seed, warmup, measure, csv);
-    else if (!strcmp(path, "F16_NZ"))  bench_f16(*sh, seed, warmup, measure, true, csv);
-    else if (!strcmp(path, "F16_ND"))  bench_f16(*sh, seed, warmup, measure, false, csv);
-    else if (!strcmp(path, "W8A8"))    bench_w8a8(*sh, seed, warmup, measure, csv);
+    if (!strcmp(path, "V2"))           bench_v2(*sh, seed, warmup, measure, validate, csv);
+    else if (!strcmp(path, "F16_NZ"))  bench_f16(*sh, seed, warmup, measure, true, validate, csv);
+    else if (!strcmp(path, "F16_ND"))  bench_f16(*sh, seed, warmup, measure, false, validate, csv);
+    else if (!strcmp(path, "W8A8"))    bench_w8a8(*sh, seed, warmup, measure, validate, csv);
     else { fprintf(stderr, "Unknown path: %s\n", path); return 1; }
 
     if (out_file) fclose(csv);
