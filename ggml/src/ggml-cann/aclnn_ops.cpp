@@ -96,6 +96,8 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #define GGML_COMMON_DECL_C
@@ -2353,8 +2355,25 @@ static void ggml_cann_mul_mat_quant(ggml_backend_cann_context & ctx, ggml_tensor
     }
 }
 
+// ── W8A8 weight preprocessing cache ──
+// Eliminates per-call D2H+dequant+requant+H2D (~25ms for FFN layers) by
+// caching preprocessed INT8 weights on device across graph evaluations.
+// Keyed by src0->data (device pointer constant for model lifetime).
+// Device memory is allocated via aclrtMalloc to survive pool resets.
+struct w8a8_cached_weight {
+    void *  dev_i8        = nullptr;  // aclrtMalloc'd, survives pool reset
+    float   weight_scale  = 1.0f;
+    int64_t K             = 0;
+    int64_t N             = 0;
+    int64_t ne2           = 0;        // src0->ne[2] for identity check
+    int64_t ne3           = 0;        // src0->ne[3] for identity check
+};
+
+static std::mutex                                       g_w8a8_cache_mutex;
+static std::unordered_map<const void *, w8a8_cached_weight> g_w8a8_weight_cache;
+
 // W8A8 Q8_0 MUL_MAT using aclnnQuantize + aclnnQuantMatmulV3.
-// Gated behind GGML_CANN_W8A8=1. Phase 1a: fixed act_scale=1.0f.
+// Gated behind GGML_CANN_W8A8=1. Phase 2: weight cache + shape dispatch.
 static void ggml_cann_mul_mat_w8a8(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
     ggml_tensor * src0 = dst->src[0];  // weight (Q8_0, de-interleaved: [K,N] INT8)
     ggml_tensor * src1 = dst->src[1];  // input (FP16)
@@ -2413,48 +2432,74 @@ static void ggml_cann_mul_mat_w8a8(ggml_backend_cann_context & ctx, ggml_tensor 
     ggml_cann_pool_alloc act_int8_allocator(ctx.pool());
     void * act_int8_buffer = act_int8_allocator.alloc(act_int8_sz);
 
-    // ── Per-tensor scale: dequant Q8_0 weights with per-group scales,
-    //     then requantize with a single per-tensor scale for V3.
-    //     Weight scales are in device memory → copy to host.
-    size_t host_scale_bytes = scale_stride * src0->ne[2] * src0->ne[3];
+    // ── Weight preprocessing (cached): dequant Q8_0 + requant to per-tensor INT8 ──
+    // First-call cost: D2H+dequant+requant+H2D (~25ms for FFN layers).
+    // Subsequent calls: O(1) cache lookup — zero overhead.
     size_t weight_n_elems  = (size_t)K * N * src0->ne[2] * src0->ne[3];
-    size_t weight_n_groups = weight_n_elems / QK8_0;  // one scale per 32 elements
     size_t weight_bytes    = weight_n_elems * sizeof(uint8_t);
 
-    std::vector<uint16_t> host_scales(host_scale_bytes / sizeof(uint16_t));
-    aclrtMemcpy(host_scales.data(), host_scale_bytes, scale_offset, host_scale_bytes,
-                ACL_MEMCPY_DEVICE_TO_HOST);
+    float   weight_scale_f32 = 1.0f;
+    void *  weight_i8_dev     = nullptr;
 
-    std::vector<uint8_t> host_weight_qs(weight_n_elems);
-    aclrtMemcpy(host_weight_qs.data(), weight_bytes, src0->data, weight_bytes,
-                ACL_MEMCPY_DEVICE_TO_HOST);
+    {
+        std::lock_guard<std::mutex> lock(g_w8a8_cache_mutex);
+        auto it = g_w8a8_weight_cache.find(src0->data);
+        if (it != g_w8a8_weight_cache.end() &&
+            it->second.K == K && it->second.N == N &&
+            it->second.ne2 == src0->ne[2] && it->second.ne3 == src0->ne[3]) {
+            // Cache hit — reuse preprocessed INT8 weights
+            weight_scale_f32 = it->second.weight_scale;
+            weight_i8_dev    = it->second.dev_i8;
+        } else {
+            // Cache miss — preprocess and store
+            size_t host_scale_bytes = scale_stride * src0->ne[2] * src0->ne[3];
 
-    // Dequantize Q8_0 → FP32 using per-group scales
-    std::vector<float> host_weight_f32(weight_n_elems);
-    float weight_max_abs = 0.0f;
-    for (size_t i = 0; i < weight_n_elems; i++) {
-        size_t gi = i / QK8_0;  // group index (flat across all batches)
-        float group_scale = GGML_FP16_TO_FP32(host_scales[gi]);
-        float val = (float)(int8_t)host_weight_qs[i] * group_scale;
-        host_weight_f32[i] = val;
-        weight_max_abs = std::max(weight_max_abs, std::abs(val));
+            std::vector<uint16_t> host_scales(host_scale_bytes / sizeof(uint16_t));
+            aclrtMemcpy(host_scales.data(), host_scale_bytes, scale_offset, host_scale_bytes,
+                        ACL_MEMCPY_DEVICE_TO_HOST);
+
+            std::vector<uint8_t> host_weight_qs(weight_n_elems);
+            aclrtMemcpy(host_weight_qs.data(), weight_bytes, src0->data, weight_bytes,
+                        ACL_MEMCPY_DEVICE_TO_HOST);
+
+            // Dequantize Q8_0 → FP32 using per-group scales, track max
+            std::vector<float> host_weight_f32(weight_n_elems);
+            float weight_max_abs = 0.0f;
+            for (size_t i = 0; i < weight_n_elems; i++) {
+                size_t gi = i / QK8_0;
+                float group_scale = GGML_FP16_TO_FP32(host_scales[gi]);
+                float val = (float)(int8_t)host_weight_qs[i] * group_scale;
+                host_weight_f32[i] = val;
+                weight_max_abs = std::max(weight_max_abs, std::abs(val));
+            }
+            weight_scale_f32 = weight_max_abs / 127.0f;
+            if (weight_scale_f32 == 0.0f) weight_scale_f32 = 1.0f;
+
+            // Requantize FP32 → INT8 with per-tensor scale
+            std::vector<int8_t> host_weight_i8(weight_n_elems);
+            for (size_t i = 0; i < weight_n_elems; i++) {
+                float clamped = std::max(-128.0f, std::min(127.0f,
+                                  std::round(host_weight_f32[i] / weight_scale_f32)));
+                host_weight_i8[i] = (int8_t)clamped;
+            }
+
+            // Allocate persistent device buffer (aclrtMalloc, survives pool reset)
+            size_t dev_bytes = weight_n_elems * sizeof(int8_t);
+            ACL_CHECK(aclrtMalloc(&weight_i8_dev, dev_bytes, ACL_MEM_MALLOC_HUGE_FIRST));
+            aclrtMemcpy(weight_i8_dev, dev_bytes, host_weight_i8.data(), dev_bytes,
+                        ACL_MEMCPY_HOST_TO_DEVICE);
+
+            // Store in cache (update or insert)
+            w8a8_cached_weight entry;
+            entry.dev_i8       = weight_i8_dev;
+            entry.weight_scale = weight_scale_f32;
+            entry.K            = K;
+            entry.N            = N;
+            entry.ne2          = src0->ne[2];
+            entry.ne3          = src0->ne[3];
+            g_w8a8_weight_cache[src0->data] = entry;
+        }
     }
-    float weight_scale_f32 = weight_max_abs / 127.0f;
-    if (weight_scale_f32 == 0.0f) weight_scale_f32 = 1.0f;
-
-    // Requantize FP32 → INT8 with per-tensor scale
-    std::vector<int8_t> host_weight_i8(weight_n_elems);
-    for (size_t i = 0; i < weight_n_elems; i++) {
-        float clamped = std::max(-128.0f, std::min(127.0f,
-                          std::round(host_weight_f32[i] / weight_scale_f32)));
-        host_weight_i8[i] = (int8_t)clamped;
-    }
-
-    // Allocate device buffer for requantized INT8 weights
-    ggml_cann_pool_alloc weight_i8_allocator(ctx.pool());
-    void * weight_i8_dev = weight_i8_allocator.alloc(weight_n_elems * sizeof(int8_t));
-    aclrtMemcpy(weight_i8_dev, weight_n_elems * sizeof(int8_t), host_weight_i8.data(),
-                weight_n_elems * sizeof(int8_t), ACL_MEMCPY_HOST_TO_DEVICE);
 
     // Compute activation scale from max absolute value of FP16 input
     // (D2H copy of input tensor — small for typical MUL_MAT sizes)
@@ -2614,13 +2659,20 @@ void ggml_cann_mul_mat(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
         case GGML_TYPE_Q4_0:
             ggml_cann_mul_mat_quant(ctx, dst, type);
             break;
-        case GGML_TYPE_Q8_0:
-            if (cannd_w8a8_enabled()) {
+        case GGML_TYPE_Q8_0: {
+            // Shape-dependent dispatch: W8A8 regresses vs V2 for small-N shapes
+            // (S2 K-proj N=1024: 0.44×, S3 V-proj N=1024: 0.51×).
+            // ACT_SCALE overhead (~57us D2H + host scan) dominates when matmul
+            // compute is cheap. Use V2 (WeightQuantBatchmatmulV2) for N < 2048.
+            const int64_t N = dst->src[0]->ne[1];
+            const bool use_w8a8 = cannd_w8a8_enabled() && N >= 2048;
+            if (use_w8a8) {
                 ggml_cann_mul_mat_w8a8(ctx, dst);
             } else {
                 ggml_cann_mul_mat_quant(ctx, dst, type);
             }
             break;
+        }
         default:
             GGML_ABORT("Unsupported type for mul_mat");
             break;
