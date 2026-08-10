@@ -1,3 +1,30 @@
+<!--
+  BRANCH: perf/flow-chunk-rtf
+  PURPOSE: Flow model chunk-level RTF optimization — per-chunk timing and drain behavior
+  DEPENDS: perf/f6-decode-to-speak
+  STATUS: COMPLETE — merged to main (051e993)
+-->
+
+# perf/flow-chunk-rtf: Flow Chunk RTF 优化
+
+> **分支定位:** Flow Matching 模型的逐 chunk 性能分析和 drain 行为优化。
+
+## 理论注记: 为什么 Flow 的 chunk 粒度很重要
+
+### 背景
+Flow Matching 将 Talker 的语音 token 转换为 mel spectrogram。
+与 LLM decode 不同，Flow 不是逐个 token 生成，而是按窗口 (window/chunk) 处理。
+每个窗口的耗时直接决定音频输出的连续性。
+
+### 关键优化
+- **Flow ∥ Vocoder 流水线**: 前一窗口的 Vocoder 与后一窗口的 Flow 并行执行
+- **Drain 行为**: 确保队列中所有窗口在 session 结束前完成处理
+- **Chunk RTF**: 逐 chunk 测量 RTF，而非仅看平均——尾部 chunk 常常是瓶颈
+
+### 合并状态
+本分支的优化已合并到 main (051e993)。后续 pass-through 到 `perf/f6-decode-to-speak`
+形成完整 CANN T2W 链路。
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
