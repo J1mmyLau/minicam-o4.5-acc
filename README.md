@@ -1,3 +1,38 @@
+<!--
+  BRANCH: exp/f003-neox-layout
+  PURPOSE: Investigate CANN NZ (fractal) layout as root cause of Q8_0 182.7ms/chunk gap vs F16
+  DEPENDS: eval/official-baseline → fix/f003-cann-rope
+  STATUS: COMPLETE — NZ layout REFUTED (~10% of gap), Q8_0 kernel IS the bottleneck (~90%)
+-->
+
+# exp/f003-neox-layout: CANN NZ Layout Investigation
+
+> **分支定位:** 验证 "Q8_0 慢于 F16 是因为 CANN 需要 NZ 布局转换" 这一核心假设。
+
+## 理论注记: 为什么 NZ 布局不是瓶颈
+
+### 假设
+CANN 的 `aclnnWeightQuantBatchmatmulV2` 要求权重为 NZ (fractal) 布局，
+而 ggml 默认使用 row-major。隐式布局转换产生额外 D2H/H2D 开销，这被视为
+Q8_0 比 F16 慢 10.3%（182.7ms/chunk）的主要原因。
+
+### 实验设计: 3-way micro-benchmark
+1. **Q8_0 native** (NZ + QuantBatchmatmulV2): 完整 Q8_0 路径
+2. **Q8_0 dequant** (row-major + Matmul): 手动 dequant → F16 matmul (绕开 NZ)
+3. **F16** (row-major + Matmul): F16 baseline
+
+### 结果
+| 路径 | 延迟 | 占比 |
+|------|------|------|
+| Q8_0 native (NZ) | 182.7ms | baseline |
+| NZ layout 开销 | ~18ms | **~10%** |
+| Q8_0 kernel 开销 | ~165ms | **~90%** |
+
+**结论: NZ layout 不是瓶颈。** `aclnnWeightQuantBatchmatmulV2` kernel 本身
+占 Q8_0→F16 差距的 ~90%。后续优化方向应聚焦 kernel 层面 (如 W8A8 替换)，而非布局转换。
+
+证据: [`docs/audit/F6_TASK_A_DEFINITIVE_DECOMPOSITION.md`](../main/docs/audit/F6_TASK_A_DEFINITIVE_DECOMPOSITION.md)
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
