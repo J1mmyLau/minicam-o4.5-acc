@@ -12,6 +12,33 @@
 #include "ggml-backend.h"
 #include "ggml-cpu.h"
 
+#include <cmath>
+#include <cstring>
+
+// ============================================================================
+// [nan_diag] OMNI_NAN_DIAG=1 gates — zero-cost when unset
+// Traces first non-finite float through the multimodal pipeline.
+// ============================================================================
+static void nan_diag_check(const char *boundary, const float *data, size_t n) {
+    static int diag_enabled = -1;
+    if (diag_enabled == -1) {
+        const char *e = getenv("OMNI_NAN_DIAG");
+        diag_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+    }
+    if (diag_enabled != 1 || data == nullptr || n == 0) return;
+
+    size_t nan_c = 0, inf_c = 0;
+    float min_v = INFINITY, max_v = -INFINITY;
+    for (size_t j = 0; j < n; j++) {
+        if (std::isnan(data[j])) nan_c++;
+        else if (std::isinf(data[j])) inf_c++;
+        else { if (data[j] < min_v) min_v = data[j]; if (data[j] > max_v) max_v = data[j]; }
+    }
+    fprintf(stderr, "[nan_diag] boundary=%s n=%zu min=%.6e max=%.6e nan=%zu inf=%zu\n",
+            boundary, n, nan_c == n ? (float)NAN : min_v, inf_c == n ? (float)INFINITY : max_v, nan_c, inf_c);
+    fflush(stderr);
+}
+
 #include <fcntl.h>   // K4: O_RDONLY, O_DIRECTORY for parent dir fsync
 
 #ifdef GGML_USE_CUDA
@@ -1590,6 +1617,7 @@ bool prefill_emb_with_hidden(struct omni_context * ctx_omni, common_params * par
         // 获取当前 batch 的 embeddings 并复制到 hidden_states
         float * emb = llama_get_embeddings(ctx_omni->ctx_llama);
         if (emb != nullptr) {
+            nan_diag_check("prefill_embeddings", emb, n_eval * n_embd);
             memcpy(hidden_states + tokens_processed * n_embd, emb, n_eval * n_embd * sizeof(float));
         }
 
@@ -2487,6 +2515,11 @@ static const char * llama_loop(struct omni_context * ctx_omni, common_params *pa
 // 🔧 [双工模式] 支持 forbidden_token_ids，禁止采样 <|tts_pad|> 等 token
 static const char * sample_with_hidden_and_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past, float *& hidden_states, llama_token & token_id) {
     float * logits = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
+    {
+        // [nan_diag] check logits at the extraction point, before penalty mutation
+        const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)));
+        nan_diag_check("logits_ith", logits, n_vocab);
+    }
     
     // 🔧 [双工模式] 在采样前调整 logits
     if (ctx_omni->duplex_mode) {
@@ -6901,6 +6934,7 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                         // <unit>/<image> 序列，不加 audio_start/end。此前两种格式混用
                         // （image/slice 用 duplex 标签 + 音频用单工包裹）导致模型 think-loop。
                         // 已通过 Daily-Omni pilot 验证：image+audio 从空转 think-loop 变为确定性作答。
+                        nan_diag_check("vision_audio_prefill", embeds->audio_embed.data(), embeds->audio_embed.size());
                         prefill_with_emb(ctx_omni, params, embeds->audio_embed.data(), n_audio_tokens,
                                         params->n_batch, &ctx_omni->n_past);
                     }
@@ -6928,6 +6962,7 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                     }
                     
                     // Prefill 音频 embedding
+                    nan_diag_check("audio_only_prefill", embeds->audio_embed.data(), embeds->audio_embed.size());
                     prefill_with_emb(ctx_omni, params, embeds->audio_embed.data(), n_audio_tokens,
                                     params->n_batch, &ctx_omni->n_past);
                     
@@ -13954,6 +13989,7 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                     LOG_INF("%s: audio_embeds->n_pos: %d ,hidden_size: %d\n", __func__, audio_embeds->n_pos, hidden_size);
                     omni_embeds->audio_embed.resize(audio_embeds->n_pos * hidden_size);
                     std::memcpy(omni_embeds->audio_embed.data(), audio_embeds->embed, omni_embeds->audio_embed.size() * sizeof(float));
+                    nan_diag_check("audio_embed_memcpy", omni_embeds->audio_embed.data(), omni_embeds->audio_embed.size());
                     omni_embed_free(audio_embeds);
                 } else {
                     LOG_WRN("%s: audio encoding failed, skipping audio for this frame: %s\n", __func__, aud_fname.c_str());

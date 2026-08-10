@@ -14,6 +14,29 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
+
+// [nan_diag] OMNI_NAN_DIAG=1 gate — zero-cost when unset
+static void nan_diag_check(const char *boundary, const float *data, size_t n) {
+    static int diag_enabled = -1;
+    if (diag_enabled == -1) {
+        const char *e = getenv("OMNI_NAN_DIAG");
+        diag_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+    }
+    if (diag_enabled != 1 || data == nullptr || n == 0) return;
+
+    size_t nan_c = 0, inf_c = 0;
+    float min_v = INFINITY, max_v = -INFINITY;
+    for (size_t j = 0; j < n; j++) {
+        if (std::isnan(data[j])) nan_c++;
+        else if (std::isinf(data[j])) inf_c++;
+        else { if (data[j] < min_v) min_v = data[j]; if (data[j] > max_v) max_v = data[j]; }
+    }
+    fprintf(stderr, "[nan_diag] boundary=%s n=%zu min=%.6e max=%.6e nan=%zu inf=%zu\n",
+            boundary, n, nan_c == n ? (float)NAN : min_v, inf_c == n ? (float)INFINITY : max_v, nan_c, inf_c);
+    fflush(stderr);
+}
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -2535,6 +2558,11 @@ bool vision_image_batch_encode(vision_ctx * ctx, const int n_threads, const visi
     // copy the embeddings to the location passed by the user
     // for batch>1, output is contiguous: [embd * n_tokens * batch_size]
     ggml_backend_tensor_get(embeddings, vec, 0, ggml_nbytes(embeddings));
+
+    {
+        const int n_embd = embeddings->ne[0];
+        nan_diag_check("vision_embed_output", vec, n_embd * n_tokens_out);
+    }
 
     return true;
 }
