@@ -1510,6 +1510,7 @@ bool audition_audio_batch_encode(audition_ctx * ctx, const int n_threads, const 
         
         std::vector<float> inp_raw(n_step * n_mel);
         std::memcpy(inp_raw.data(), mel_inp->buf.data(), n_step * n_mel * sizeof(float));
+        nan_diag_check("whisper_input_mel", inp_raw.data(), inp_raw.size());
         set_input_f32("inp_raw", inp_raw);
     }
 
