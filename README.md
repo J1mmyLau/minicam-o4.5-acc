@@ -1,3 +1,41 @@
+<!--
+  BRANCH: perf/kv-cache-production-gates
+  PURPOSE: Static Prefix KV Cache production readiness — boundary testing, stability, default decision
+  DEPENDS: perf/ngl8-e2e-stage-profiling (closeout tag: ngl8-e2e-closeout-20260726)
+  STATUS: IN_PROGRESS — functional PASS, perf PASS, OPT_IN_READY, 8 boundary conditions NOT_TESTED
+-->
+
+# perf/kv-cache-production-gates: KV Cache 生产级化
+
+> **分支定位:** 将已验证的 Static Prefix KV Cache 从 OPT_IN 实验特性提升到生产级。
+
+## 理论注记: 为什么 KV Cache 需要 8 项边界测试
+
+### 当前状态
+Static Prefix KV Cache 在受控实验条件下表现良好:
+- 功能: 62 reused tokens, cache_miss=0
+- 性能: 30 pairs, p50 9642ms, prefill 2.4× speedup (206→85ms)
+- 状态: `OPT_IN_READY / DEFAULT_OFF`
+
+### 为什么需要边界测试
+KV Cache 的正确性取决于 context 状态的精确管理。以下场景可能导致静默错误:
+
+1. **跨 session 复用**: cache 在 session 之间是否被正确 invalidate？
+2. **Prefix 变化**: 如果 system prompt 改变，cache mismatch 如何检测？
+3. **并发访问**: 多线程读写 cache buffer 的 race condition
+4. **OOM 回退**: cache 占用超出 NPU HBM 时的降级策略
+5. **中断恢复**: 请求中途断开，cache 状态是否一致？
+6. **长 session**: 100+ 轮连续对话后 cache 是否仍然有效？
+7. **冷启动**: 首次请求无 cache 时的行为是否正确？
+8. **损坏恢复**: 如果 cache buffer 被意外覆写，能否检测并回退？
+
+**仅凭代码审计判定 PASS 是危险的**——每项必须通过实际测试验证。
+
+### 设计原则
+- 默认关闭 (`DEFAULT_OFF`)：生产环境中保守策略优先
+- Opt-in 启用 (`OMNI_KV_CACHE_REUSE=1`)：已知稳定性后再考虑默认开启
+- 分级长测 (1h→6h→24h→72h→168h)：稳定性不靠推理，靠实证
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
