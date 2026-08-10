@@ -74,6 +74,21 @@ PENDING_EXTERNAL_ASSETS / OFFICIAL_BENCHMARK_PASS
 
 ---
 
+## llama 侧最新状态 (2026-08-10)
+
+> **vLLM 团队须知**：llama 侧 Accuracy 尚未完成。官方明天（2026-08-11）提供统一测评分支。
+
+| 发现 | 分类 | 对 vLLM 的影响 |
+|------|------|---------------|
+| WS 多模态 NaN logits | 已追踪至 mel 预处理 (160/2400 NaN) | vLLM 用不同音频预处理 → 大概率不受影响 |
+| Q8_0 [4096,17] contiguous-y CANN 错误 | 后端兼容性假设 (多 token prefill) | vLLM 用不同 backend → 不受影响 |
+| Accuracy 40% (Daily-Omni) | 非统一评测路径 → 无效 | vLLM 按官方评测跑即可 |
+| 性能 RTF=0.452 | LOCAL_BEST_EFFORT, 所有优化已验证 | 设备放置/Prefix Cache/Pipeline 并行经验可迁移 |
+
+**关键信号给 vLLM**：不要等 llama Accuracy 完成再动手。性能优化经验（设备放置、Prefix Cache、Pipeline 并行）已经过充分验证，可以直接迁移。
+
+---
+
 ## 三个最常见陷阱（先记住）
 
 1. **别先优化 decode** — llama 上 decode 只占 2.9%；先打点确认瓶颈。
@@ -86,3 +101,4 @@ PENDING_EXTERNAL_ASSETS / OFFICIAL_BENCHMARK_PASS
 
 - 2026-08-03 — 初版 5 文件（组件映射 / 证据附录 / 执行计划 / 风险矩阵 / 交接包 + 主指南）。
 - 2026-08-04 — 扩充为可执行深度：主指南 12 经验 + 4 决策树、执行计划 V0–V12 × 16 字段、风险 16→25、新增 `EXPERIMENT_TEMPLATES.md` 与本 README。
+- 2026-08-10 — 新增 llama 最新状态节（NaN 追踪、Q8_0 contiguous-y、Accuracy 冻结）。llama 性能优化经验已冻结可迁移，Accuracy 等官方统一分支。
