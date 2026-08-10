@@ -1,3 +1,68 @@
+<!--
+  BRANCH: perf/f6-decode-to-speak
+  PURPOSE: CANN T2W (Flow+Vocoder) 设备迁移 — 从 CPU 到 NPU 的关键路径优化
+  DEPENDS: fix/ws-session-lifecycle → fix/tts-thread-lifecycle → fix/full-duplex-request-max-tokens
+  NEXT: perf/flow-chunk-rtf → main (051e993)
+  STATUS: COMPLETE — W0 p50 4798→894ms (−81.4%), env-only switch, zero source change
+-->
+
+# perf/f6-decode-to-speak: CANN T2W 关键路径优化
+
+> **分支定位:** 将 Flow Matching 和 Vocoder 从 CPU 路径迁移到 CANN NPU，
+> 解决单卡 Ascend 910C 上 SPEAK→WAV 链路中占比 93% 的 CPU 瓶颈。
+
+## 理论注记: 为什么瓶颈不在 LLM Decode
+
+### 1. Amdahl 第一瓶颈发现
+
+初版推理服务虽然已将主语言模型卸载到 NPU（`-ngl 999`），但首段语音延迟 p50 仍高达 ~4.8 秒。
+直觉指向 LLM decode（每次 token 生成 ~722ms），但测量后揭示真相：
+
+```
+E2E wall-clock breakdown:
+  enc + prefill:     ~85ms   (2.0%)
+  LLM decode:        ~722ms  (16.9%)  ← 直觉瓶颈，实际不是
+  T2W (Flow+Vocoder): ~4261ms (93.1%)  ← Amdahl 真正瓶颈
+```
+
+**方法论要点:** 在异构计算环境中，GPU/NPU 型号名称不等于实际设备放置。
+`--device CANN0` 只指定主模型后端；T2W 子模块可能静默 fallback 到 CPU。
+
+### 2. CANN Stream Thread Affinity
+
+CANN context 与创建线程绑定——主线程创建的 context 不能在 worker 线程使用。
+而 T2W 推理发生在 httplib worker 线程中，导致即使权重在 NPU 上，
+实际计算仍在 CPU 执行（算子回退）。
+
+**`cann-flow-only` lazy-init 技巧:**
+```
+标准路径:  main() → CANN init (主线程) → T2W 推理 (worker 线程) → CPU fallback
+cann-flow-only:  main() → 跳过 T2W CANN init → T2W 推理 (worker 线程)
+                 └→ CANN init 延迟到首次 T2W 调用 ← context 在正确线程创建
+```
+
+零源码修改，仅通过 `OMNI_T2W_DEVICE=cann-flow-only` 环境变量切换。
+Flow+CANN 获得 20.1× 加速（3826→190ms），完整链 RTF 从 4.23 降至 0.63。
+
+### 3. CPU Vocoder 残余瓶颈
+
+即使 Flow 已在 NPU，Vocoder 仍留在 CPU（452ms/window = T2W 的 76%）。
+这是因为 Vocoder 包含 CANN 不支持的算子。通过 Flow ∥ Vocoder 流水线
+（Phase 4 Pipeline），将 T2W 总耗时从 601ms 降至 375ms（−37.6%）。
+
+### 4. A/B 验证 (Step 6, 32 strict matched pairs)
+
+| 指标 | CPU T2W | CANN T2W | Δ |
+|---|---|---:|---:|
+| Request-to-first-WAV p50 | 4,798 ms | 894 ms | **−81.4%** |
+| CI95 (bootstrap, 10k) | — | [−4,220, −3,732] ms | 不含 0 |
+| WAV 输出 (16-bit @24kHz) | — | bit-exact | CPU = CANN |
+
+32 对实验覆盖短文本、长文本、图片、音频四种场景，降幅均在 −79% 到 −83% 之间。
+标签: `HISTORICAL_INTERNAL_RESULT` — 内部首音延迟指标，非官方 SPEAK→WAV RTF。
+
+---
+
 # MiniCPM-o 4.5 on Ascend 910C
 
 > 基于 `llama.cpp-omni` 的全模态模型部署与推理优化项目，面向单卡 Ascend 910C 环境，
