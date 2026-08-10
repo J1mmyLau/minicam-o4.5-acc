@@ -11,6 +11,8 @@
 
 - [项目背景](#项目背景)
 - [当前状态矩阵](#当前状态矩阵)
+- [Roadmap](#roadmap)
+  - [里程碑与决策点](#里程碑与决策点)
 - [推进全记录](#推进全记录)
   - [第一阶段：基线校准](#第一阶段基线校准7月23日7月28日)
   - [第二阶段：CANN T2W 迁移](#第二阶段cann-t2w-迁移7月28日8月1日)
@@ -72,6 +74,74 @@ Accuracy 评测暂停，等待官方明天（8月11日）提供统一测评分�
 | **WS NaN** | 🔬 TRACED | mel 预处理 160/2400 NaN → 等官方分支验证 |
 | **Q8_0 contiguous-y** | 🔬 TRACED | [4096,17] multi-token → CANN 算子限制 → 等官方分支验证 |
 | **提交就绪** | ❌ NO | 等官方 Accuracy 结果 |
+
+---
+
+## Roadmap
+
+```text
+已完成的                                          今天 / 明天                         未来
+══════════════════════════════════════════════  ═══════════════════════  ═══════════════════════════
+                                                🟡 等待官方统一测评分支
+Phase 1: 基线校准 (7/23–7/28)                   │
+  ✅ F16 runnable baseline @ ecee7de            │
+  ✅ 双锚点校准                                 │
+  ✅ 6 CANN RoPE fixes                          │
+                                                │
+Phase 2: CANN T2W 迁移 (7/28–8/1)               │
+  ✅ T2W CPU→NPU (Amdahl 93%)                   │
+  ✅ cann-flow-only lazy-init                   │
+  ✅ W0 p50 −81.4%                              │
+                                                │
+Phase 3: 服务稳定性 (8/1–8/3)                    │
+  ✅ libgomp × httplib 线程泄漏                 │
+  ✅ WS lifecycle 状态机修复                     │
+  ✅ CV notify drain                            │
+  ✅ Fault injection 5/5                        │
+                                                │
+Phase 4: 深度性能优化 (8/3–8/5)                  │
+  ✅ KV Cache 2.4×                              │
+  ✅ Q8_0 ACCEPT / Q4_K_M REJECT                │
+  ✅ TTS KV guard + per-gen active              │
+  ✅ R13 30/30 + S13 120/120                    │
+                                                │
+Phase 5: Demo 准入 (8/5–8/6)                    │
+  ✅ Gateway→Worker→Backend E2E                  │
+  ✅ UTF-8 30/30                                │
+  ✅ SSE crash fix                              │
+  ✅ 非流式 text 字段                           │
+                                                │
+Phase 6: 比赛收口 (8/6–8/8)                      │
+  ✅ 源码冻结 bdd4550                           │  ┌─────────────────────────┐  ┌─────────────────────────┐
+  ✅ T6 冻结二进制 11/11                        │  │ 明天 (8/11)              │  │ 最终                    │
+  ✅ 文档 8 份 2,276 行                         │  │                          │  │                         │
+  ✅ vLLM 迁移 10 份                            │  │ ① 拉官方统一分支        │  │ ✅ Accuracy 准入通过     │
+  ✅ Flow ∥ Vocoder −37.6%                      │  │ ② F16 accuracy 基准     │  │ ✅ Demo 端到端可用       │
+  ✅ Gate 工具链就绪                             │  │ ③ Q8_0 accuracy         │  │ ✅ RTF 排名              │
+  ✅ Frozen @ 051e993                            │  │ ④ Bug triage            │  │ ✅ 官方环境复现          │
+                                                │  │ ⑤ 提交决策              │  │                         │
+Phase 7: Accuracy 收口 (8/8–至今)                │  │                          │  │ 提交 🏁                  │
+  🔬 NaN 全链追踪完成                           │  └─────────────────────────┘  └─────────────────────────┘
+  🔬 Q8 contiguous-y 已定位                     │
+  ⏸️  Accuracy 暂停                              │  → 按下 runbook 逐步执行
+                                                │    docs/tomorrow-runbook.md
+        我们在这里 🟡                             │
+────────────────────────────────────────────────┘
+```
+
+### 里程碑与决策点
+
+| 日期 | 事件 | 决策 / 结果 |
+|------|------|------------|
+| 7/23 | 开始 | 确认以 llama.cpp-omni fork 参赛 |
+| 7/28 | 发现 T2W CPU 瓶颈 | 停止 LLM decode 优化，全力做 CANN T2W 迁移 |
+| 8/1 | CANN T2W 完成 | cann-flow-only 为主力，FM+CANN / Vocoder+CPU |
+| 8/3 | 线程泄漏定根 | `-t 4` 固化，修复 lifecycle，稳定性路线图 |
+| 8/5 | Q4_K_M REJECT | 确认量化精度天花板，不再探索更激进方案 |
+| 8/6 | 源码冻结 | `bdd4550` 锁定，启动冻结二进制回归 |
+| 8/8 | 官方规范发布 | 校准 SPEAK 定义、精度阈值、RTF 口径 |
+| **8/11** | **官方统一分支** | **开始正式 accuracy + RTF 测量** |
+| 8/?? | 提交截止 | 提交最终方案包 |
 
 ---
 
