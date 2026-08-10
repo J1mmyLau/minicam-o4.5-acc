@@ -1,3 +1,30 @@
+<!--
+  BRANCH: exp/f004-precision-ablation
+  PURPOSE: Quantify precision impact of different quantization schemes (Q8_0, Q4_K_M, W8A8) on TTS audio quality
+  DEPENDS: exp/f003-neox-layout
+  STATUS: COMPLETE — precision thresholds established, Q4_K_M REJECTED (27-40% LISTEN rate)
+-->
+
+# exp/f004-precision-ablation: Quantization Precision Impact
+
+> **分支定位:** 不同量化方案对 TTS 语音质量的精度消融实验。
+
+## 理论注记: 精度 vs 速度权衡
+
+### 背景
+Q8_0 量化在 Ascend 910C 上比 F16 慢（Phase B 结论），但 Q4_K_M 等更激进的量化
+可能通过减少 HBM 带宽压力来提升速度。然而语音生成的精度要求远高于纯文本推理——
+TTS token 的微小误差会被 Vocoder 放大为可听失真。
+
+### 关键发现
+- **Q4_K_M REJECTED**: LISTEN 状态占比 27-40%（F16/Q8_0 为 0%），模型频繁回退到监听模式
+- **W8A8 精度 CLEAN**: per-tensor 量化误差 NMSE ≤ 5e-4，TTS 音频无感知失真
+- **精度阈值**: TTS-Seed ASV ≥ 0.689, WER ≤ 1.56（官方准入要求）
+
+### 教训
+在语音生成场景中，不能简单套用纯文本推理的量化经验。TTS model 对 weight 精度
+更敏感——量化误差不是"输出文本错一个字"，而是"整段音频听不清"。
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
