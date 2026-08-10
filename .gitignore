@@ -182,3 +182,8 @@ mindstudio_profiler_output/
 
 # Benchmark result JSONs (large, auto-generated)
 benchmarks/results/
+
+# Compiled micro-benchmark binaries (extensionless)
+micro_matmul_bench
+micro_w8a8_bench
+phase1c_w8a8_bench
