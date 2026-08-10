@@ -10213,6 +10213,16 @@ bool Token2Wav::push_tokens_mel_only(const int32_t * tokens,
     }
 
     omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+
+    // Print Flow timing for non-empty mel (empty case printed above in early return)
+    if (omni::flow::profile::verbose()) {
+        const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+        const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
+        std::fprintf(stderr,
+                     "[timing_flow] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms total=%.3fms\n",
+                     (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                     g_last_enc_ms, fm_ms, t2m_ms, total_ms);
+    }
     return true;
 }
 
