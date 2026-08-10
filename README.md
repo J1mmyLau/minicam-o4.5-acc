@@ -1,3 +1,21 @@
+<!--
+  BRANCH: perf/exp001-v1-sync-memcpy
+  PURPOSE: Experiment — synchronous memcpy optimization for CANN host-device transfers
+  STATUS: EXPERIMENTAL — v1 prototype, not merged
+-->
+
+# perf/exp001-v1-sync-memcpy: 同步 Memcpy 实验
+
+> **分支定位:** 探索 CANN host↔device 同步 memcpy 是否能减少关键路径延迟。
+
+## 理论注记
+
+CANN 的 host-device 数据传输默认异步，但异步引入的 stream sync 点
+可能在关键路径上累积延迟。本实验尝试强制同步 memcpy 来消除这些 sync 点。
+
+### 结果
+实验性质，未合并到主线。为后续 D2H 优化（如 ACT_SCALE 消除）提供了基准数据。
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
