@@ -1,3 +1,75 @@
+# fix/ws-session-lifecycle — WS 生命周期修复
+
+> **分支标签**: `STABILITY_FIX` | **状态**: `MERGED_INTO_LATER` | **根因级别**: 状态机缺陷
+
+## 解决了什么
+
+将一次性运行的 llama-omni-server 改造成可持续处理多轮请求的 Persistent Server。
+修复 WebSocket session 状态机、drain timeout、线程泄漏三个连锁问题。
+
+## 理论背景：为什么会有这些问题
+
+### 状态机漏洞：CTX_STATE_REUSABLE 未重置
+
+llama-omni-server 的 WebSocket handler 使用一个全局 `parsed_init` 来跟踪 session 状态。
+当一个 session 结束后（正常结束或客户端断开），`CTX_STATE_REUSABLE` 标志没有被重置为初始状态。
+下一个 session 发起 `session.init` 时，handler 检查到 `CTX_STATE_REUSABLE != READY`，错误地认为"已有活跃 session 存在"而拒绝。
+
+**本质**：状态机缺少统一的 finalizer。每个退出路径（正常完成 / 客户端断开 / 错误 / 超时）独立处理清理逻辑，
+但没有一条路径正确重置了 `CTX_STATE_REUSABLE`。这是典型的**多退出路径状态不同步**缺陷。
+
+### Drain Timeout：CV vs Polling
+
+全双工模式下，解码器在最后 chunk 后持续生成 token。原实现用纯轮询等待 decode 完成：
+```cpp
+while (active_generation > 0) { sleep(500ms); }
+```
+问题：
+1. **轮询盲区**：`active_generation` 在 worker thread 中被清零，但 polling thread 可能 500ms 后才看到
+2. **DRAIN_TIMEOUT 是症状不是根因**：drain 完成但 polling 没感知 → 超时 → 但数据已完整处理
+3. **证据**：确认 `final_dequeued == final_completed` — 零数据丢失
+
+修复：引入 condition variable (CV) notify。Worker 在清零 `active_generation` 后 notify CV → polling 立即唤醒。
+500ms polling 退化为安全网（只在 CV 失效时兜底）。
+
+### 线程泄漏：libgomp × httplib 的不兼容
+
+这是最隐蔽的问题。
+
+**机制**：libgomp (GNU OpenMP) 使用 fork-join 线程模型。每次遇到 `#pragma omp parallel`，libgomp 创建一个
+线程 team（大小 = `n_threads - 1` = 319 with default config）。httplib 为每个 HTTP/WS 请求创建新线程。
+→ 每个 session 触发多次 OpenMP region → 319 新线程/session → 5-6 session 后触发 cgroup pid 上限 (pids.max=10000)
+
+**为什么不是传统意义上的"泄漏"**：OpenMP 线程在 parallel region 结束后应该被回收。但在高并发场景下，
+libgomp 的线程池管理策略导致线程累积速度超过回收速度。
+
+**修复**：`-t 4` 将线程 team 压缩到 3 threads/session，减少 99% 的线程创建量。
+这治标不治本，根本解决需要把 OpenMP parallel region 移到常驻 worker thread 中。
+
+## 关键验证
+
+| 测试 | 结果 | 证据 |
+|------|------|------|
+| 3 连续 E2E sessions | 3/3 PASS | KV cache cleared + n_past reset between sessions |
+| 10 连续 sessions (turn_based) | 10/10 PASS | 0 "active session exists" rejections |
+| Fault injection (5 patterns) | 5/5 recover | 突然断连 / 快速循环 / 无效输入 / 异常序列 / 并发冲突 |
+| Thread stability (17min) | 234 T2W calls, 0 errors | 线程 649→665, NO LEAK |
+| Drain data integrity | final_dequeued==final_completed | 0 data loss confirmed |
+
+## 依赖链
+
+```
+eval/official-baseline
+  └─ fix/f003-cann-rope-repeat-interleave (CANN RoPE)
+      └─ fix/ws-session-lifecycle ← YOU ARE HERE
+          └─ fix/tts-thread-lifecycle (thread leak)
+              └─ fix/full-duplex-request-max-tokens
+                  └─ perf/f6-decode-to-speak (CANN T2W)
+                      └─ main (051e993)
+```
+
+---
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
