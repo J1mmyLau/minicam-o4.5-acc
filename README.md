@@ -1,3 +1,23 @@
+<!--
+  BRANCH: perf/exp005-instrumentation
+  PURPOSE: Experiment — fine-grained instrumentation for T2W pipeline profiling
+  STATUS: EXPERIMENTAL — v3b persistent worker prototype
+-->
+
+# perf/exp005-instrumentation: T2W Pipeline Instrumentation
+
+> **分支定位:** 为 T2W pipeline 添加细粒度 timing instrumentation，支撑后续 profiling 驱动优化。
+
+## 理论注记
+
+### 为什么需要 instrumentation
+T2W 链路的延迟分解（Flow vs Vocoder vs queue wait）在没有 instrumentation 的情况下
+只能通过间接推断。本分支添加了 `[timing]` 日志点，使每阶段的耗时可见。
+
+### v3b persistent worker
+实验了持久化 worker 线程模式——避免每次 T2W 调用都创建/销毁线程，
+减少线程创建开销。为后续 Flow ∥ Vocoder pipeline 提供了线程生命周期参考。
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
