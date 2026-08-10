@@ -1,29 +1,66 @@
-# MiniCPM-o 4.5 昇腾优化项目
+# MiniCPM-o 4.5 on Ascend 910C
 
-> MiniCPM-o-4_5 on Ascend 910C via llama.cpp-omni — 比赛提交项目
+> 基于 `llama.cpp-omni` 的全模态模型部署与推理优化项目，面向单卡 Ascend 910C 环境，
+> 重点优化从模型完成文本推理到生成首段语音的 Decode-to-Speak 链路。
 >
 > **当前状态 (2026-08-10):** 🟡 FROZEN — 等待官方统一测评分支
->
-> 性能优化轮次已完成 (RTF=0.452 LOCAL_BEST_EFFORT)。Accuracy 评测暂停，等官方明天提供统一评测分支后重新跑。
 
 ---
 
-## 30 秒版
+## 目录
+
+- [项目背景](#项目背景)
+- [当前状态矩阵](#当前状态矩阵)
+- [推进全记录](#推进全记录)
+  - [第一阶段：基线校准](#第一阶段基线校准7月23日7月28日)
+  - [第二阶段：CANN T2W 迁移](#第二阶段cann-t2w-迁移7月28日8月1日)
+  - [第三阶段：服务稳定性](#第三阶段服务稳定性8月1日8月3日)
+  - [第四阶段：深度性能优化](#第四阶段深度性能优化8月3日8月5日)
+  - [第五阶段：Demo 准入与文本接口](#第五阶段demo-准入与文本接口8月5日8月6日)
+  - [第六阶段：比赛收口与官方对齐](#第六阶段比赛收口与官方对齐8月6日8月8日)
+  - [当前阶段：Accuracy 收口](#当前阶段accuracy-收口8月8日至今)
+- [分支地图](#分支地图)
+- [性能指标](#性能指标)
+- [快速开始](#快速开始)
+- [文档索引](#文档索引)
+- [明天行动计划](#明天行动计划)
+
+---
+
+## 项目背景
+
+本项目来自全模态大模型在昇腾算力平台上的部署优化比赛，对应 **llama.cpp-omni 子赛道**。
+
+比赛要求参赛方案在统一昇腾环境中完成模型部署，并依次通过五道关卡：
 
 ```text
-模型:     MiniCPM-o-4_5-F16.gguf (自研 GGUF 转换)
-硬件:     1× Ascend 910C (dual-die, 2× Ascend910 chips)
-框架:     llama.cpp-omni (FORK from ggml-org/llama.cpp)
-后端:     CANN (Ascend NPU) + CPU fallback for unsupported ops
-基线:     051e993 (F16, 性能冻结)
-性能:     LOCAL_BEST_EFFORT SPEAK→WAV RTF=0.452 (Flow ∥ Vocoder pipeline)
-稳定性:   50-session reuse + 100-round soak → 0 failures
-Accuracy: PENDING_OFFICIAL_UNIFIED_EVAL_BRANCH (明天提供)
+框架与环境可运行
+        ↓
+三项 Benchmark 精度降幅 ≤ 2 个百分点（准入条件）
+        ↓
+官方 Demo 端到端稳定可用（准入条件）
+        ↓
+每个 audio chunk 的 RTF（排名依据）
+        ↓
+主办方在官方环境中重新复现
 ```
+
+**精度和 Demo 可用性属于准入条件。只有通过这两项检查后，优化版本才会进入性能评测。**
+仅能运行 Benchmark、但无法正常接入官方 Demo 的方案，不满足本赛道的准入要求。
+
+目前已完完成内部冻结候选、二进制复现、稳定性回归和比赛工具链准备工作。
+Accuracy 评测暂停，等待官方明天（8月11日）提供统一测评分支。性能优化已完成（RTF=0.452 LOCAL_BEST_EFFORT）。
+
+**关键约束：**
+- 单卡: 1× Ascend 910C (dual-die, 2× Ascend910 chips)
+- 后端: CANN Community Edition 8.5.0.alpha002
+- 框架: llama.cpp-omni (FORK from ggml-org/llama.cpp)
+- 模型: MiniCPM-o-4_5-F16.gguf (自研 GGUF 转换, 8B 参数)
+- 基线: commit `051e993`, 二进制 SHA `768614ab`
 
 ---
 
-## 当前状态矩阵 (2026-08-10)
+## 当前状态矩阵
 
 | 维度 | 状态 | 关键指标 |
 |------|------|----------|
@@ -38,142 +75,147 @@ Accuracy: PENDING_OFFICIAL_UNIFIED_EVAL_BRANCH (明天提供)
 
 ---
 
-## 分支地图
+## 推进全记录
 
-### 主分支
+> 按时间推进顺序记录每一步的关键发现和累积进展。"攒"起来的过程。
 
-| 分支 | 用途 | 状态 |
-|------|------|------|
-| **[main](https://github.com/Phoenix3334/minicpmo45-ascend-private)** | 提交主分支，frozen @ 051e993 | `FROZEN_BASELINE` |
-| **[release/final-integration](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/release/final-integration)** | 最终集成候选 | `INTEGRATION` |
+### 第一阶段：基线校准（7月23日–7月28日）
 
-### 稳定性修复
+**Commit 考古 —— 找到最早可运行 F16 的提交**：`ecee7de`，包含 6 个 CANN RoPE 正确性修复（aab7964→fa73697→94bb580→5fdcddf→6ec3e1b→ecee7de）。确认不包含任何 F6 性能优化标记（12 个 marker 全部 absent），是纯平台支撑基线。
 
-| 分支 | 修复内容 | 状态 |
-|------|---------|------|
-| **[fix/ws-session-lifecycle](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/fix/ws-session-lifecycle)** | WS session 生命周期: CTX_STATE_REUSABLE 重置, drain timeout, 线程泄漏 | `MERGED` |
-| **[fix/tts-thread-lifecycle](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/fix/tts-thread-lifecycle)** | TTS 线程生命周期: per-gen active, drain predicate, fault injection | `MERGED` |
-| **[fix/full-duplex-request-max-tokens](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/fix/full-duplex-request-max-tokens)** | full_duplex ws_handler 未设置 request_max_tokens → max_tgt_len=0 | `MERGED` |
-| **[fix/f003-cann-rope-repeat-interleave](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/fix/f003-cann-rope-repeat-interleave)** | CANN RoPE repeat_interleave 修复 (GPU TTS 启用) | `MERGED` |
-| **[fix/ws-multimodal-nan](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/fix/ws-multimodal-nan)** | WS 多模态 NaN logits 调查 (已追踪根因, 修复待定) | `INVESTIGATION` |
+**关键发现**：此前 "TTS crash fix"（tts_gpu_layers=99→0）在 ecee7de 上不需要且有害——F16 TTS 在 CPU 上产生 zero-norm embedding。RoPE 修复后，tts_gpu_layers=99（GPU TTS）完全正常工作。
 
-### 性能优化
+**双锚点校准**：Pipeline RTF = (26.2s LLM + 18.2s T2W + 0.7s prefill) / 98s audio = 0.46。P0-D Fitness Gate ALL PASS。
 
-| 分支 | 优化内容 | 状态 |
-|------|---------|------|
-| **[perf/f6-decode-to-speak](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/perf/f6-decode-to-speak)** | decode→speak 性能优化 (CANN T2W) | `MERGED` |
-| **[perf/flow-chunk-rtf](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/perf/flow-chunk-rtf)** | Flow chunk RTF 离线链路 | `COMPLETE` |
-| **[perf/kv-cache-production-gates](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/perf/kv-cache-production-gates)** | KV Cache 静态前缀复用 (prefill 2.4× speedup) | `COMPLETE` |
-| **[perf/operator-decode-speak](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/perf/operator-decode-speak)** | 算子级 decode→speak 分解 | `COMPLETE` |
-| **[perf/ngl8-e2e-stage-profiling](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/perf/ngl8-e2e-stage-profiling)** | NGL8 E2E stage profiling | `COMPLETE` |
+✅ F16 可运行 baseline 锁定 | ✅ 双锚点方法论验证 | ✅ P0-D 全部通过
 
-### 实验 & 优化分支
+### 第二阶段：CANN T2W 迁移（7月28日–8月1日）
 
-| 分支 | 内容 | 状态 |
-|------|------|------|
-| **[exp/token2wav-cann-runtime](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/exp/token2wav-cann-runtime)** | T2W CANN runtime 放置实验 (FM+CANN) | `EXPERIMENTAL` |
-| **[exp/f003-neox-layout](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/exp/f003-neox-layout)** | F003 NeoX layout 实验 | `EXPERIMENTAL` |
-| **[exp/f004-precision-ablation](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/exp/f004-precision-ablation)** | F004 precision ablation 实验 | `EXPERIMENTAL` |
-| **[opt/r4.2-t2w-trt](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/opt/r4.2-t2w-trt)** | T2W TRT 优化 | `OPTIMIZATION` |
-| **[opt/r4.3-vit-trt](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/opt/r4.3-vit-trt)** | ViT TRT 优化 | `OPTIMIZATION` |
+**瓶颈发现**：T2W（Flow + Vocoder）在 CPU 上运行，占首音延迟 93%。这说明**"先优化 LLM decode"是错误方向**——decode 只占端到端 ~2.9%。
 
-### 功能分支
+**cann-flow-only 发现**：`OMNI_T2W_DEVICE=cann-flow-only` 将 CANN backend 初始化推迟到 worker thread。T2W RTF 4.23→0.63（**6.7×**）。流式模式下 CANN context 跨线程共享，普通模式 CANN 与 httplib 线程冲突导致 fallback 到 CPU。
 
-| 分支 | 内容 | 状态 |
-|------|------|------|
-| **[feat/omni-duplex-r2](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/feat/omni-duplex-r2)** | Omni 全双工 R2 | `FEATURE` |
-| **[feat/ascend-cann](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/feat/ascend-cann)** | Ascend CANN backend 适配 | `FEATURE` |
-| **[feat/web-server](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/feat/web-server)** | Web 服务器 (HTTP API) | `FEATURE` |
-| **[feat/web-demo](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/feat/web-demo)** | Web Demo (Gateway + Worker) | `FEATURE` |
-| **[feat/speed-test](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/feat/speed-test)** | 速度测试工具 | `TOOLING` |
+**Request-to-first-WAV**：32 strict matched pairs，p50 4798ms→894ms（**−81.4%**），CI95 [−4220,−3732]ms 不含 0。WAV 逐 bit 校验无损。
 
-### 基准 & 快照
+**理论注记**：CANN 的 stream/context 有线程亲和性——在 thread A 创建的 context 不能在 thread B 使用。cann-flow-only 的关键 trick 是把 CANN 初始化从主线程推迟到 T2W worker thread，绕过了 httplib worker 线程的冲突。
 
-| 分支 | 内容 | 状态 |
-|------|------|------|
-| **[eval/official-baseline](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/eval/official-baseline)** | 官方基线 (Demo clone @ ba7fa9c) | `BASELINE` |
-| **[backup-pre-filter-20260808](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/backup-pre-filter-20260808)** | 2026-08-08 pre-filter 快照 | `SNAPSHOT` |
-| **[app](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/app)** | 应用层 | `APP` |
+✅ 首音延迟 −81.4% | ✅ 全链路 RTF 0.685 | ✅ 零源码修改
+
+### 第三阶段：服务稳定性（8月1日–8月3日）
+
+**线程泄漏根因**：libgomp 为每个 httplib worker 创建 319-thread OpenMP team（319 = cpuparams.n_threads-1 = 320-1）。这是一个**框架交互型泄漏**：OpenMP 的线程池与 httplib 的请求线程模型不兼容。`-t 4` 降至 3 threads/session。5-6 session 后触发 cgroup pid 上限（pids.max=10000）。
+
+**WS Session 生命周期修复**：`CTX_STATE_REUSABLE` 在 session 结束后未被重置，导致新 session 看到"有活跃 session"而拒绝。根因是 ws_handler.cpp 缺少统一的 finalizer。修复后 3 连续 E2E session 全部通过。
+
+**Drain Timeout 归因**：DRAIN_TIMEOUT 是线程争用的**症状**而非数据丢失。确认 final_dequeued==final_completed，无数据丢失。改成 CV notify 替代纯 polling，500ms polling 退化为安全网。
+
+**Fault injection**：5 种注入模式全部恢复（突然断连、快速循环、无效输入、异常序列、并发冲突）。
+
+**理论注记**：libgomp 的线程模型是 fork-join——每次 `#pragma omp parallel` 创建一个线程 team。httplib 为每个请求创建新线程，导致每次请求触发新的 OpenMP team 创建。这在高并发场景下是灾难性的。修复的本质是限制 OpenMP 线程数（-t 4）和减少不必要的 parallel region。
+
+✅ 线程泄漏已修复 | ✅ 连续 session 生命周期验证 | ✅ 故障注入 5/5
+
+### 第四阶段：深度性能优化（8月3日–8月5日）
+
+**Static Prefix KV Cache**：首次 save → 后续 load。系统提示词 + 音频格式前缀是固定的（130 tokens），这部分 KV 可以在 session 间复用。Prefill p50 206ms→85ms（**2.4×** 加速比）。30 组 KV 完整性校验全部通过。
+
+**理论注记**：Prefill 阶段的计算量是 O(n²)（所有 token attend to 所有之前的 token），而 decode 阶段是 O(n)。Static Prefix 复用的本质是把 O(n²) 中的固定部分缓存，只计算新增部分。
+
+**LLM 量化 A/B**：Q8_0 RTF=0.565（−17.5% vs F16），0% LISTEN → **ACCEPT**。Q4_K_M 27-40% LISTEN → **REJECT**。关键发现：vocoder 在 CPU 上（432ms），量化 LLM 加速被 vocoder 瓶颈掩盖——LLM 越慢，vocoder 的相对占比越大，量化的实际收益越小。
+
+**Per-generation active + TTS KV guard**：消除跨请求 polling 竞争；prefill 阶段 cap 上限（256）。
+
+**R13/S13 验证**：30/30 KV Cache A/B PASS；120/120 valid baseline，4 case types。`S13_STRICT_BASELINE` 120/120 成功（eos=111, max_tokens=9, 0 error）。
+
+✅ KV Cache 2.4× | ✅ Q8_0 +17.5% | ✅ R13/S13 全部通过
+
+### 第五阶段：Demo 准入与文本接口（8月5日–8月6日）
+
+**Demo E2E**：Gateway→Worker→Backend 三层全链路验证。这是比赛准入条件之一——官方 Demo 必须端到端可用。
+
+**UTF-8 中文**：30/30 PASS（L1 Backend 10/10 + L2 Worker 10/10 + L3 Gateway 10/10）。之前出现 `?` 编码腐败的根因是 SSE 流式响应的 worker-once 生命周期问题——worker 在响应中途被销毁导致 sink.done 未调用。
+
+**文本接口修复**：非流式 text 字段补齐、SSE crash（std::bad_alloc in httplib write_response_core）修复。多模态 prefill 协议修正（media_type=2 user_text / think-loop 格式）。发现了关键协议陷阱：omni_init 后的第一次 stream_prefill 被 system-prompt 初始化分支吞掉用户内容（omni.cpp:12906），正确的协议是两次 prefill（cnt:0 初始化 → cnt:1 用户内容）。
+
+**SSE Transport**：D3.5-A/B PASS（idle 90s 恢复、长文本不截断），D3.5-C/D 根因定位于 `fix/ws-session-lifecycle`。
+
+✅ Demo E2E 通过 | ✅ UTF-8 30/30 | ✅ Streaming + 非流式均可工作
+
+### 第六阶段：比赛收口与官方对齐（8月6日–8月8日）
+
+**源码冻结**：commit bdd4550（candidate source）。**T6 冻结二进制回归 11/11 PASS**（28/30 KV + 2 A_ERR pairs documented）。SOURCE_FREEZE=PASS, REPRODUCIBLE_BINARY=PASS。
+
+**文档体系**：8 份顶层文档 2,276 行。涵盖 Quickstart、架构、方法论、复现指南、证据索引、限制与 Gate。
+
+**比赛工具链**：RTF 解析器 + valid_audio 判定（10 种排除原因）+ Gate --dry-run（0/2/3/4）+ 私有路径清除。
+
+**vLLM 迁移文档**：10 份文档在 `docs/vllm-migration/`，覆盖组件映射、经验迁移、执行计划、风险矩阵、团队交接。
+
+**性能冻结**：Flow ∥ Vocoder pipeline (OMNI_T2W_PIPELINE_OVERLAP=1) 将串行 T2W 改为流水线并行，601→375ms/window (−37.6%)。最终 F16 候选二进制 SHA 768614ab @ commit `051e993`。
+
+✅ 源码冻结 + 二进制复现 | ✅ 完整文档体系 | ✅ 比赛工具链就绪
+
+### 当前阶段：Accuracy 收口（8月8日–至今）
+
+**状态**：🟡 FROZEN，等待官方统一测评分支。
+
+官方 organizer 确认："预计明天上午提供有统一测评的分支"。当前所有 Cookbook/自定义 evaluator 的结果不作为最终 Accuracy 结论。
+
+**已完成的 P0 调查**：
+
+- **WS 多模态 NaN logits**：已追踪至 mel 频谱预处理阶段（`whisper_input_mel` 160/2400 NaN）。NaN 传播链已完整记录。根因在 `log_mel_spectrogram_worker_thread()` 中——mel filterbank 输出产生 NaN 值，经 Whisper encoder 全量传播到 LLM logits。详见 [WS NaN 调查报告](docs/ws-nan-investigation.md)。
+
+- **Q8_0 contiguous-y 错误**：Prompt Bundle 开启时 `[4096,17]` 多 token prefill 触发 CANN `aclnnWeightQuantBatchMatmulV2` 的 contiguous y 约束。属于后端 layout 兼容性问题。此错误与官方评测路径可能无关。
+
+**明天计划**：拉官方统一分支 → 先 F16 → 再 Q8_0 → 重新评估所有 Accuracy 项。只有在官方分支上复现的 bug 才是真 P0。
+
+⏳ Accuracy 最终结果 | ⏳ 提交就绪判定
 
 ---
 
-## 阶段推进时间线
+## 分支地图
 
-### Phase A: F16 校准 (COMPLETE)
+> 所有分支的完整地图，含理论背景说明。详见 [docs/branch-map.md](docs/branch-map.md)。
 
-```
-模型:     F16 (FP32 weight, FP16 act)
-RTF:      F16_LOCAL_SPEAK_RTF_MEAN=1.560 (per-chunk old method)
-结论:     可靠本地基线建立; 与官方不可直接比较 (timer boundary diff +44%/+132%)
-```
+### 核心链路（依赖顺序）
 
-### Phase B: Q8_0 量化 A/B (COMPLETE)
-
-```
-模型:     Q8_0 (8-bit 权重量化)
-RTF:      10.3% SLOWER than F16 (182.7ms/chunk vs 165.5ms)
-结论:     CANN 量化路径有损; Q8_0 不会改善性能
-根因:     aclnnWeightQuantBatchmatmulV2 瓶颈 (NZ layout ~10%, kernel ~90%)
-```
-
-### Phase C: W8A8 量化 Matmul (COMPLETE)
-
-```
-技术:     W8A8 (weight + activation 量化) via QuantMatmul + DynamicQuant
-性能:     4.76× vs Q8_0 V2 (model-weighted), 但仍慢于 F16 (0.40×)
-决策:     ROUTE A — F16 作为主力 MUL_MAT, W8A8 作为 Q8_0 可选优化
-文档:     docs/w8a8-cann-quant-matmul.md
+```text
+eval/official-baseline (官方 Demo 基线)
+  └─ fix/f003-cann-rope-repeat-interleave (CANN RoPE → GPU TTS 可用)
+      └─ fix/ws-session-lifecycle (WS 生命周期 → persistent server)
+          └─ fix/tts-thread-lifecycle (线程泄漏 → libgomp OpenMP 模型)
+              └─ fix/full-duplex-request-max-tokens (full_duplex max_tgt_len=0)
+                  └─ perf/f6-decode-to-speak (CANN T2W 设备放置)
+                      └─ perf/flow-chunk-rtf (Flow chunk RTF 离线)
+                          └─ main ← 051e993 (FROZEN BASELINE)
+                              └─ fix/ws-multimodal-nan (NaN 调查, NOT merged)
 ```
 
-### Phase 1: 性能优化 (COMPLETE)
+### 分支分类速览
 
-```
-瓶颈定位:  decode→speak=142ms(2.9%), T2W CPU=4490ms(93%)
-关键优化:  CANN T2W 设备放置 (W0 p50 4798→894ms, −81.4%)
-          Flow ∥ Vocoder pipeline (601→375ms/window, 1.60×)
-          静态前缀 KV Cache 复用 (prefill 206→85ms, 2.4×)
-最终 RTF:  0.452 (LOCAL_BEST_EFFORT)
-```
-
-### Phase 2: 稳定性 (COMPLETE)
-
-```
-50-reuse gate:  50/50 PASS
-100-round soak: 100/100 PASS, 0 errors
-线程泄漏:       已修复 (libgomp -t4 → 3 threads/session)
-WS lifecycle:   CTX_STATE_REUSABLE 正确重置
-Drain timeout:  CV notify 替代 polling
-```
-
-### Phase 3: Demo 路径 (COMPLETE)
-
-```
-Demo Text:   30/30 valid Chinese UTF-8 (Gateway→Worker→Backend)
-Demo Audio:  valid WAV via Gateway
-Demo Video:  CONDITIONAL PASS (WS NaN blocks full chain)
-UTF-8 Fix:   SSE worker-once + sink.done 修复
-```
-
-### Phase 4: 最终收口 (COMPLETE)
-
-```
-F16 候选冻结: 051e993 (binary SHA: 768614ab)
-最终 Gate 表: FINAL_GATE_CLOSURE — 4 phases complete
-提交骨架:     docs/competition-submission/
-vLLM 迁移:    docs/vllm-migration/ (10 个迁移文档)
-```
-
-### Phase 5: Accuracy (🟡 FROZEN)
-
-```
-状态:         PENDING_OFFICIAL_UNIFIED_EVAL_BRANCH
-Daily-Omni:   40% single-frame (INVALID as final — 非统一评测路径)
-TTS-Seed:     BLOCKED (WS NaN)
-VideoMME:     BLOCKED (WS NaN)
-NaN 根因:     已追踪至 mel 预处理 (160/2400 NaN)
-Q8_0 错误:    [4096,17] contiguous-y → CANN 算子限制
-明天计划:     拉官方统一分支 → 先 F16 → 再 Q8_0 → 重新评估
-```
+| 类别 | 分支 | 用途 | 关键理论点 |
+|------|------|------|-----------|
+| **主** | `main` | 提交主分支 @ 051e993 | F16 冻结 + 全部优化已合入 |
+| **稳定性** | `fix/ws-session-lifecycle` | WS 生命周期修复 | CTX_STATE_REUSABLE 状态机 + CV 通知替代轮询 |
+| | `fix/tts-thread-lifecycle` | 线程泄漏修复 | libgomp fork-join 与 httplib 线程模型不兼容 |
+| | `fix/full-duplex-request-max-tokens` | duplex max_tgt_len=0 | full_duplex 路径遗漏 request_max_tokens 传播 |
+| | `fix/f003-cann-rope-repeat-interleave` | CANN RoPE fix | CANN 算子不支持非标准 interleave 模式 |
+| | `fix/ws-multimodal-nan` | NaN 调查 | mel 预处理 NaN → Whisper → LLM 全链传播 |
+| **性能** | `perf/f6-decode-to-speak` | CANN T2W | CANN stream 线程亲和性 + 设备放置 |
+| | `perf/flow-chunk-rtf` | Flow chunk RTF | 离线测量每 chunk RTF 不依赖服务 |
+| | `perf/kv-cache-production-gates` | KV Cache | Static prefix 复用 O(n²)→O(n) 计算量转移 |
+| | `perf/operator-decode-speak` | 算子分解 | decode→speak 子组件级 profiling |
+| | `perf/ngl8-e2e-stage-profiling` | E2E profiling | NGL8 多卡 stage 级性能追踪 |
+| **实验** | `exp/token2wav-cann-runtime` | CANN runtime | FM+CANN vs CPU fallback 对比 |
+| | `exp/f003-neox-layout` | NeoX layout | GPT-NeoX 权重布局的 CANN 适配 |
+| | `exp/f004-precision-ablation` | precision ablation | FP16→FP32→Q8 精度衰减链 |
+| **优化** | `opt/r4.2-t2w-trt` | T2W TRT | TensorRT 后端替换方案 |
+| | `opt/r4.3-vit-trt` | ViT TRT | Vision encoder TRT 优化 |
+| **功能** | `feat/omni-duplex-r2` | 全双工 R2 | duplex session 状态机重构 |
+| | `feat/ascend-cann` | CANN backend | Ascend NPU 算子适配全链路 |
+| | `feat/web-server` | HTTP API | RESTful 推理接口 |
+| | `feat/web-demo` | Web Demo | Gateway + Worker 双层架构 |
+| | `feat/speed-test` | 测速工具 | 标准化延迟/吞吐 benchmark |
 
 ---
 
@@ -182,28 +224,28 @@ Q8_0 错误:    [4096,17] contiguous-y → CANN 算子限制
 ### F16 最终候选 (051e993)
 
 ```
-SPEAK→WAV RTF (LOCAL_BEST_EFFORT):  0.452
-  └─ Flow ∥ Vocoder pipeline:       1.60× speedup
-  └─ CANN T2W placement:            −81.4% W0 latency
-  └─ KV Cache static prefix:        2.4× prefill speedup
-  └─ -t4 thread config:             optimal (vs -t8 14% slower decode)
+SPEAK→WAV RTF (LOCAL_BEST_EFFORT): 0.452
+  └─ Flow ∥ Vocoder pipeline:      1.60× speedup (601→375ms/window)
+  └─ CANN T2W placement:           −81.4% W0 latency (4798→894ms p50)
+  └─ KV Cache static prefix:       2.4× prefill speedup (206→85ms p50)
+  └─ -t4 thread config:            optimal (vs -t8: decode 14% slower)
 
-Sub-components (per chunk):
-  LLM decode:      ~142ms (2.9%)
-  T2W (Flow):      ~189ms (CANN)
-  T2W (Vocoder):   ~432ms (CPU)
-  Prefill:         ~85ms (KV cache hit)
+Sub-component breakdown (per chunk):
+  LLM decode:       ~142ms (2.9%)
+  T2W (Flow+CANN):  ~189ms
+  T2W (Vocoder+CPU): ~432ms (bottleneck — 76% of T2W)
+  Prefill (KV hit): ~85ms
 ```
 
 ### 硬件
 
-```
-平台:     1× Ascend 910C (dual-die)
-芯片:     2× Ascend910 chips
-CANN:     Community Edition 8.5.0.alpha002
-驱动:     固件 xxx
-NPU 内存:  ~60GB HBM
-```
+| 项目 | 规格 |
+|------|------|
+| 平台 | 1× Ascend 910C (dual-die) |
+| 芯片 | 2× Ascend910 chips |
+| CANN 版本 | Community Edition 8.5.0.alpha002 |
+| NPU 内存 | ~60 GB HBM |
+| CPU | Kunpeng 920 |
 
 ---
 
@@ -218,7 +260,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
 cmake --build . --target llama-omni-server -j$(nproc)
 ```
 
-### 启动服务 (F16 候选)
+### 启动服务（F16 最终候选）
 
 ```bash
 OMNI_T2W_PIPELINE_OVERLAP=1 \
@@ -231,88 +273,49 @@ build/bin/llama-omni-server \
   --split-mode layer -t 4
 ```
 
-### 环境变量参考
+### 诊断环境变量
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `OMNI_T2W_PIPELINE_OVERLAP=1` | 0 | Flow ∥ Vocoder 并行 |
-| `OMNI_T2W_DEVICE=cann-flow-only` | (空) | T2W Flow 放 CANN |
-| `OMNI_T2W_DRAIN_TIMEOUT_MS=5000` | 自动 | T2W drain 超时 |
-| `OMNI_NAN_DIAG=1` | 0 | NaN 诊断追踪 |
-| `OMNI_T2W_QUEUE_DIAG=1` | 0 | T2W 队列诊断 |
-| `OMNI_ENCODING_DIAG=1` | 0 | UTF-8 编码诊断 |
-| `GGML_CANN_W8A8=1` | 0 | W8A8 量化 MatMul (opt-in) |
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `OMNI_T2W_PIPELINE_OVERLAP=1` | 0 | 开启 Flow ∥ Vocoder 流水线并行 |
+| `OMNI_T2W_DEVICE=cann-flow-only` | (空) | T2W Flow 模块放 CANN NPU |
+| `OMNI_T2W_DRAIN_TIMEOUT_MS=5000` | 自动 | T2W drain 超时毫秒 |
+| `OMNI_NAN_DIAG=1` | 0 | NaN 诊断追踪（零开销 gating） |
+| `OMNI_T2W_QUEUE_DIAG=1` | 0 | T2W 队列积压诊断 |
+| `OMNI_ENCODING_DIAG=1` | 0 | UTF-8 编码链路诊断 |
+| `GGML_CANN_W8A8=1` | 0 | W8A8 量化 MatMul（opt-in，非默认） |
 | `OMNI_KV_CACHE_REUSE=1` | 0 | 静态前缀 KV Cache 复用 |
 
 ---
 
 ## 文档索引
 
-### 性能 & 优化
-
 | 文档 | 内容 |
 |------|------|
-| [F6 Phase2 Step6 CANN T2W A/B](docs/F6_PHASE2_STEP6_CANN_T2W_AB.md) | CANN T2W 设备放置 A/B 详细 |
-| [F6 Phase2 Step3 Decode-Speak 分解](docs/F6_PHASE2_STEP3_DECODE_SPEAK_BREAKDOWN.md) | decode→speak 子组件分解 |
-| [F6 Phase2 Baseline Device Audit](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md) | 基线设备放置审计 |
-| [W8A8 CANN Quant Matmul](docs/w8a8-cann-quant-matmul.md) | W8A8 量化 MatMul 完整指南 (Phase C) |
-| [F6 S13 Final Gate Closure](docs/F6_S13_FINAL_GATE_CLOSURE.md) | 最终 Gate 收口 |
-
-### 稳定性 & Bug
-
-| 文档 | 内容 |
-|------|------|
-| [WS NaN Investigation](docs/ws-nan-investigation.md) | WS 多模态 NaN logits 调查报告 (2026-08-10) |
-| [F6 Thread Exhaustion Root Cause](docs/f6-thread-exhaustion-root-cause.md) | 线程泄漏根因 (如引用在 memory) |
-
-### vLLM 迁移 (给接手 vLLM-Omni 的人)
-
-| 文档 | 内容 |
-|------|------|
-| [vLLM Migration README](docs/vllm-migration/README.md) | 入口：30s 版 / 10min 版 / 关键约定 |
-| [Llama-to-vLLM 经验迁移](docs/vllm-migration/LLAMA_TO_VLLM_EXPERIENCE_MIGRATION.md) | 12 条核心经验 + 决策树 |
-| [Llama ↔ vLLM 组件映射](docs/vllm-migration/LLAMA_VLLM_COMPONENT_MAPPING.md) | 13 个组件逐一映射 + 源码导航 |
-| [vLLM 优化执行计划](docs/vllm-migration/VLLM_OPTIMIZATION_EXECUTION_PLAN.md) | 动手路线 V0–V12 |
-| [vLLM 风险与验证矩阵](docs/vllm-migration/VLLM_RISK_AND_VALIDATION_MATRIX.md) | 16 证据 + 25 风险 + 候选决策 |
-| [vLLM 团队交接](docs/vllm-migration/VLLM_TEAM_HANDOFF.md) | 第一周计划 + 最终交付清单 |
-| [Llama 原始证据附录](docs/vllm-migration/LLAMA_RAW_EVIDENCE_APPENDIX.md) | llama 所有数字的出处 |
-| [实验模板](docs/vllm-migration/EXPERIMENT_TEMPLATES.md) | 4 种实验模板 |
-
-### 比赛提交
-
-| 文档 | 内容 |
-|------|------|
-| [STATUS.md](STATUS.md) | 实时项目状态 |
-
----
-
-## 提交仓库
-
-```bash
-# 官方上游 (只读)
-origin:     https://github.com/tc-mb/llama.cpp-omni.git
-origin-ssh: git@ssh.github.com:tc-mb/llama.cpp-omni.git
-
-# 私有工作仓库 (推送)
-private:    ssh.github.com:Phoenix3334/minicpmo45-ascend-private.git
-           (认证: ~/.ssh/minicpmo45_ascend_private deploy key, port 443)
-```
+| [STATUS.md](STATUS.md) | 实时项目状态（更新最频繁） |
+| [docs/branch-map.md](docs/branch-map.md) | 26 分支完整地图（HEAD、依赖链） |
+| [docs/ws-nan-investigation.md](docs/ws-nan-investigation.md) | WS 多模态 NaN 调查报告 |
+| [docs/w8a8-cann-quant-matmul.md](docs/w8a8-cann-quant-matmul.md) | W8A8 量化 MatMul (Phase C) |
+| [docs/F6_S13_FINAL_GATE_CLOSURE.md](docs/F6_S13_FINAL_GATE_CLOSURE.md) | 最终 Gate 收口 |
+| [docs/F6_PHASE2_STEP6_CANN_T2W_AB.md](docs/F6_PHASE2_STEP6_CANN_T2W_AB.md) | CANN T2W A/B 详细 |
+| [docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md](docs/F6_PHASE2_BASELINE_DEVICE_AUDIT.md) | 基线设备放置审计 |
+| [docs/vllm-migration/README.md](docs/vllm-migration/README.md) | vLLM 迁移文档入口 |
 
 ---
 
 ## 明天行动计划
 
-1. 拉取官方统一测评分支
-2. 记录官方 commit SHA
-3. 按官方命令不变运行
-4. F16 先跑 → Accuracy baseline
-5. Q8_0 再跑
-6. 重新评估：
-   - Daily-Omni / VideoMME / TTS-Seed
-   - WS NaN (OMNI_NAN_DIAG=1)
+1. 拉取官方统一测评分支 → 记录官方 commit SHA
+2. 按官方命令不变运行
+3. **先 F16**（Accuracy 基准）
+4. **再 Q8_0**
+5. 重新评估：
+   - Daily-Omni / VideoMME / TTS-Seed accuracy
+   - WS NaN（`OMNI_NAN_DIAG=1`）
    - Q8_0 contiguous-y 错误
-7. 只有在官方分支上复现的 bug 才升级为提交阻塞项
+6. 只有在官方分支上**复现**的 bug 才升级为 P0 提交阻塞项
+7. 不在官方分支上复现 → 分类为 `ARTIFACT_OF_NON_UNIFIED_EVAL_PATH` → 关闭
 
 ---
 
-> 项目冻结时间: 2026-08-10 | 基线: 051e993 | 状态: `WAIT_OFFICIAL_UNIFIED_EVAL_BRANCH`
+> 冻结时间: 2026-08-10 | 基线: 051e993 | 二进制: 768614ab | 状态: `WAIT_OFFICIAL_UNIFIED_EVAL_BRANCH`
