@@ -1,3 +1,58 @@
+# feat/ascend-cann — Ascend CANN Backend 适配
+
+> **分支标签**: `FEATURE` | **状态**: `MERGED_INTO_MAIN` | **范围**: ggml CANN backend 全链路
+
+## 解决了什么
+
+为 llama.cpp-omni 添加华为昇腾 NPU (Ascend 910C) 的 CANN backend 支持。
+使得原本只能在 NVIDIA GPU (CUDA) 或 Apple Silicon (Metal) 上运行的 omni 推理引擎
+能够在昇腾算力平台上运行，是本项目的**平台基础**。
+
+## 理论背景：为什么需要独立的 backend
+
+### CANN vs CUDA：算子层面的差异
+
+ggml 的 backend 架构允许每个计算后端独立实现算子。CANN backend 的核心挑战：
+
+1. **算子映射不完整**：CUDA backend 有数百个算子，CANN 的 ACL (Ascend Computing Library)
+   只覆盖其中一部分。不支持的算子需要 fallback 到 CPU，导致 NPU↔CPU 数据搬运开销。
+
+2. **Layout 差异**：CANN 的原生 tensor layout（NC1HWC0、NZ、ND）与 ggml 的 row-major layout
+   不同。量化算子（如 `aclnnWeightQuantBatchMatmulV2`）对 layout 有额外约束。
+
+3. **Stream 线程亲和性**：CANN 的 stream/context 有线程亲和性——在 thread A 创建的 context
+   不能在 thread B 使用。这对多线程推理（httplib workers + omni worker threads）造成了
+   设备放置约束。详见 `OMNI_T2W_DEVICE=cann-flow-only` 发现。
+
+### 关键设计决策
+
+- **`-ngl 999 --device CANN0`**：将所有 GPU layer 放 CANN NPU
+- **`--split-mode layer`**：按 layer 切分（LLM 的多层 transformer）
+- **CPU fallback**：CANN 不支持的算子自动 fallback，但要付出 H2D/D2H copy 代价
+- **W8A8 opt-in**：`GGML_CANN_W8A8=1` 环境变量启用 W8A8 量化 matmul（实验性）
+
+### 量化算子的特殊挑战
+
+CANN 的 `aclnnWeightQuantBatchMatmulV2` 要求 y tensor 是 contiguous ND layout。
+当 ggml 产生的 tensor 是 view/stride 类型（如 multi-token prefill `[4096,17]`），
+不满足 contiguous 约束 → `EZ1001: only support y tensor is contiguous`。
+这是当前 Q8_0 Prompt Bundle 错误的根因。
+
+## 关键发现 (从后续分支)
+
+- **CANN RoPE fix** (`fix/f003-cann-rope-repeat-interleave`): CANN 原生不支持非标准 interleave
+- **T2W CANN flow-only** (`perf/f6-decode-to-speak`): 流线程亲和性限制
+- **Q8_0 contiguous-y**: 多 token 输出的 layout 不匹配
+
+## 依赖链
+
+```
+feat/ascend-cann ← YOU ARE HERE (平台基础)
+  └─ 所有后续分支都依赖此分支
+```
+
+---
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
