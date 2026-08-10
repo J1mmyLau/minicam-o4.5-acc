@@ -2243,6 +2243,24 @@ class Token2Wav {
         return push_tokens_window(tokens.data(), (int64_t) tokens.size(), is_final, wave_bt_out, out_T_audio);
     }
 
+    // F6 Phase 4: Flow-only (token→mel).  Extracted from push_tokens_window
+    // for pipeline overlap.  Returns mel_bct (80×T_mel).  Caller owns mel_bct_out;
+    // it is cleared before filling.  Returns true even if mel_bct is empty
+    // (empty-mel case — caller must handle).
+    bool push_tokens_mel_only(const int32_t * tokens,
+                              int64_t         n_tokens,
+                              bool            is_final,
+                              std::vector<float> & mel_bct_out);
+
+    // F6 Phase 4: Vocoder-only (mel→wave).  Extracted from push_tokens_window
+    // for pipeline overlap.  Takes ownership of mel_bct (by value, moved from
+    // MelTask).  The mel cache (voc_mel_cache_bct_) and crossfade state are
+    // managed internally.  MUST be called from a single Vocoder thread.
+    bool push_mel_to_wave(std::vector<float>   mel_bct,
+                          bool                 is_final,
+                          std::vector<float> & wave_bt_out,
+                          int64_t &            out_T_audio);
+
     void reset_stream();
 
     static constexpr int32_t kSampleRate = omni::vocoder::hifigan2::hg2_hift_generator::HG2_SAMPLING_RATE;
@@ -2324,6 +2342,19 @@ struct Token2WavSession {
     }
 
     void reset();
+
+    // F6 Phase 4: Pipeline overlap — Flow-only (token→mel).
+    bool feed_window_mel(const int32_t * tokens, int64_t n_tokens, bool is_final,
+                         std::vector<float> & mel_bct_out) {
+        return t2w.push_tokens_mel_only(tokens, n_tokens, is_final, mel_bct_out);
+    }
+
+    // F6 Phase 4: Pipeline overlap — Vocoder-only (mel→wave).
+    // Takes ownership of mel_bct by value.
+    bool feed_mel_to_wave(std::vector<float> mel_bct, bool is_final,
+                          std::vector<float> & wave_bt_out, int64_t & out_T_audio) {
+        return t2w.push_mel_to_wave(std::move(mel_bct), is_final, wave_bt_out, out_T_audio);
+    }
 
     Token2Wav t2w;
 

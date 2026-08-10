@@ -159,6 +159,68 @@ struct T2WOut {
     int request_index = 0;  // F6 W5: request_index at submit time for audio profile file naming
     E2EStageTiming *profile_handle = nullptr;  // F6 C8: request-scoped profile for Flow/Vocoder
     std::chrono::steady_clock::time_point enqueue_time = std::chrono::steady_clock::now();
+    // F6 Phase 1b: Per-task timing decomposition (OMNI_T2W_QUEUE_DIAG=1).
+    // enqueue_ts = enqueue_time (already captured at construction, which is immediately before push).
+    uint64_t dequeue_ts_ns = 0;   // Set at worker pop
+    uint64_t complete_ts_ns = 0;  // Set after Flow+Vocoder+WAV write
+};
+
+// ========================================================================
+// F6 Phase 4: Flow ∥ Vocoder Pipeline — MelTask handoff
+//
+// MelTask carries Flow output (mel spectrogram) from the Flow worker
+// to the Vocoder worker.  The mel_bct vector is moved (not copied)
+// across the queue boundary.  Vocoder cache state (voc_mel_cache_bct_,
+// voc_cache_source_bt1_, voc_Tc_, voc_speech_cache_bt_) lives inside
+// the Vocoder worker and is NOT carried on MelTask.
+// ========================================================================
+struct MelTask {
+    std::vector<float> mel_bct;   // Flow output: 80×T_mel float, moved
+    bool               is_final       = false;
+    bool               is_last_window = false;
+    int                round_idx      = -1;
+    int                wav_idx        = 0;
+    uint32_t           generation_id  = 0;
+    E2EStageTiming *   profile_handle = nullptr;
+};
+
+// ========================================================================
+// F6 Phase 4: VocoderThreadInfo — mel queue + Vocoder worker state
+//
+// Separate from T2WThreadInfo because the two stages have independent
+// queues, atomics, and drain predicates.  The mel queue is bounded
+// (capacity default 2, configurable via OMNI_MEL_QUEUE_CAPACITY)
+// to provide natural backpressure: Flow blocks when Vocoder can't
+// keep up, preventing unbounded intermediate queue growth.
+// ========================================================================
+struct VocoderThreadInfo {
+    // Mel queue: Flow producer → Vocoder consumer
+    static constexpr size_t DEFAULT_MEL_QUEUE_CAPACITY = 2;
+    size_t mel_queue_capacity = DEFAULT_MEL_QUEUE_CAPACITY;
+    std::queue<MelTask*> mel_queue;
+    std::mutex mtx;
+    std::condition_variable cv;
+
+    // Per-stage active tracking (mirrors T2WThreadInfo pattern)
+    std::atomic<uint32_t> active_vocoder_generation{0};
+    std::atomic<uint32_t> final_vocoder_processed_generation{0};
+
+    // Diagnostic counters (gated behind OMNI_T2W_QUEUE_DIAG=1)
+    std::atomic<uint64_t> diag_mel_enqueued{0};
+    std::atomic<uint64_t> diag_mel_dequeued{0};
+
+    // WAV file counter (per-round, reset on round switch)
+    std::atomic<int> wav_count{0};
+
+    VocoderThreadInfo() {
+        const char * cap_str = getenv("OMNI_MEL_QUEUE_CAPACITY");
+        if (cap_str) {
+            int cap = std::atoi(cap_str);
+            if (cap >= 1 && cap <= 16) {
+                mel_queue_capacity = (size_t) cap;
+            }
+        }
+    }
 };
 
 struct T2WThreadInfo {
@@ -270,6 +332,12 @@ struct T2WThreadInfo {
     std::atomic<uint64_t> drain_predicate_satisfied_ns{0};
     // Latency (ns) from predicate satisfaction to wait_for return.
     std::atomic<uint64_t> drain_wake_latency_ns{0};
+
+    // F6 Phase 1: T2W queue diagnostic counters.
+    // Incremented unconditionally (atomic fetch_add ~= 1-2 ns, negligible vs NPU ops).
+    // Emission gated behind OMNI_T2W_QUEUE_DIAG=1.
+    std::atomic<uint64_t> diag_enqueued_total{0};
+    std::atomic<uint64_t> diag_dequeued_total{0};
 
     T2WThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
@@ -848,9 +916,11 @@ struct omni_context {
     std::thread llm_thread;
     std::thread tts_thread;
     std::thread t2w_thread;
+    std::thread vocoder_thread;          // F6 Phase 4: Vocoder worker (pipeline mode)
     struct LLMThreadInfo *llm_thread_info = NULL;
     struct TTSThreadInfo *tts_thread_info = NULL;
     struct T2WThreadInfo *t2w_thread_info = NULL;
+    struct VocoderThreadInfo *vocoder_thread_info = NULL;  // F6 Phase 4
 
     // 🔧 [Duplex Pipeline - Stage 1]
     // 仅在 duplex_mode=true && async=true 时由 omni_init / stream_prefill(index=0) 分配。
@@ -1057,6 +1127,9 @@ struct omni_context {
     bool token2wav_initialized = false;
     std::string token2wav_model_dir;  // Directory containing token2wav GGUF models
     bool token2wav_defer_worker_init = false;  // CANN: defer init to worker thread
+
+    // F6 Phase 4: Flow ∥ Vocoder pipeline overlap
+    bool t2w_pipeline_overlap = false;  // OMNI_T2W_PIPELINE_OVERLAP=1
 
     // ── P1 FAIL-FAST: CANN availability tracking ──────────────────
     // Populated at omni_init() time. Used by the worker thread to

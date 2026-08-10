@@ -10155,6 +10155,164 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     return true;
 }
 
+// ========================================================================
+// F6 Phase 4: Flow-only (token→mel) — extracted from push_tokens_window.
+// Runs only Token2Mel.  Does NOT touch vocoder state.
+// ========================================================================
+bool Token2Wav::push_tokens_mel_only(const int32_t * tokens,
+                                      int64_t         n_tokens,
+                                      bool            is_final,
+                                      std::vector<float> & mel_bct_out) {
+    mel_bct_out.clear();
+
+    if (!models_loaded_) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: models not loaded\n");
+        return false;
+    }
+
+    if (n_tokens < 0 || n_tokens > Token2Mel::kDt) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: expected 0 <= n_tokens <= %d, got %lld\n",
+                     (int) Token2Mel::kDt, (long long) n_tokens);
+        return false;
+    }
+
+    using clock = std::chrono::steady_clock;
+    const auto                  t_total0 = clock::now();
+    static thread_local int64_t call_id  = 0;
+    const int64_t               cid      = call_id++;
+    const bool                  is_first = (cid == 0);
+
+    const auto t_t2m0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_start_ns);
+    if (!t2m_.push_tokens(tokens, n_tokens, is_final, mel_bct_out)) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: Token2Mel.push_tokens failed\n");
+        return false;
+    }
+    const auto   t_t2m1  = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_end_ns);
+    const double t2m_ms  = std::chrono::duration<double, std::milli>(t_t2m1 - t_t2m0).count();
+
+    // Empty mel is valid (final window with no new mel frames)
+    if (mel_bct_out.empty()) {
+        const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+        omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+        omni::flow::profile::record_ms("vocoder", 0.0, is_first);
+        omni::flow::profile::record_ms("total", total_ms, is_first);
+        if (omni::flow::profile::verbose()) {
+            const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
+            std::fprintf(stderr,
+                         "[timing_flow] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms total=%.3fms\n",
+                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                         g_last_enc_ms, fm_ms, t2m_ms, total_ms);
+        }
+        return true;
+    }
+    if (mel_bct_out.size() % (size_t) Token2Mel::kMelChannels != 0) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: invalid mel size (not divisible by 80)\n");
+        return false;
+    }
+
+    omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+    return true;
+}
+
+// ========================================================================
+// F6 Phase 4: Vocoder-only (mel→wave) — extracted from push_tokens_window.
+// Runs only Vocoder Hg2 + crossfade + cache management.
+// Takes ownership of mel_bct by value.  MUST be single-threaded.
+// ========================================================================
+bool Token2Wav::push_mel_to_wave(std::vector<float>   mel_bct,
+                                  bool                 is_final,
+                                  std::vector<float> & wave_bt_out,
+                                  int64_t &            out_T_audio) {
+    wave_bt_out.clear();
+    out_T_audio = 0;
+
+    if (!models_loaded_) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: models not loaded\n");
+        return false;
+    }
+
+    if (mel_bct.empty()) {
+        // No mel to process — legitimate for final-window flush
+        return true;
+    }
+    if (mel_bct.size() % (size_t) Token2Mel::kMelChannels != 0) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: invalid mel size (not divisible by 80)\n");
+        return false;
+    }
+
+    using clock = std::chrono::steady_clock;
+    const auto                  t_total0 = clock::now();
+    static thread_local int64_t call_id  = 0;
+    const int64_t               cid      = call_id++;
+    const bool                  is_first = (cid == 0);
+
+    std::vector<float> mel_in_bct = voc_mel_cache_bct_;
+    Token2Mel::append_bct_along_time(mel_bct, 1, Token2Mel::kMelChannels, mel_in_bct);
+
+    const int64_t T_mel = (int64_t) mel_in_bct.size() / (int64_t) Token2Mel::kMelChannels;
+
+    std::vector<float> out_source_bt1;
+    int64_t            out_T_source = 0;
+    const auto t_voc0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_start_ns);
+    if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_, wave_bt_out,
+                                                out_T_audio, out_source_bt1, out_T_source)) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: voc_hg2_runner_eval_stream failed\n");
+        return false;
+    }
+    const auto t_voc1 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_end_ns);
+
+    if (!voc_speech_cache_bt_.empty()) {
+        token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
+    }
+
+    {
+        const int64_t      C       = Token2Mel::kMelChannels;
+        const int64_t      T_total = (int64_t) mel_in_bct.size() / C;
+        std::vector<float> next_mel_cache;
+        token2wav_utils::crop_bct_tail_b1(mel_in_bct, C, T_total, (int64_t) kMelCacheLen, next_mel_cache);
+        voc_mel_cache_bct_.swap(next_mel_cache);
+    }
+
+    {
+        std::vector<float> next_source_cache;
+        token2wav_utils::crop_t_tail_b1(out_source_bt1, (int64_t) kSourceCacheLen, next_source_cache);
+        voc_cache_source_bt1_.swap(next_source_cache);
+        voc_Tc_ = (int64_t) voc_cache_source_bt1_.size();
+    }
+
+    {
+        std::vector<float> next_speech_cache;
+        token2wav_utils::crop_t_tail_b1(wave_bt_out, (int64_t) kSourceCacheLen, next_speech_cache);
+        voc_speech_cache_bt_.swap(next_speech_cache);
+    }
+
+    if (!is_final && (int64_t) wave_bt_out.size() > (int64_t) kSourceCacheLen) {
+        wave_bt_out.resize(wave_bt_out.size() - (size_t) kSourceCacheLen);
+        out_T_audio = (int64_t) wave_bt_out.size();
+    }
+
+    const double voc_ms   = std::chrono::duration<double, std::milli>(t_voc1 - t_voc0).count();
+    const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+
+    omni::flow::profile::record_ms("vocoder", voc_ms, is_first);
+    omni::flow::profile::record_ms("total", total_ms, is_first);
+    omni::flow::profile::record_audio_samples((int64_t) out_T_audio, (int32_t) Token2Wav::kSampleRate);
+
+    if (omni::flow::profile::verbose()) {
+        std::fprintf(
+            stderr,
+            "[timing_voc] call=%lld%s final=%d vocoder=%.3fms total=%.3fms audio=%lld\n",
+            (long long) cid, is_first ? "(first)" : "", (int) is_final,
+            voc_ms, total_ms, (long long) out_T_audio);
+    }
+
+    return true;
+}
+
 void Token2Wav::reset_stream() {
     t2m_.reset_stream();
     voc_mel_cache_bct_.clear();

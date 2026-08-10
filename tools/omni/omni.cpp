@@ -5552,6 +5552,17 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         // Initialize T2W thread info
         LOG_INF("init t2w....");
         ctx_omni->t2w_thread_info = new T2WThreadInfo(25);  // Queue size of 10 chunks
+
+        // F6 Phase 4: Pipeline overlap gate
+        {
+            const char *po = getenv("OMNI_T2W_PIPELINE_OVERLAP");
+            ctx_omni->t2w_pipeline_overlap = (po && atoi(po) == 1);
+            if (ctx_omni->t2w_pipeline_overlap) {
+                ctx_omni->vocoder_thread_info = new VocoderThreadInfo();
+                print_with_timestamp("T2W pipeline overlap: ENABLED (mel_queue_capacity=%zu)\n",
+                                     ctx_omni->vocoder_thread_info->mel_queue_capacity);
+            }
+        }
         
         // Initialize C++ Token2Wav session
         // Try to load token2wav GGUF models from {model_dir}/token2wav-gguf/
@@ -6222,6 +6233,49 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     size_t active = info->active_t2w_task_count.load(std::memory_order_relaxed);
     int timeout_ms = t2w_get_drain_timeout_ms(queued + active, active > 0);
     uint32_t active_gen = info->active_t2w_generation.load(std::memory_order_relaxed);
+
+    // [validate] Pure-observation T2W drain begin snapshot
+    const char * val_env = getenv("OMNI_WS_VALIDATION");
+    bool validate = (val_env && strcmp(val_env, "1") == 0);
+    size_t q_before = queued;
+    size_t a_before = active;
+    uint64_t t_drain_begin = 0;
+    if (validate) {
+        t_drain_begin = std::chrono::steady_clock::now().time_since_epoch().count();
+        fprintf(stderr, "[validate] event=t2w_drain_begin queued=%zu active=%zu "
+                "active_gen=%u tts_done=%u fp_gen=%u timeout_ms=%d ts_ns=%lu\n",
+                q_before, a_before, active_gen,
+                info->tts_producer_done_generation.load(),
+                info->final_processed_generation.load(),
+                timeout_ms, t_drain_begin);
+    }
+
+    // [t2w_diag] Snapshot at cleanup begin — captures the state that triggers drain.
+    {
+        static int diag_enabled = -1;
+        if (diag_enabled == -1) {
+            const char *e = getenv("OMNI_T2W_QUEUE_DIAG");
+            diag_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+        }
+        if (diag_enabled == 1) {
+            uint64_t ts = std::chrono::steady_clock::now().time_since_epoch().count();
+            fprintf(stderr,
+                "[t2w_diag] event=cleanup_begin "
+                "enqueued_total=%lu dequeued_total=%lu "
+                "queue_depth=%zu active=%zu active_gen=%u "
+                "tts_done_gen=%u fp_gen=%u request_gen=%u "
+                "timeout_ms=%d ts_ns=%lu\n",
+                info->diag_enqueued_total.load(std::memory_order_relaxed),
+                info->diag_dequeued_total.load(std::memory_order_relaxed),
+                queued, active, active_gen,
+                info->tts_producer_done_generation.load(std::memory_order_relaxed),
+                info->final_processed_generation.load(std::memory_order_relaxed),
+                ctx_omni->request_generation.load(std::memory_order_relaxed),
+                timeout_ms, ts);
+            fflush(stderr);
+        }
+    }
+
     print_with_timestamp("T2W drain: waiting up to %dms for generation %u drain "
                          "(queued=%zu active=%zu active_gen=%u tts_done_gen=%u final_processed_gen=%u "
                          "final_dequeued_gen=%u)...\n",
@@ -6240,12 +6294,24 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
     // active_t2w_generation == 0  → worker idle, safe to drain
     // active_t2w_generation > N   → worker busy with LATER gen, gen N is done
     // 0 < active_t2w_generation ≤ N → worker still on gen N or earlier → WAIT
+    //
+    // F6 Phase 4: Pipeline mode — add vocoder-side completion check.
+    // In pipeline mode, final_processed_generation means Flow pushed all
+    // MelTasks, but audio delivery completes only when the Vocoder worker
+    // finishes.  final_vocoder_processed_generation tracks Vocoder completion.
     auto drain_predicate = [&]() {
         uint32_t active_gen = info->active_t2w_generation.load(std::memory_order_relaxed);
-        return info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
-               info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
-               (active_gen == 0 || active_gen > my_gen) &&
-               info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
+        bool base = info->tts_producer_done_generation.load(std::memory_order_acquire) >= my_gen &&
+                    info->queued_t2w_task_count.load(std::memory_order_relaxed) == 0 &&
+                    (active_gen == 0 || active_gen > my_gen) &&
+                    info->final_processed_generation.load(std::memory_order_acquire) >= my_gen;
+        if (!base) return false;
+        // Pipeline mode: also wait for Vocoder to finish delivering audio
+        if (ctx_omni->t2w_pipeline_overlap && ctx_omni->vocoder_thread_info) {
+            return ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.load(
+                       std::memory_order_acquire) >= my_gen;
+        }
+        return true;
     };
 
     const int POLL_INTERVAL_MS = 500;
@@ -6290,8 +6356,11 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
 
     if (drained) {
         info->drain_state.store(T2W_DRAIN_COMPLETE, std::memory_order_release);
-        print_with_timestamp("T2W drain: complete (wav_count=%d, notify=%u poll=%u fast=%u gen=%u)\n",
-                             info->wav_count.load(), notify_wakes, poll_wakes, fast_path, my_gen);
+        uint32_t voc_final = ctx_omni->vocoder_thread_info
+            ? ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.load(std::memory_order_relaxed)
+            : 0;
+        print_with_timestamp("T2W drain: complete (wav_count=%d, notify=%u poll=%u fast=%u gen=%u voc_final=%u)\n",
+                             info->wav_count.load(), notify_wakes, poll_wakes, fast_path, my_gen, voc_final);
     } else {
         print_with_timestamp("T2W drain: TIMEOUT after %dms — "
                              "(queued=%zu active=%zu active_gen=%u tts_done=%u "
@@ -6304,6 +6373,20 @@ static void t2w_drain_signal_and_wait(struct omni_context * ctx_omni) {
                              info->final_dequeued_generation.load(),
                              info->final_processed_generation.load(),
                              my_gen);
+    }
+
+    // [validate] T2W drain end snapshot
+    if (validate) {
+        size_t q_after = info->queued_t2w_task_count.load(std::memory_order_relaxed);
+        size_t a_after = info->active_t2w_task_count.load(std::memory_order_relaxed);
+        uint64_t t_now = std::chrono::steady_clock::now().time_since_epoch().count();
+        fprintf(stderr, "[validate] event=t2w_drain_end drained=%d timeout=%d "
+                "queued_before=%zu queued_after=%zu active_before=%zu active_after=%zu "
+                "wav_count=%d errors=%d ts_ns=%lu duration_ns=%lu\n",
+                drained ? 1 : 0, drained ? 0 : 1,
+                q_before, q_after, a_before, a_after,
+                info->wav_count.load(), info->feed_window_errors.load(),
+                t_now, t_now - t_drain_begin);
     }
 }
 // F6 A5 NOTE: context_state and drain_complete_generation are managed by
@@ -6403,8 +6486,19 @@ void omni_prepare_for_reuse(struct omni_context * ctx_omni) {
     if (ctx_omni->t2w_thread_info) {
         ctx_omni->t2w_thread_info->cv.notify_all();
     }
+    // F6 Phase 4: Wake vocoder thread so it sees t2w_thread_running=false
+    if (ctx_omni->vocoder_thread_info) {
+        ctx_omni->vocoder_thread_info->cv.notify_all();
+    }
     if (ctx_omni->t2w_thread.joinable()) {
         ctx_omni->t2w_thread.join();
+    }
+
+    // F6 Phase 4: Stop Vocoder thread (after T2W, since Vocoder consumes MelTasks)
+    if (ctx_omni->vocoder_thread.joinable()) {
+        print_with_timestamp("omni_prepare_for_reuse: joining vocoder thread...\n");
+        ctx_omni->vocoder_thread.join();
+        print_with_timestamp("omni_prepare_for_reuse: vocoder thread joined\n");
     }
 
     if (ctx_omni->llm_thread_info) {
@@ -6423,10 +6517,32 @@ void omni_prepare_for_reuse(struct omni_context * ctx_omni) {
     }
     if (ctx_omni->t2w_thread_info) {
         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
+        size_t dropped = 0;
         while (!ctx_omni->t2w_thread_info->queue.empty()) {
             delete ctx_omni->t2w_thread_info->queue.front();
             ctx_omni->t2w_thread_info->queue.pop();
             ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_sub(1, std::memory_order_relaxed);
+            dropped++;
+        }
+        // [validate] Report dropped T2W chunks (items left after drain)
+        const char * val_env = getenv("OMNI_WS_VALIDATION");
+        if (val_env && strcmp(val_env, "1") == 0 && dropped > 0) {
+            fprintf(stderr, "[validate] event=t2w_queue_dropped_count count=%zu ts_ns=%lu\n",
+                    dropped,
+                    (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count());
+        }
+    }
+    // F6 Phase 4: Clean up remaining MelTasks in mel_queue
+    if (ctx_omni->vocoder_thread_info) {
+        std::lock_guard<std::mutex> lock(ctx_omni->vocoder_thread_info->mtx);
+        size_t mel_dropped = 0;
+        while (!ctx_omni->vocoder_thread_info->mel_queue.empty()) {
+            delete ctx_omni->vocoder_thread_info->mel_queue.front();
+            ctx_omni->vocoder_thread_info->mel_queue.pop();
+            mel_dropped++;
+        }
+        if (mel_dropped > 0) {
+            print_with_timestamp("omni_prepare_for_reuse: dropped %zu pending MelTasks\n", mel_dropped);
         }
     }
 
@@ -6465,6 +6581,14 @@ void omni_free(struct omni_context * ctx_omni) {
         if (ctx_omni->t2w_thread.joinable()) {
             ctx_omni->t2w_thread_info->cv.notify_all(); // Wake up the thread if it's waiting
             ctx_omni->t2w_thread.join(); // Wait for the thread to finish
+        }
+
+        // F6 Phase 4: Stop Vocoder thread (consumes MelTasks from T2W/Flow)
+        if (ctx_omni->vocoder_thread_info) {
+            ctx_omni->vocoder_thread_info->cv.notify_all();
+        }
+        if (ctx_omni->vocoder_thread.joinable()) {
+            ctx_omni->vocoder_thread.join();
         }
 
         // TTS thread after T2W — T2W no longer depends on it
@@ -6550,6 +6674,17 @@ void omni_free(struct omni_context * ctx_omni) {
     if (ctx_omni->use_tts) {
         delete ctx_omni->tts_thread_info;
         delete ctx_omni->t2w_thread_info;
+        if (ctx_omni->vocoder_thread_info) {
+            // Clean up any remaining MelTasks before deleting
+            {
+                std::lock_guard<std::mutex> lock(ctx_omni->vocoder_thread_info->mtx);
+                while (!ctx_omni->vocoder_thread_info->mel_queue.empty()) {
+                    delete ctx_omni->vocoder_thread_info->mel_queue.front();
+                    ctx_omni->vocoder_thread_info->mel_queue.pop();
+                }
+            }
+            delete ctx_omni->vocoder_thread_info;
+        }
         
         // omni_output 还要把里面 output 的每个元素也 delete 下
         if (ctx_omni->omni_output) {
@@ -7431,7 +7566,7 @@ static bool generate_audio_tokens_local_simplex(
 
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
             }
             g_pipeline_trace.record(PE_TTS_QUEUE_PUSH,
                 (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
@@ -7544,7 +7679,7 @@ static bool generate_audio_tokens_local_simplex(
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                     print_with_timestamp("TTS Simplex Phase2: yield %d tokens 到 T2W\n", CHUNK_SIZE);
@@ -7584,7 +7719,7 @@ static bool generate_audio_tokens_local_simplex(
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
         
@@ -7610,7 +7745,7 @@ static bool generate_audio_tokens_local_simplex(
         
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
         print_with_timestamp("TTS Simplex: 发送 is_chunk_end=true 信号\n");
@@ -7961,7 +8096,7 @@ static bool generate_audio_tokens_local(
 
             {
                 std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
             }
             ctx_omni->t2w_thread_info->cv.notify_one();
             stream_buffer.clear();
@@ -7996,7 +8131,7 @@ static bool generate_audio_tokens_local(
 
         {
             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
         }
         ctx_omni->t2w_thread_info->cv.notify_one();
     }
@@ -8482,7 +8617,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8553,7 +8688,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -8577,7 +8712,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -8821,7 +8956,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8842,7 +8977,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -8897,7 +9032,7 @@ void tts_thread_func_duplex(struct omni_context * ctx_omni, common_params *param
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -9278,7 +9413,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
                 print_with_timestamp("TTS: flushed %zu remaining tokens from tts_token_buffer\n",
@@ -9309,7 +9444,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_final->request_index = ctx_omni->e2e_stage.request_index;
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    t2w_final->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_final); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                    t2w_final->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_final); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
                 print_with_timestamp("TTS: sent is_final=true to T2W (llm_finish with no data)\n");
@@ -9736,7 +9871,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         
                         {
                             std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                            t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                         }
                         ctx_omni->t2w_thread_info->cv.notify_one();
                     }
@@ -9784,7 +9919,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
         t2w_out->request_index = ctx_omni->e2e_stage.request_index;
                     {
                         std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                     print_with_timestamp("TTS: sent is_final=true to T2W queue (turn end)\n");
@@ -10198,7 +10333,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                             std::this_thread::sleep_for(std::chrono::milliseconds(10));
                             lock.lock();
                         }
-                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                        t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                     }
                     ctx_omni->t2w_thread_info->cv.notify_one();
                 }
@@ -10289,7 +10424,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                         lock.lock();
                     }
-                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
             }
@@ -10396,7 +10531,7 @@ void tts_thread_func(struct omni_context * ctx_omni, common_params *params) {
                 
                 {
                     std::lock_guard<std::mutex> lock(ctx_omni->t2w_thread_info->mtx);
-                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed);
+                    t2w_out->generation_id = ctx_omni->request_generation.load(std::memory_order_relaxed); ctx_omni->t2w_thread_info->queue.push(t2w_out); ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_add(1, std::memory_order_relaxed); ctx_omni->t2w_thread_info->diag_enqueued_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 ctx_omni->t2w_thread_info->cv.notify_one();
             }
@@ -11135,6 +11270,162 @@ void t2w_thread_func_python(struct omni_context * ctx_omni, common_params *param
 //                                              ↓
 //   T2W线程检测到 simplex_round_idx != last_round_idx -> 更新 tts_wav_output_dir
 // ==============================================================================
+
+// ========================================================================
+// F6 Phase 4: Vocoder worker thread (pipeline mode only).
+// Dequeues MelTask from mel_queue, runs Vocoder Hg2 → WAV → audio cb.
+// Single-threaded: the vocoder runner is NOT reentrant.
+// ========================================================================
+static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_params *params) {
+    print_with_timestamp("[pipeline] Vocoder thread started\n");
+    fflush(stdout);
+
+    auto *vi   = ctx_omni->vocoder_thread_info;
+    auto & mq  = vi->mel_queue;
+    auto & mtx = vi->mtx;
+    auto & cv  = vi->cv;
+
+    const int sample_rate = omni::flow::Token2Wav::kSampleRate;
+
+    // F6 Phase 4: Profile verbose — check OMNI_T2W_PROFILE >= 2 (same as
+    // omni::flow::profile::verbose() but avoids pulling in token2wav-profile.h)
+    static int profile_verbose = [] {
+        const char * s = std::getenv("OMNI_T2W_PROFILE");
+        if (!s || !*s) return 0;
+        int n = std::atoi(s);
+        return (n >= 2) ? 1 : 0;
+    }();
+
+    // WAV output directory helper (mirrors get_wav_output_dir lambda from
+    // t2w_thread_func_cpp but uses ctx_omni-> fields directly)
+    auto get_wav_dir = [&](int round_idx) -> std::string {
+        if (!ctx_omni->duplex_mode) {
+            char buf[512];
+            snprintf(buf, sizeof(buf), "%s/round_%03d/tts_wav",
+                     ctx_omni->base_output_dir.c_str(), round_idx);
+            return std::string(buf);
+        } else {
+            return ctx_omni->base_output_dir + "/tts_wav";
+        }
+    };
+
+    std::string tts_wav_output_dir;
+    int wav_idx = 0;
+    int last_round_idx = -1;
+
+    while (t2w_thread_running) {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&] {
+            return !mq.empty() || !t2w_thread_running;
+        });
+
+        if (!t2w_thread_running && mq.empty()) {
+            break;
+        }
+
+        MelTask *task = mq.front();
+        mq.pop();
+        vi->diag_mel_dequeued.fetch_add(1, std::memory_order_relaxed);
+        lock.unlock();
+
+        // Round switch
+        if (task->round_idx != last_round_idx) {
+            last_round_idx = task->round_idx;
+            tts_wav_output_dir = get_wav_dir(task->round_idx);
+            cross_platform_mkdir_p(tts_wav_output_dir);
+            wav_idx = 0;
+            vi->wav_count.store(0, std::memory_order_relaxed);
+        }
+
+        vi->active_vocoder_generation.store(task->generation_id, std::memory_order_relaxed);
+
+        // === Vocoder inference ===
+        std::vector<float> chunk_wav;
+        int64_t out_T_audio = 0;
+        bool ok = ctx_omni->token2wav_session->feed_mel_to_wave(
+            std::move(task->mel_bct), task->is_final, chunk_wav, out_T_audio);
+
+        if (!ok) {
+            LOG_ERR("[pipeline] Vocoder: feed_mel_to_wave failed\n");
+            ctx_omni->t2w_thread_info->feed_window_errors.fetch_add(1, std::memory_order_relaxed);
+        } else if (!chunk_wav.empty()) {
+            // Audio output callback
+            if (ctx_omni->audio_output_cb) {
+                ctx_omni->audio_output_cb(chunk_wav.data(), static_cast<int>(chunk_wav.size()),
+                                          sample_rate, task->is_last_window);
+            }
+
+            // WAV write (same format as serial path)
+            std::string wav_path = tts_wav_output_dir + "/wav_"
+                + std::to_string(ctx_omni->wav_turn_base + wav_idx) + ".wav";
+
+            const int16_t num_channels = 1;
+            const int16_t bits_per_sample = 16;
+            const int16_t block_align = num_channels * (bits_per_sample / 8);
+            const int32_t byte_rate = sample_rate * block_align;
+
+            std::vector<int16_t> pcm(chunk_wav.size());
+            for (size_t i = 0; i < chunk_wav.size(); ++i) {
+                float x = chunk_wav[i];
+                if (!std::isfinite(x)) x = 0.0f;
+                x = std::max(-1.0f, std::min(1.0f, x));
+                pcm[i] = (int16_t)(x * 32767.0f);
+            }
+
+            uint32_t data_bytes = (uint32_t)(pcm.size() * sizeof(int16_t));
+            uint32_t riff_size = 36u + data_bytes;
+
+            FILE* f_wav = fopen(wav_path.c_str(), "wb");
+            if (f_wav) {
+                fwrite("RIFF", 1, 4, f_wav);
+                fwrite(&riff_size, 4, 1, f_wav);
+                fwrite("WAVE", 1, 4, f_wav);
+                fwrite("fmt ", 1, 4, f_wav);
+                uint32_t fmt_size = 16;
+                uint16_t audio_format = 1;
+                fwrite(&fmt_size, 4, 1, f_wav);
+                fwrite(&audio_format, 2, 1, f_wav);
+                fwrite(&num_channels, 2, 1, f_wav);
+                fwrite(&sample_rate, 4, 1, f_wav);
+                fwrite(&byte_rate, 4, 1, f_wav);
+                fwrite(&block_align, 2, 1, f_wav);
+                fwrite(&bits_per_sample, 2, 1, f_wav);
+                fwrite("data", 1, 4, f_wav);
+                fwrite(&data_bytes, 4, 1, f_wav);
+                fwrite(pcm.data(), 1, data_bytes, f_wav);
+                fclose(f_wav);
+
+                vi->wav_count.fetch_add(1, std::memory_order_relaxed);
+                ctx_omni->t2w_thread_info->wav_count.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            wav_idx++;
+
+            // Bench
+            if (profile_verbose) {
+                float audio_duration = chunk_wav.size() / (float)sample_rate;
+                fprintf(stderr,
+                    "[pipeline_voc] wav_idx=%d audio_dur=%.3fs gen=%u\n",
+                    wav_idx - 1, audio_duration, task->generation_id);
+            }
+        }
+
+        // Track final completion
+        if (task->is_final && task->is_last_window) {
+            vi->final_vocoder_processed_generation.store(
+                task->generation_id, std::memory_order_relaxed);
+            // Notify drain waiter
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
+        }
+
+        vi->active_vocoder_generation.store(0, std::memory_order_relaxed);
+        delete task;
+    }
+
+    print_with_timestamp("[pipeline] Vocoder thread exiting\n");
+    fflush(stdout);
+}
+
 void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) {
 #ifdef GGML_USE_CANN
     {
@@ -11346,11 +11637,22 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         uint32_t        captured_profile_gen    = 0;
         uint32_t        final_task_gen          = 0;  // F6 A6: generation of is_final task
         uint32_t        max_dequeued_gen        = 0;  // F6 R13: max gen across ALL dequeued items
+        // F6 Phase 1b: defer T2WOut deletion to after WAV write for complete_ts stamp
+        std::vector<T2WOut*> pending_delete;
+        // F6 Phase 3a: batch-level timing decomposition
+        uint64_t batch_last_dequeue_ns = 0;
+        uint64_t batch_feed_start_ns   = 0;
+        uint64_t batch_total_feed_ns   = 0;
+        uint64_t batch_feed_end_ns     = 0;
+        int      batch_window_count    = 0;
         while (!queue.empty()) {
             T2WOut *t2w_out = queue.front();
             queue.pop();
             dequeued_count++;  // F6 R8
             ctx_omni->t2w_thread_info->queued_t2w_task_count.fetch_sub(1, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->diag_dequeued_total.fetch_add(1, std::memory_order_relaxed);
+            // F6 Phase 1b: Record dequeue timestamp for per-task timing decomposition
+            t2w_out->dequeue_ts_ns = std::chrono::steady_clock::now().time_since_epoch().count();
             // F6 A6: Notify drain waiter when queue drains to 0 —
             // this may satisfy the generation-scoped drain predicate.
             if (queue.empty()) {
@@ -11410,7 +11712,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 received_chunk_seq_min = std::min(received_chunk_seq_min, t2w_out->chunk_seq_min);
                 received_chunk_seq_max = std::max(received_chunk_seq_max, t2w_out->chunk_seq_max);
             }
-            delete t2w_out;
+            // F6 Phase 1b: defer deletion — stamp complete_ts_ns after WAV write
+            pending_delete.push_back(t2w_out);
+            // F6 Phase 3a: track max dequeue ts across batch
+            if (t2w_out->dequeue_ts_ns > batch_last_dequeue_ns) {
+                batch_last_dequeue_ns = t2w_out->dequeue_ts_ns;
+            }
         }
 
         // F6 R12: Mark is_final dequeued — DIAGNOSTIC ONLY.
@@ -11624,6 +11931,10 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             ctx_omni->e2e_stage.record(STAGE_talker_token_28, ctx_omni->e2e_stage.t2w_thread_generation);
         }
 
+        // F6 Phase 3a: snapshot feed start (prepare = this - last_dequeue)
+        if (batch_feed_start_ns == 0) {
+            batch_feed_start_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+        }
         while (token_buffer.size() >= min_process_threshold || (need_flush && !token_buffer.empty())) {
             // Determine how many tokens to process
             size_t process_size = std::min(token_buffer.size(), (size_t)WINDOW_SIZE);
@@ -11645,7 +11956,50 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 1,  // queue_id = T2W
                 0,  // stage
                 (uint8_t)(wav_idx & 0xFF));  // reason_code = wav_idx
-            if (ctx_omni->token2wav_session->feed_window(window, is_last_window, chunk_wav)) {
+            // F6 Phase 4: Pipeline branch — Flow only (mel output) vs serial (full feed_window)
+            if (ctx_omni->t2w_pipeline_overlap) {
+                // ── PIPELINE: Flow-only → push MelTask to Vocoder worker ──
+                std::vector<float> mel_bct;
+                if (ctx_omni->token2wav_session->feed_window_mel(
+                        window.data(), (int64_t)window.size(), is_last_window, mel_bct)) {
+                    auto *vi = ctx_omni->vocoder_thread_info;
+                    MelTask *task = new MelTask();
+                    task->mel_bct         = std::move(mel_bct);
+                    task->is_final        = is_final;
+                    task->is_last_window  = is_last_window;
+                    task->round_idx       = effective_round_idx;
+                    task->wav_idx         = wav_idx;
+                    task->generation_id   = ctx_omni->e2e_stage.t2w_thread_generation;
+                    task->profile_handle  = captured_profile_handle;
+
+                    // Bounded push: natural backpressure (block if Vocoder can't keep up)
+                    {
+                        std::unique_lock<std::mutex> lock(vi->mtx);
+                        while (vi->mel_queue.size() >= vi->mel_queue_capacity && t2w_thread_running) {
+                            lock.unlock();
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                            lock.lock();
+                        }
+                        if (!t2w_thread_running) { delete task; break; }
+                        vi->mel_queue.push(task);
+                        vi->diag_mel_enqueued.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    vi->cv.notify_one();
+
+                    auto t2w_end = std::chrono::high_resolution_clock::now();
+                    batch_total_feed_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        t2w_end - t2w_start).count();
+                    batch_window_count++;
+                    batch_feed_end_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+                    wav_idx++;
+                    ctx_omni->t2w_thread_info->wav_count.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    LOG_ERR("T2W线程: feed_window_mel (pipeline) 失败\n");
+                    ctx_omni->t2w_thread_info->feed_window_errors.fetch_add(1, std::memory_order_relaxed);
+                }
+            } else {
+                // ── SERIAL: existing combined Flow+Vocoder path ──
+                if (ctx_omni->token2wav_session->feed_window(window, is_last_window, chunk_wav)) {
                 g_pipeline_trace.record(PE_VOCODER_COMPLETE,
                     (uint8_t)(ctx_omni->e2e_stage.request_index & 0xFF),
                     pipeline_thread_hash(),
@@ -11654,6 +12008,11 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     0,  // stage
                     (uint8_t)(wav_idx & 0xFF));  // reason_code = wav_idx
                 auto t2w_end = std::chrono::high_resolution_clock::now();
+                // F6 Phase 3a: accumulate feed_window time (Flow+Vocoder)
+                batch_total_feed_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t2w_end - t2w_start).count();
+                batch_window_count++;
+                batch_feed_end_ns = std::chrono::steady_clock::now().time_since_epoch().count();
                 double t2w_ms = std::chrono::duration<double, std::milli>(t2w_end - t2w_start).count();
                 
                 if (!chunk_wav.empty()) {
@@ -11794,7 +12153,8 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                 LOG_ERR("T2W线程: feed_window 失败\n");
                 ctx_omni->t2w_thread_info->feed_window_errors.fetch_add(1, std::memory_order_relaxed);
             }
-            
+            }  // end of serial (else) branch — F6 Phase 4 pipeline
+
             // Slide window by CHUNK_SIZE (25), keep last PRE_LOOKAHEAD (3) for overlap
             size_t buffer_before_slide = token_buffer.size();
 
@@ -11945,6 +12305,56 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     "[bench_wav_drain] wav_complete_ns=%lld gen=%u wav_count=%d\n",
                     (long long)wav_complete_ns, done_gen, wav_cnt);
             }
+            // F6 Phase 1b: Stamp complete_ts on all batch items + deferred deletion.
+            {
+                uint64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+                // Per-task timing emission (gated behind OMNI_T2W_QUEUE_DIAG=1)
+                static int diag_timing_enabled = -1;
+                if (diag_timing_enabled == -1) {
+                    const char *e = getenv("OMNI_T2W_QUEUE_DIAG");
+                    diag_timing_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+                }
+                for (auto *item : pending_delete) {
+                    if (diag_timing_enabled == 1) {
+                        item->complete_ts_ns = now_ns;
+                        uint64_t enq_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            item->enqueue_time.time_since_epoch()).count();
+                        uint64_t queue_wait_us = (item->dequeue_ts_ns - enq_ns) / 1000;
+                        uint64_t service_us  = (now_ns - item->dequeue_ts_ns) / 1000;
+                        uint64_t total_us    = (now_ns - enq_ns) / 1000;
+                        fprintf(stderr,
+                            "[t2w_diag] event=task_timing "
+                            "gen=%u is_final=%d "
+                            "enqueue_ns=%lu dequeue_ns=%lu complete_ns=%lu "
+                            "queue_wait_us=%lu service_us=%lu total_us=%lu\n",
+                            item->generation_id, item->is_final ? 1 : 0,
+                            enq_ns, item->dequeue_ts_ns, now_ns,
+                            queue_wait_us, service_us, total_us);
+                    }
+                    delete item;
+                }
+                // F6 Phase 3a: batch-level timing decomposition (one per batch)
+                if (diag_timing_enabled == 1 && batch_window_count > 0) {
+                    uint64_t prepare_us = (batch_feed_start_ns > batch_last_dequeue_ns)
+                        ? (batch_feed_start_ns - batch_last_dequeue_ns) / 1000 : 0;
+                    uint64_t feed_us   = batch_total_feed_ns / 1000;
+                    uint64_t post_us   = (now_ns > batch_feed_end_ns)
+                        ? (now_ns - batch_feed_end_ns) / 1000 : 0;
+                    fprintf(stderr,
+                        "[t2w_diag] event=timing_decompose "
+                        "prepare_us=%lu feed_us=%lu post_us=%lu "
+                        "windows=%d items=%zu "
+                        "ts_ns=%lu\n",
+                        prepare_us, feed_us, post_us,
+                        batch_window_count, pending_delete.size(),
+                        now_ns);
+                }
+                pending_delete.clear();
+                if (diag_timing_enabled == 1) {
+                    fflush(stderr);
+                }
+            }
+
             // F6 R13: Single CV notify after ALL drain-predicate state updated.
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
             print_with_timestamp("T2W(C++): drain complete — wav_count=%d, gen=%u\n",
@@ -11955,6 +12365,84 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
             ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
             ctx_omni->t2w_thread_info->drain_cv.notify_one();
+
+            // F6 Phase 1b: Also stamp complete_ts + delete for non-final batches
+            {
+                uint64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+                static int diag_enabled = -1;
+                if (diag_enabled == -1) {
+                    const char *e = getenv("OMNI_T2W_QUEUE_DIAG");
+                    diag_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+                }
+                for (auto *item : pending_delete) {
+                    if (diag_enabled == 1) {
+                        item->complete_ts_ns = now_ns;
+                        uint64_t enq_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            item->enqueue_time.time_since_epoch()).count();
+                        uint64_t queue_wait_us = (item->dequeue_ts_ns - enq_ns) / 1000;
+                        uint64_t service_us  = (now_ns - item->dequeue_ts_ns) / 1000;
+                        uint64_t total_us    = (now_ns - enq_ns) / 1000;
+                        fprintf(stderr,
+                            "[t2w_diag] event=task_timing "
+                            "gen=%u is_final=%d "
+                            "enqueue_ns=%lu dequeue_ns=%lu complete_ns=%lu "
+                            "queue_wait_us=%lu service_us=%lu total_us=%lu\n",
+                            item->generation_id, item->is_final ? 1 : 0,
+                            enq_ns, item->dequeue_ts_ns, now_ns,
+                            queue_wait_us, service_us, total_us);
+                    }
+                    delete item;
+                }
+                // F6 Phase 3a: batch-level timing decomposition for non-final batches
+                if (diag_enabled == 1 && batch_window_count > 0) {
+                    uint64_t prepare_us = (batch_feed_start_ns > batch_last_dequeue_ns)
+                        ? (batch_feed_start_ns - batch_last_dequeue_ns) / 1000 : 0;
+                    uint64_t feed_us   = batch_total_feed_ns / 1000;
+                    uint64_t post_us   = (now_ns > batch_feed_end_ns)
+                        ? (now_ns - batch_feed_end_ns) / 1000 : 0;
+                    fprintf(stderr,
+                        "[t2w_diag] event=timing_decompose "
+                        "prepare_us=%lu feed_us=%lu post_us=%lu "
+                        "windows=%d items=%zu "
+                        "ts_ns=%lu\n",
+                        prepare_us, feed_us, post_us,
+                        batch_window_count, pending_delete.size(),
+                        now_ns);
+                }
+                pending_delete.clear();
+                if (diag_enabled == 1) { fflush(stderr); }
+            }
+        }
+
+        // F6 Phase 1: [t2w_diag] per-batch queue snapshot.
+        // Gated behind OMNI_T2W_QUEUE_DIAG=1 — zero-cost when unset (one getenv check
+        // per batch, ~50ns). Fires once per T2W worker wakeup (not periodic — wakeup is
+        // the natural event boundary).
+        {
+            static int diag_enabled = -1;  // -1 = uninitialized
+            if (diag_enabled == -1) {
+                const char *e = getenv("OMNI_T2W_QUEUE_DIAG");
+                diag_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
+            }
+            if (diag_enabled == 1) {
+                uint64_t ts = std::chrono::steady_clock::now().time_since_epoch().count();
+                auto *info = ctx_omni->t2w_thread_info;
+                fprintf(stderr,
+                    "[t2w_diag] event=worker_batch "
+                    "enqueued_total=%lu dequeued_total=%lu "
+                    "queue_depth=%zu active_gen=%u fp_gen=%u "
+                    "tts_done_gen=%u request_gen=%u "
+                    "ts_ns=%lu\n",
+                    info->diag_enqueued_total.load(std::memory_order_relaxed),
+                    info->diag_dequeued_total.load(std::memory_order_relaxed),
+                    info->queued_t2w_task_count.load(std::memory_order_relaxed),
+                    info->active_t2w_generation.load(std::memory_order_relaxed),
+                    info->final_processed_generation.load(std::memory_order_relaxed),
+                    info->tts_producer_done_generation.load(std::memory_order_relaxed),
+                    ctx_omni->request_generation.load(std::memory_order_relaxed),
+                    ts);
+                fflush(stderr);
+            }
         }
 
     }
@@ -13361,6 +13849,13 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                 ctx_omni->t2w_thread = std::thread(t2w_thread_func, ctx_omni, ctx_omni->params);
                 print_with_timestamp("create t2w thread success\n");
             }
+
+            // F6 Phase 4: Start Vocoder thread for pipeline overlap
+            if (ctx_omni->t2w_pipeline_overlap && ctx_omni->vocoder_thread_info
+                && !ctx_omni->vocoder_thread.joinable()) {
+                ctx_omni->vocoder_thread = std::thread(t2w_vocoder_thread_func, ctx_omni, ctx_omni->params);
+                print_with_timestamp("create vocoder thread (pipeline) success\n");
+            }
         }
 
     }
@@ -13667,6 +14162,12 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             t2w_thread_running = true;
             ctx_omni->t2w_thread = std::thread(t2w_thread_func, ctx_omni, ctx_omni->params);
             print_with_timestamp("stream_decode: create t2w thread\n");
+        }
+        // F6 Phase 4: Start Vocoder thread for pipeline overlap
+        if (ctx_omni->t2w_pipeline_overlap && ctx_omni->vocoder_thread_info
+            && !ctx_omni->vocoder_thread.joinable()) {
+            ctx_omni->vocoder_thread = std::thread(t2w_vocoder_thread_func, ctx_omni, ctx_omni->params);
+            print_with_timestamp("stream_decode: create vocoder thread (pipeline)\n");
         }
         // F6 A5 FIX: ensure LLM thread is running.  omni_init also creates it,
         // but if that path was skipped for any reason, stream_decode must be
