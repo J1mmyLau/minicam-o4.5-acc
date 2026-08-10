@@ -1,3 +1,41 @@
+<!--
+  BRANCH: perf/ngl8-e2e-stage-profiling
+  PURPOSE: E2E stage-level profiling with ngl=8 hybrid config — identify per-stage bottlenecks
+  DEPENDS: feat/ascend-cann
+  STATUS: CLOSED (tag: ngl8-e2e-closeout-20260726, HEAD: a70c085) — F003 FIXED, F004 VALIDATED, F005 PROTOTYPED, Chunking REJECTED
+-->
+
+# perf/ngl8-e2e-stage-profiling: E2E 阶段级 Profiling
+
+> **分支定位:** ngl=8 hybrid 配置下的全链路阶段级性能剖析，定位每阶段瓶颈。
+
+## 理论注记: 混合部署的复杂性
+
+### ngl=8 hybrid 配置
+并非所有层都卸载到 NPU（ngl 是 "number of GPU layers"）。混合配置下：
+- **Talker** (ngl=8): 部分层在 NPU，部分在 CPU
+- **Flow**: CANN NPU
+- **Vocoder**: CPU（含 CANN 不支持的算子）
+- **F005**: Prototype 级别的异常检测和回退机制
+
+### 关键发现
+| 发现 | 判定 | 意义 |
+|------|------|------|
+| F003 CANN RoPE repeat-interleave | FIXED | CPU/CANN 数值对齐 |
+| F004 Precision ablation | VALIDATED | 量化精度阈值确认 |
+| F005 Anomaly detection | PROTOTYPED | 熵阈值检测 + 回退 |
+| Chunking 策略优化 | **REJECTED** | 更快触发 TTS 反增延迟 |
+
+### Chunking REJECTED 的教训
+B6b 实验试图调低 TTS chunk 阈值来更早触发 TTS，理论上是减少首音延迟。
+但实际 CI 跨 0（效果不显著），且增加了 TTS 调度开销。
+**更激进的优化不等于更好的结果**——在非瓶颈环节做微调是浪费。
+
+### 关闭时基线
+- LLM 占 First Audio 延迟的 69% → 下一优化的正确目标
+- T2W lifecycle VALIDATED (P9: 150/150)
+- 后续工作移交到 `perf/kv-cache-production-gates`
+
 # llama.cpp-omni
 
 **llama.cpp-omni** is a high-performance Omni multimodal inference engine built on [llama.cpp](https://github.com/ggml-org/llama.cpp).
