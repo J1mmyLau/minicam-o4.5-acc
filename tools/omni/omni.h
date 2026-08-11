@@ -182,6 +182,10 @@ struct MelTask {
     int                wav_idx        = 0;
     uint32_t           generation_id  = 0;
     E2EStageTiming *   profile_handle = nullptr;
+
+    // [pipeline-diag] per-window Flow timing (monotonic clock, OMNI_PIPELINE_DIAG=1)
+    uint64_t           flow_start_ns  = 0;
+    uint64_t           flow_end_ns    = 0;
 };
 
 // ========================================================================
@@ -208,6 +212,18 @@ struct VocoderThreadInfo {
     // Diagnostic counters (gated behind OMNI_T2W_QUEUE_DIAG=1)
     std::atomic<uint64_t> diag_mel_enqueued{0};
     std::atomic<uint64_t> diag_mel_dequeued{0};
+
+    // [pipeline-diag] per-window overlap timing (OMNI_PIPELINE_DIAG=1)
+    struct PipelineWindowTiming {
+        uint64_t flow_start_ns  = 0;
+        uint64_t flow_end_ns    = 0;
+        uint64_t voc_start_ns   = 0;
+        uint64_t voc_end_ns     = 0;
+        int      window_idx     = 0;
+        uint32_t generation_id  = 0;
+    };
+    std::vector<PipelineWindowTiming> diag_timings;
+    std::mutex                        diag_timings_mtx;
 
     // WAV file counter (per-round, reset on round switch)
     std::atomic<int> wav_count{0};

@@ -11296,6 +11296,12 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
         return (n >= 2) ? 1 : 0;
     }();
 
+    // [pipeline-diag] gate (OMNI_PIPELINE_DIAG=1)
+    static bool pipeline_diag = []{
+        const char *v = getenv("OMNI_PIPELINE_DIAG");
+        return v && atoi(v) == 1;
+    }();
+
     // WAV output directory helper (mirrors get_wav_output_dir lambda from
     // t2w_thread_func_cpp but uses ctx_omni-> fields directly)
     auto get_wav_dir = [&](int round_idx) -> std::string {
@@ -11339,11 +11345,23 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
 
         vi->active_vocoder_generation.store(task->generation_id, std::memory_order_relaxed);
 
+        // [pipeline-diag] Vocoder start timestamp
+        uint64_t voc_start_ns = 0;
+        if (pipeline_diag) {
+            voc_start_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+        }
+
         // === Vocoder inference ===
         std::vector<float> chunk_wav;
         int64_t out_T_audio = 0;
         bool ok = ctx_omni->token2wav_session->feed_mel_to_wave(
             std::move(task->mel_bct), task->is_final, chunk_wav, out_T_audio);
+
+        // [pipeline-diag] Vocoder end timestamp
+        uint64_t voc_end_ns = 0;
+        if (pipeline_diag) {
+            voc_end_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+        }
 
         if (!ok) {
             LOG_ERR("[pipeline] Vocoder: feed_mel_to_wave failed\n");
@@ -11408,6 +11426,51 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
                     "[pipeline_voc] wav_idx=%d audio_dur=%.3fs gen=%u\n",
                     wav_idx - 1, audio_duration, task->generation_id);
             }
+
+            // [pipeline-diag] Correctness gate + per-window timing
+            if (pipeline_diag) {
+                float max_val = 0.0f, sum_sq = 0.0f;
+                int nan_count = 0, inf_count = 0;
+                for (auto x : chunk_wav) {
+                    if (!std::isfinite(x)) {
+                        if (std::isnan(x)) nan_count++; else inf_count++;
+                        continue;
+                    }
+                    float a = fabsf(x);
+                    if (a > max_val) max_val = a;
+                    sum_sq += x * x;
+                }
+                float rms = chunk_wav.empty() ? 0.0f : sqrtf(sum_sq / (float)chunk_wav.size());
+                int silent = (rms < 1e-7f) ? 1 : 0;
+
+                uint64_t flow_us = (task->flow_end_ns - task->flow_start_ns) / 1000;
+                uint64_t voc_us  = (voc_end_ns - voc_start_ns) / 1000;
+                uint64_t serial_equiv_us = flow_us + voc_us;
+
+                fprintf(stderr,
+                    "[pipeline-diag] win=%d gen=%u flow=%luus voc=%luus "
+                    "flow_range=[%lu,%lu] voc_range=[%lu,%lu] serial_equiv=%luus "
+                    "max=%.4f rms=%.4f nan=%d inf=%d silent=%d\n",
+                    wav_idx, task->generation_id,
+                    (unsigned long)flow_us, (unsigned long)voc_us,
+                    (unsigned long)task->flow_start_ns, (unsigned long)task->flow_end_ns,
+                    (unsigned long)voc_start_ns, (unsigned long)voc_end_ns,
+                    (unsigned long)serial_equiv_us,
+                    (double)max_val, (double)rms, nan_count, inf_count, silent);
+
+                // Store for aggregate analysis
+                VocoderThreadInfo::PipelineWindowTiming timing;
+                timing.flow_start_ns = task->flow_start_ns;
+                timing.flow_end_ns   = task->flow_end_ns;
+                timing.voc_start_ns  = voc_start_ns;
+                timing.voc_end_ns    = voc_end_ns;
+                timing.window_idx    = wav_idx;
+                timing.generation_id = task->generation_id;
+                {
+                    std::lock_guard<std::mutex> lk(vi->diag_timings_mtx);
+                    vi->diag_timings.push_back(timing);
+                }
+            }
         }
 
         // Track final completion
@@ -11420,6 +11483,104 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
 
         vi->active_vocoder_generation.store(0, std::memory_order_relaxed);
         delete task;
+    }
+
+    // [pipeline-diag] Aggregate overlap analysis at thread exit
+    if (pipeline_diag && !vi->diag_timings.empty()) {
+        std::lock_guard<std::mutex> lk(vi->diag_timings_mtx);
+        auto &t = vi->diag_timings;
+        size_t n = t.size();
+
+        // Per-window stats
+        uint64_t sum_flow_us = 0, sum_voc_us = 0;
+        uint64_t min_flow_us = UINT64_MAX, max_flow_us = 0;
+        uint64_t min_voc_us = UINT64_MAX, max_voc_us = 0;
+
+        // Overlap detection: for windows i and i+1, check if flow[i+1].start < voc[i].end
+        int overlap_count = 0;
+        uint64_t sum_overlap_us = 0;
+
+        for (size_t i = 0; i < n; i++) {
+            uint64_t flow_us = (t[i].flow_end_ns - t[i].flow_start_ns) / 1000;
+            uint64_t voc_us  = (t[i].voc_end_ns - t[i].voc_start_ns) / 1000;
+            sum_flow_us += flow_us;
+            sum_voc_us  += voc_us;
+            if (flow_us < min_flow_us) min_flow_us = flow_us;
+            if (flow_us > max_flow_us) max_flow_us = flow_us;
+            if (voc_us  < min_voc_us)  min_voc_us  = voc_us;
+            if (voc_us  > max_voc_us)  max_voc_us  = voc_us;
+
+            // Overlap: does Flow window i+1 start before Vocoder window i ends?
+            if (i + 1 < n) {
+                if (t[i+1].flow_start_ns < t[i].voc_end_ns) {
+                    overlap_count++;
+                    uint64_t overlap_ns = t[i].voc_end_ns - t[i+1].flow_start_ns;
+                    sum_overlap_us += overlap_ns / 1000;
+                }
+            }
+        }
+
+        // Effective critical path: per concurrent pair, max(flow_end-flow_start, voc_end-voc_start)
+        uint64_t sum_critical_us = 0;
+        for (size_t i = 0; i < n; i++) {
+            uint64_t flow_us = (t[i].flow_end_ns - t[i].flow_start_ns) / 1000;
+            uint64_t voc_us  = (t[i].voc_end_ns - t[i].voc_start_ns) / 1000;
+            sum_critical_us += (flow_us > voc_us) ? flow_us : voc_us;
+        }
+
+        // Contention coefficient: compare contended (middle) vs uncontended (first/last)
+        uint64_t flow_first_us = (t[0].flow_end_ns - t[0].flow_start_ns) / 1000;
+        uint64_t voc_first_us  = (t[0].voc_end_ns - t[0].voc_start_ns) / 1000;
+        uint64_t flow_last_us  = (t[n-1].flow_end_ns - t[n-1].flow_start_ns) / 1000;
+        uint64_t voc_last_us   = (t[n-1].voc_end_ns - t[n-1].voc_start_ns) / 1000;
+        uint64_t uncontended_flow = (flow_first_us + flow_last_us) / 2;
+        uint64_t uncontended_voc  = (voc_first_us + voc_last_us) / 2;
+
+        double c_flow = (uncontended_flow > 0 && n > 2)
+            ? ((double)(sum_flow_us / n) / (double)uncontended_flow) - 1.0 : 0.0;
+        double c_voc  = (uncontended_voc > 0 && n > 2)
+            ? ((double)(sum_voc_us / n) / (double)uncontended_voc) - 1.0 : 0.0;
+
+        fprintf(stderr,
+            "\n[pipeline-diag] ===== AGGREGATE (n=%zu) =====\n"
+            "[pipeline-diag] Flow:   avg=%luus min=%luus max=%luus\n"
+            "[pipeline-diag] Vocoder: avg=%luus min=%luus max=%luus\n"
+            "[pipeline-diag] Overlap: %d/%zu windows (%.1f%%) avg_overlap=%luus\n"
+            "[pipeline-diag] Effective critical path avg: %luus\n"
+            "[pipeline-diag] Serial equivalent avg: %luus\n"
+            "[pipeline-diag] Speedup vs serial: %.2fx\n"
+            "[pipeline-diag] Contention: c_flow=%.3f c_voc=%.3f (uncontended: flow=%luus voc=%luus)\n",
+            (unsigned long)n,
+            (unsigned long)(sum_flow_us / n), (unsigned long)min_flow_us, (unsigned long)max_flow_us,
+            (unsigned long)(sum_voc_us / n), (unsigned long)min_voc_us, (unsigned long)max_voc_us,
+            overlap_count, (unsigned long)n, (n > 1 ? 100.0 * overlap_count / (n-1) : 0.0),
+            (unsigned long)(overlap_count > 0 ? sum_overlap_us / overlap_count : 0),
+            (unsigned long)(sum_critical_us / n),
+            (unsigned long)((sum_flow_us + sum_voc_us) / n),
+            (sum_flow_us + sum_voc_us) > 0 ? (double)(sum_flow_us + sum_voc_us) / (double)sum_critical_us : 0.0,
+            c_flow, c_voc,
+            (unsigned long)uncontended_flow, (unsigned long)uncontended_voc);
+        fflush(stderr);
+
+        // Persist to file for E2E benchmark parsing
+        const char *diag_path = getenv("OMNI_PIPELINE_DIAG_FILE");
+        if (diag_path && diag_path[0]) {
+            FILE *f = fopen(diag_path, "w");
+            if (f) {
+                fprintf(f, "window_idx,generation_id,flow_start_ns,flow_end_ns,voc_start_ns,voc_end_ns,flow_us,voc_us\n");
+                for (size_t i = 0; i < n; i++) {
+                    uint64_t flow_us = (t[i].flow_end_ns - t[i].flow_start_ns) / 1000;
+                    uint64_t voc_us  = (t[i].voc_end_ns - t[i].voc_start_ns) / 1000;
+                    fprintf(f, "%d,%u,%lu,%lu,%lu,%lu,%lu,%lu\n",
+                        t[i].window_idx, t[i].generation_id,
+                        (unsigned long)t[i].flow_start_ns, (unsigned long)t[i].flow_end_ns,
+                        (unsigned long)t[i].voc_start_ns, (unsigned long)t[i].voc_end_ns,
+                        (unsigned long)flow_us, (unsigned long)voc_us);
+                }
+                fclose(f);
+                fprintf(stderr, "[pipeline-diag] Persisted %zu rows to %s\n", n, diag_path);
+            }
+        }
     }
 
     print_with_timestamp("[pipeline] Vocoder thread exiting\n");
@@ -11959,9 +12120,24 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
             // F6 Phase 4: Pipeline branch — Flow only (mel output) vs serial (full feed_window)
             if (ctx_omni->t2w_pipeline_overlap) {
                 // ── PIPELINE: Flow-only → push MelTask to Vocoder worker ──
+                // [pipeline-diag] Flow start timestamp
+                static bool pipeline_diag_t2w = []{
+                    const char *v = getenv("OMNI_PIPELINE_DIAG");
+                    return v && atoi(v) == 1;
+                }();
+                uint64_t flow_start_ns = 0;
+                if (pipeline_diag_t2w) {
+                    flow_start_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+                }
+
                 std::vector<float> mel_bct;
                 if (ctx_omni->token2wav_session->feed_window_mel(
                         window.data(), (int64_t)window.size(), is_last_window, mel_bct)) {
+                    uint64_t flow_end_ns = 0;
+                    if (pipeline_diag_t2w) {
+                        flow_end_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+                    }
+
                     auto *vi = ctx_omni->vocoder_thread_info;
                     MelTask *task = new MelTask();
                     task->mel_bct         = std::move(mel_bct);
@@ -11971,6 +12147,8 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     task->wav_idx         = wav_idx;
                     task->generation_id   = ctx_omni->e2e_stage.t2w_thread_generation;
                     task->profile_handle  = captured_profile_handle;
+                    task->flow_start_ns   = flow_start_ns;
+                    task->flow_end_ns     = flow_end_ns;
 
                     // Bounded push: natural backpressure (block if Vocoder can't keep up)
                     {
