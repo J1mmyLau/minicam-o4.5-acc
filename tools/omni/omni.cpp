@@ -11485,21 +11485,21 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
         delete task;
     }
 
-    // [pipeline-diag] Aggregate overlap analysis at thread exit
+    // [pipeline-diag] Aggregate analysis at thread exit
+    // Corrected 2026-08-11: distinguish per-window computation from pipeline interval.
+    // The pipeline interval = Flow[i+1].start - Flow[i].start is the true
+    // steady-state measure; it includes inter-flow gaps (token-waiting + overhead).
+    // Per-window max(Flow,Vocoder) is NOT the pipeline interval — it ignores the
+    // time between consecutive Flow windows in the T2W thread.
     if (pipeline_diag && !vi->diag_timings.empty()) {
         std::lock_guard<std::mutex> lk(vi->diag_timings_mtx);
         auto &t = vi->diag_timings;
         size_t n = t.size();
 
-        // Per-window stats
+        // ── Per-window computation stats ──
         uint64_t sum_flow_us = 0, sum_voc_us = 0;
         uint64_t min_flow_us = UINT64_MAX, max_flow_us = 0;
         uint64_t min_voc_us = UINT64_MAX, max_voc_us = 0;
-
-        // Overlap detection: for windows i and i+1, check if flow[i+1].start < voc[i].end
-        int overlap_count = 0;
-        uint64_t sum_overlap_us = 0;
-
         for (size_t i = 0; i < n; i++) {
             uint64_t flow_us = (t[i].flow_end_ns - t[i].flow_start_ns) / 1000;
             uint64_t voc_us  = (t[i].voc_end_ns - t[i].voc_start_ns) / 1000;
@@ -11509,57 +11509,143 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
             if (flow_us > max_flow_us) max_flow_us = flow_us;
             if (voc_us  < min_voc_us)  min_voc_us  = voc_us;
             if (voc_us  > max_voc_us)  max_voc_us  = voc_us;
+        }
+        uint64_t flow_avg_us = sum_flow_us / n;
+        uint64_t voc_avg_us  = sum_voc_us / n;
 
-            // Overlap: does Flow window i+1 start before Vocoder window i ends?
-            if (i + 1 < n) {
-                if (t[i+1].flow_start_ns < t[i].voc_end_ns) {
-                    overlap_count++;
-                    uint64_t overlap_ns = t[i].voc_end_ns - t[i+1].flow_start_ns;
-                    sum_overlap_us += overlap_ns / 1000;
-                }
+        // ── Cross-window overlap: Flow[i+1] vs Vocoder[i] (correct pipeline pairing) ──
+        // In a Flow→Vocoder pipeline, overlap means Flow[N+1] runs while Vocoder[N]
+        // is still in progress. The condition is: flow_start[N+1] < voc_end[N].
+        int cross_overlap_count = 0;
+        uint64_t sum_cross_overlap_us = 0;
+        for (size_t i = 0; i + 1 < n; i++) {
+            if (t[i+1].flow_start_ns < t[i].voc_end_ns) {
+                cross_overlap_count++;
+                uint64_t overlap_ns = t[i].voc_end_ns - t[i+1].flow_start_ns;
+                sum_cross_overlap_us += overlap_ns / 1000;
             }
         }
+        size_t cross_pairs = (n > 1) ? n - 1 : 0;
 
-        // Effective critical path: per concurrent pair, max(flow_end-flow_start, voc_end-voc_start)
-        uint64_t sum_critical_us = 0;
+        // ── Pipeline interval: true steady-state inter-arrival time ──
+        // This is what actually gates throughput: Flow[i+1].start - Flow[i].start.
+        // Includes Flow computation + inter-flow gap (token-wait + thread overhead).
+        std::vector<uint64_t> pipeline_intervals_us;
+        for (size_t i = 0; i + 1 < n; i++) {
+            pipeline_intervals_us.push_back(
+                (t[i+1].flow_start_ns - t[i].flow_start_ns) / 1000);
+        }
+        std::sort(pipeline_intervals_us.begin(), pipeline_intervals_us.end());
+        size_t pi_n = pipeline_intervals_us.size();
+        uint64_t pi_avg = 0, pi_p50 = 0, pi_p5 = 0, pi_p95 = 0;
+        if (pi_n > 0) {
+            for (auto v : pipeline_intervals_us) pi_avg += v;
+            pi_avg /= pi_n;
+            pi_p50 = pipeline_intervals_us[pi_n / 2];
+            pi_p5  = pipeline_intervals_us[pi_n / 20];
+            pi_p95 = pipeline_intervals_us[pi_n * 95 / 100];
+        }
+
+        // ── Inter-flow gap: time between Flow[i].end and Flow[i+1].start ──
+        // This is T2W-thread idle/overhead between consecutive Flow windows:
+        // token-buffer waiting + queue push + loop overhead.
+        std::vector<uint64_t> inter_flow_gaps_us;
+        for (size_t i = 0; i + 1 < n; i++) {
+            inter_flow_gaps_us.push_back(
+                (t[i+1].flow_start_ns - t[i].flow_end_ns) / 1000);
+        }
+        std::sort(inter_flow_gaps_us.begin(), inter_flow_gaps_us.end());
+        uint64_t gap_avg = 0, gap_p50 = 0;
+        if (!inter_flow_gaps_us.empty()) {
+            for (auto v : inter_flow_gaps_us) gap_avg += v;
+            gap_avg /= inter_flow_gaps_us.size();
+            gap_p50 = inter_flow_gaps_us[inter_flow_gaps_us.size() / 2];
+        }
+
+        // ── Per-window critical path: max(Flow_i, Voc_i) for internal computation only ──
+        // NOTE: this is NOT the pipeline interval. It measures whether Flow or Vocoder
+        // takes longer WITHIN a single window, but ignores inter-flow gaps.
+        uint64_t sum_per_window_critical_us = 0;
         for (size_t i = 0; i < n; i++) {
             uint64_t flow_us = (t[i].flow_end_ns - t[i].flow_start_ns) / 1000;
             uint64_t voc_us  = (t[i].voc_end_ns - t[i].voc_start_ns) / 1000;
-            sum_critical_us += (flow_us > voc_us) ? flow_us : voc_us;
+            sum_per_window_critical_us += (flow_us > voc_us) ? flow_us : voc_us;
         }
+        uint64_t per_window_critical_avg = sum_per_window_critical_us / n;
 
-        // Contention coefficient: compare contended (middle) vs uncontended (first/last)
+        // ── Contention: dual-CANN vs uncontended (first/last window heuristic) ──
+        // APPROXIMATE — true uncontended baseline requires a separate single-engine run.
+        // First+last windows are least likely to overlap with the other engine.
         uint64_t flow_first_us = (t[0].flow_end_ns - t[0].flow_start_ns) / 1000;
         uint64_t voc_first_us  = (t[0].voc_end_ns - t[0].voc_start_ns) / 1000;
         uint64_t flow_last_us  = (t[n-1].flow_end_ns - t[n-1].flow_start_ns) / 1000;
         uint64_t voc_last_us   = (t[n-1].voc_end_ns - t[n-1].voc_start_ns) / 1000;
-        uint64_t uncontended_flow = (flow_first_us + flow_last_us) / 2;
-        uint64_t uncontended_voc  = (voc_first_us + voc_last_us) / 2;
+        uint64_t flow_uncontended_est = (flow_first_us + flow_last_us) / 2;
+        uint64_t voc_uncontended_est  = (voc_first_us + voc_last_us) / 2;
 
-        double c_flow = (uncontended_flow > 0 && n > 2)
-            ? ((double)(sum_flow_us / n) / (double)uncontended_flow) - 1.0 : 0.0;
-        double c_voc  = (uncontended_voc > 0 && n > 2)
-            ? ((double)(sum_voc_us / n) / (double)uncontended_voc) - 1.0 : 0.0;
+        double c_flow = (flow_uncontended_est > 0 && n > 2)
+            ? ((double)flow_avg_us / (double)flow_uncontended_est) - 1.0 : 0.0;
+        double c_voc  = (voc_uncontended_est > 0 && n > 2)
+            ? ((double)voc_avg_us / (double)voc_uncontended_est) - 1.0 : 0.0;
+
+        // ── Bottleneck analysis ──
+        // Who dominates the pipeline interval? Compare Flow+gaps vs Vocoder.
+        const char *bottleneck_label = "UNKNOWN";
+        if (pi_p50 > 0) {
+            if (flow_avg_us > voc_avg_us && gap_p50 > 0) {
+                bottleneck_label = "Flow+token_wait (inter-flow gap dominates)";
+            } else if (flow_avg_us > voc_avg_us) {
+                bottleneck_label = "Flow (computation dominates)";
+            } else {
+                bottleneck_label = "Vocoder";
+            }
+        }
+        bool vocoder_fully_hidden = (voc_avg_us < flow_avg_us + gap_p50);
 
         fprintf(stderr,
             "\n[pipeline-diag] ===== AGGREGATE (n=%zu) =====\n"
-            "[pipeline-diag] Flow:   avg=%luus min=%luus max=%luus\n"
-            "[pipeline-diag] Vocoder: avg=%luus min=%luus max=%luus\n"
-            "[pipeline-diag] Overlap: %d/%zu windows (%.1f%%) avg_overlap=%luus\n"
-            "[pipeline-diag] Effective critical path avg: %luus\n"
-            "[pipeline-diag] Serial equivalent avg: %luus\n"
-            "[pipeline-diag] Speedup vs serial: %.2fx\n"
-            "[pipeline-diag] Contention: c_flow=%.3f c_voc=%.3f (uncontended: flow=%luus voc=%luus)\n",
+            "[pipeline-diag] Per-window computation:\n"
+            "[pipeline-diag]   Flow:    avg=%luus min=%luus max=%luus\n"
+            "[pipeline-diag]   Vocoder: avg=%luus min=%luus max=%luus\n"
+            "[pipeline-diag]   Per-window max(Flow,Voc): avg=%luus\n"
+            "[pipeline-diag]   (NOTE: per-window critical path ≠ pipeline interval)\n"
+            "[pipeline-diag]\n"
+            "[pipeline-diag] Pipeline interval (Flow[i+1].start - Flow[i].start):\n"
+            "[pipeline-diag]   avg=%luus p50=%luus p5=%luus p95=%luus\n"
+            "[pipeline-diag]   = Flow_comp + inter_flow_gap\n"
+            "[pipeline-diag]\n"
+            "[pipeline-diag] Inter-flow gap (Flow[i+1].start - Flow[i].end):\n"
+            "[pipeline-diag]   avg=%luus p50=%luus\n"
+            "[pipeline-diag]   (token-wait + thread overhead between Flow windows)\n"
+            "[pipeline-diag]\n"
+            "[pipeline-diag] Cross-window overlap (Flow[i+1] ∥ Vocoder[i]):\n"
+            "[pipeline-diag]   %d/%zu pairs (%.1f%%) avg_overlap=%luus\n"
+            "[pipeline-diag]\n"
+            "[pipeline-diag] Contention (APPROXIMATE, first/last-window heuristic):\n"
+            "[pipeline-diag]   FLOW_DUAL_CANN_P50=%luus FLOW_UNCONTENDED_EST=%luus c_flow=%.3f (%.1f%%)\n"
+            "[pipeline-diag]   VOC_DUAL_CANN_P50=%luus  VOC_UNCONTENDED_EST=%luus  c_voc=%.3f (%.1f%%)\n"
+            "[pipeline-diag]\n"
+            "[pipeline-diag] Bottleneck: %s\n"
+            "[pipeline-diag] Vocoder fully hidden behind Flow+gap: %s\n"
+            "[pipeline-diag] Serial equivalent: %luus  Speedup vs serial: %.2fx\n",
             (unsigned long)n,
-            (unsigned long)(sum_flow_us / n), (unsigned long)min_flow_us, (unsigned long)max_flow_us,
-            (unsigned long)(sum_voc_us / n), (unsigned long)min_voc_us, (unsigned long)max_voc_us,
-            overlap_count, (unsigned long)n, (n > 1 ? 100.0 * overlap_count / (n-1) : 0.0),
-            (unsigned long)(overlap_count > 0 ? sum_overlap_us / overlap_count : 0),
-            (unsigned long)(sum_critical_us / n),
-            (unsigned long)((sum_flow_us + sum_voc_us) / n),
-            (sum_flow_us + sum_voc_us) > 0 ? (double)(sum_flow_us + sum_voc_us) / (double)sum_critical_us : 0.0,
-            c_flow, c_voc,
-            (unsigned long)uncontended_flow, (unsigned long)uncontended_voc);
+            (unsigned long)flow_avg_us, (unsigned long)min_flow_us, (unsigned long)max_flow_us,
+            (unsigned long)voc_avg_us, (unsigned long)min_voc_us, (unsigned long)max_voc_us,
+            (unsigned long)per_window_critical_avg,
+            (unsigned long)pi_avg, (unsigned long)pi_p50, (unsigned long)pi_p5, (unsigned long)pi_p95,
+            (unsigned long)gap_avg, (unsigned long)gap_p50,
+            cross_overlap_count, (unsigned long)cross_pairs,
+            (cross_pairs > 0 ? 100.0 * cross_overlap_count / cross_pairs : 0.0),
+            (unsigned long)(cross_overlap_count > 0 ? sum_cross_overlap_us / cross_overlap_count : 0),
+            (unsigned long)flow_avg_us, (unsigned long)flow_uncontended_est,
+            c_flow, c_flow * 100.0,
+            (unsigned long)voc_avg_us, (unsigned long)voc_uncontended_est,
+            c_voc, c_voc * 100.0,
+            bottleneck_label,
+            vocoder_fully_hidden ? "YES" : "NO",
+            (unsigned long)(flow_avg_us + voc_avg_us),
+            (flow_avg_us + voc_avg_us) > 0
+                ? (double)(flow_avg_us + voc_avg_us) / (double)per_window_critical_avg : 0.0);
         fflush(stderr);
 
         // Persist to file for E2E benchmark parsing

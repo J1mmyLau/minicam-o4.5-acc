@@ -211,7 +211,16 @@ def parse_pipeline_diag_csv(csv_path):
 
 
 def analyze_pipeline_diag(windows):
-    """Compute pipeline overlap metrics from diag data."""
+    """Compute pipeline metrics from diag data.
+
+    Corrected 2026-08-11: distinguishes three levels:
+      L1) Per-window computation: Flow[i] duration, Vocoder[i] duration, max(Flow,Voc)
+      L2) Cross-window overlap: Flow[i+1] || Vocoder[i] (correct pipeline pairing)
+      L3) Pipeline interval: Flow[i+1].start - Flow[i].start (true steady-state gate)
+         = Flow_computation + inter_flow_gap (token-wait + thread overhead)
+
+    L1 is useful for micro-optimization but L3 is what determines throughput.
+    """
     n = len(windows)
     if n < 2:
         return {"error": "too few windows", "n": n}
@@ -219,20 +228,32 @@ def analyze_pipeline_diag(windows):
     flow_times = [w["flow_us"] for w in windows]
     voc_times = [w["voc_us"] for w in windows]
 
-    # Overlap: consecutive pairs where flow[i+1].start < voc[i].end
-    overlap_count = 0
-    overlap_us_list = []
-    for i in range(n - 1):
-        if windows[i+1]["flow_start_ns"] < windows[i]["voc_end_ns"]:
-            overlap_count += 1
-            overlap_us = (windows[i]["voc_end_ns"] - windows[i+1]["flow_start_ns"]) / 1000
-            overlap_us_list.append(overlap_us)
-
-    # Effective critical path per window: max(flow, voc)
-    critical_path_us = [max(w["flow_us"], w["voc_us"]) for w in windows]
+    # ── L1: Per-window computation ──
+    per_window_critical_us = [max(w["flow_us"], w["voc_us"]) for w in windows]
     serial_equiv_us = [w["flow_us"] + w["voc_us"] for w in windows]
 
-    # Contention: compare middle vs first/last
+    # ── L2: Cross-window overlap: Flow[i+1] vs Vocoder[i] ──
+    cross_overlap_count = 0
+    cross_overlap_us_list = []
+    for i in range(n - 1):
+        if windows[i+1]["flow_start_ns"] < windows[i]["voc_end_ns"]:
+            cross_overlap_count += 1
+            overlap_us = (windows[i]["voc_end_ns"] - windows[i+1]["flow_start_ns"]) / 1000
+            cross_overlap_us_list.append(overlap_us)
+
+    # ── L3: Pipeline interval (true steady-state) + inter-flow gap ──
+    pipeline_intervals_us = []
+    inter_flow_gaps_us = []
+    for i in range(n - 1):
+        pipeline_intervals_us.append(
+            (windows[i+1]["flow_start_ns"] - windows[i]["flow_start_ns"]) / 1000)
+        inter_flow_gaps_us.append(
+            (windows[i+1]["flow_start_ns"] - windows[i]["flow_end_ns"]) / 1000)
+    pi_sorted = sorted(pipeline_intervals_us)
+    gap_sorted = sorted(inter_flow_gaps_us)
+    pi_n = len(pi_sorted)
+
+    # ── Contention: APPROXIMATE from first/last window heuristic ──
     uncontended_flow = (flow_times[0] + flow_times[-1]) / 2 if n > 2 else flow_times[0]
     uncontended_voc = (voc_times[0] + voc_times[-1]) / 2 if n > 2 else voc_times[0]
     mean_flow = sum(flow_times) / n
@@ -240,8 +261,14 @@ def analyze_pipeline_diag(windows):
     c_flow = (mean_flow / uncontended_flow - 1.0) if uncontended_flow > 0 else 0.0
     c_voc = (mean_voc / uncontended_voc - 1.0) if uncontended_voc > 0 else 0.0
 
+    # ── Bottleneck: who dominates the pipeline interval? ──
+    gap_p50 = gap_sorted[pi_n // 2] if pi_n > 0 else 0
+    pi_p50 = pi_sorted[pi_n // 2] if pi_n > 0 else 0
+    vocoder_hidden = (mean_voc < mean_flow + gap_p50)
+
     return {
         "n_windows": n,
+        # L1: per-window computation
         "flow_us": {
             "mean": mean_flow,
             "p50": sorted(flow_times)[n//2],
@@ -254,26 +281,50 @@ def analyze_pipeline_diag(windows):
             "min": min(voc_times),
             "max": max(voc_times),
         },
-        "critical_path_us": {
-            "mean": sum(critical_path_us) / n,
-            "p50": sorted(critical_path_us)[n//2],
+        "per_window_critical_us": {
+            "mean": sum(per_window_critical_us) / n,
+            "p50": sorted(per_window_critical_us)[n//2],
+            "note": "max(Flow_i,Voc_i) — NOT the pipeline interval; ignores inter-flow gaps",
         },
-        "serial_equiv_us": {
-            "mean": sum(serial_equiv_us) / n,
-        },
-        "overlap": {
-            "count": overlap_count,
+        # L2: cross-window overlap
+        "cross_window_overlap": {
+            "count": cross_overlap_count,
             "total_pairs": n - 1,
-            "ratio": overlap_count / (n - 1) if n > 1 else 0,
-            "avg_overlap_us": sum(overlap_us_list) / len(overlap_us_list) if overlap_us_list else 0,
+            "ratio": cross_overlap_count / (n - 1) if n > 1 else 0,
+            "avg_overlap_us": (sum(cross_overlap_us_list) / len(cross_overlap_us_list))
+                              if cross_overlap_us_list else 0,
+            "note": "Flow[i+1] vs Vocoder[i] — correct pipeline pairing",
         },
+        # L3: pipeline interval + inter-flow gap
+        "pipeline_interval_us": {
+            "mean": sum(pipeline_intervals_us) / pi_n if pi_n > 0 else 0,
+            "p50": pi_p50,
+            "p5": pi_sorted[pi_n // 20] if pi_n >= 20 else (pi_sorted[0] if pi_n > 0 else 0),
+            "p95": pi_sorted[pi_n * 95 // 100] if pi_n >= 20 else (pi_sorted[-1] if pi_n > 0 else 0),
+            "note": "Flow[i+1].start - Flow[i].start — true steady-state throughput gate",
+        },
+        "inter_flow_gap_us": {
+            "mean": sum(inter_flow_gaps_us) / pi_n if pi_n > 0 else 0,
+            "p50": gap_p50,
+            "note": "Flow[i+1].start - Flow[i].end — token-wait + thread overhead",
+        },
+        # Contention (APPROXIMATE)
         "contention": {
             "c_flow": c_flow,
             "c_voc": c_voc,
-            "uncontended_flow_us": uncontended_flow,
-            "uncontended_voc_us": uncontended_voc,
+            "flow_dual_cann_p50_us": sorted(flow_times)[n//2],
+            "flow_uncontended_est_us": uncontended_flow,
+            "voc_dual_cann_p50_us": sorted(voc_times)[n//2],
+            "voc_uncontended_est_us": uncontended_voc,
+            "note": "APPROXIMATE — uncontended est from first+last window avg",
         },
-        "speedup_vs_serial": (sum(serial_equiv_us) / sum(critical_path_us)) if sum(critical_path_us) > 0 else 0,
+        "bottleneck": {
+            "vocoder_fully_hidden": vocoder_hidden,
+            "dominant_stage": "Flow" if mean_flow > mean_voc else "Vocoder",
+            "note": "gain source: replacing CPU vocoder (432ms) with CANN vocoder (113ms) shifts bottleneck from Vocoder→Flow+token_wait",
+        },
+        "speedup_vs_serial": (sum(serial_equiv_us) / sum(per_window_critical_us))
+                             if sum(per_window_critical_us) > 0 else 0,
     }
 
 
@@ -380,10 +431,10 @@ async def run_config(config_name, n_warmup=2, n_measured=30):
                 print(f"  Windows: {diag_analysis['n_windows']}")
                 print(f"  Flow: mean={diag_analysis['flow_us']['mean']:.0f}us p50={diag_analysis['flow_us']['p50']:.0f}us")
                 print(f"  Vocoder: mean={diag_analysis['voc_us']['mean']:.0f}us p50={diag_analysis['voc_us']['p50']:.0f}us")
-                print(f"  Critical path: mean={diag_analysis['critical_path_us']['mean']:.0f}us p50={diag_analysis['critical_path_us']['p50']:.0f}us")
-                print(f"  Overlap: {diag_analysis['overlap']['count']}/{diag_analysis['overlap']['total_pairs']} ({diag_analysis['overlap']['ratio']:.1%})")
-                print(f"  Speedup vs serial: {diag_analysis['speedup_vs_serial']:.2f}x")
-                print(f"  Contention: c_flow={diag_analysis['contention']['c_flow']:.3f} c_voc={diag_analysis['contention']['c_voc']:.3f}")
+                print(f"  Pipeline interval p50: {diag_analysis['pipeline_interval_us']['p50']:.0f}us (true steady-state gate)")
+                print(f"  Inter-flow gap p50: {diag_analysis['inter_flow_gap_us']['p50']:.0f}us (token-wait + overhead)")
+                print(f"  Cross-window overlap: {diag_analysis['cross_window_overlap']['count']}/{diag_analysis['cross_window_overlap']['total_pairs']} ({diag_analysis['cross_window_overlap']['ratio']:.1%})")
+                print(f"  Contention: c_flow={diag_analysis['contention']['c_flow']:.3f} (flow_dual={diag_analysis['contention']['flow_dual_cann_p50_us']:.0f}us uncontended_est={diag_analysis['contention']['flow_uncontended_est_us']:.0f}us)")
 
     # Compute RTF stats
     # Use nominal audio: n_chunks * 1.0s per chunk
@@ -485,9 +536,9 @@ async def main():
             print(f"  Windows: {diag['n_windows']}")
             print(f"  Flow: mean={diag['flow_us']['mean']:.0f}us p50={diag['flow_us']['p50']:.0f}us")
             print(f"  Vocoder: mean={diag['voc_us']['mean']:.0f}us p50={diag['voc_us']['p50']:.0f}us")
-            print(f"  Critical path: mean={diag['critical_path_us']['mean']:.0f}us")
-            print(f"  Overlap: {diag['overlap']['count']}/{diag['overlap']['total_pairs']} ({diag['overlap']['ratio']:.1%})")
-            print(f"  Contention: c_flow={diag['contention']['c_flow']:.3f} c_voc={diag['contention']['c_voc']:.3f}")
+            print(f"  Pipeline interval p50: {diag['pipeline_interval_us']['p50']:.0f}us")
+            print(f"  Inter-flow gap p50: {diag['inter_flow_gap_us']['p50']:.0f}us")
+            print(f"  Cross-window overlap: {diag['cross_window_overlap']['count']}/{diag['cross_window_overlap']['total_pairs']} ({diag['cross_window_overlap']['ratio']:.1%})")
 
         # Placement
         print(f"\nPlacement:")
