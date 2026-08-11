@@ -2313,7 +2313,7 @@ static void kv_cache_slide_window(struct omni_context* ctx_omni, common_params* 
     print_with_timestamp("⚠️ KV Cache 滑动窗口完成: n_past %d→%d\n", old_n_past, ctx_omni->n_past);
 }
 
-static bool eval_tokens(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, bool get_emb = false) {
+bool eval_tokens(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, bool get_emb) {
     int N = (int) tokens.size();
     kv_cache_slide_window(ctx_omni, params, N);
 
@@ -2352,7 +2352,7 @@ static bool eval_tokens(struct omni_context* ctx_omni, common_params* params, st
 
 // 与 eval_tokens 类似，但会将每次 decode 的 hidden_state 保存并拼接到 hidden_states 中
 // hidden_states 由函数内部分配空间，大小为 N * n_embd * sizeof(float)，调用者负责释放
-static bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, float *& hidden_states) {
+bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, float *& hidden_states) {
     int N = (int) tokens.size();
     if (N == 0) {
         hidden_states = nullptr;
@@ -2539,8 +2539,71 @@ static const char * sample_with_hidden_and_token(struct common_sampler * smpl, s
         }
     }
     
+    // OMNI_LOGIT_DIAG: capture first-generation logits for corruption tracing
+    if (getenv("OMNI_LOGIT_DIAG") && logits != nullptr) {
+        static int logit_gen = 0;
+        logit_gen++;
+        if (logit_gen == 1) {
+            int n_vocab = llama_n_vocab(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)));
+            std::vector<std::pair<float, int>> top;
+            top.reserve(10);
+            for (int i = 0; i < n_vocab; i++) {
+                float v = logits[i];
+                if (top.size() < 10) {
+                    top.push_back({v, i});
+                    if (top.size() == 10)
+                        std::make_heap(top.begin(), top.end(), std::greater<std::pair<float,int>>{});
+                } else if (v > top[0].first) {
+                    std::pop_heap(top.begin(), top.end(), std::greater<std::pair<float,int>>{});
+                    top.back() = {v, i};
+                    std::push_heap(top.begin(), top.end(), std::greater<std::pair<float,int>>{});
+                }
+            }
+            std::sort(top.begin(), top.end(), std::greater<std::pair<float,int>>{});
+            fprintf(stderr, "[logit_diag] gen=%d n_vocab=%d\n", logit_gen, n_vocab);
+            fprintf(stderr, "[logit_diag] top10:\n");
+            for (int i = 0; i < 10; i++) {
+                std::string piece = common_token_to_piece(ctx_omni->ctx_llama, top[i].second);
+                std::string piece_safe;
+                for (char c : piece) {
+                    if (c >= 32 && c < 127) piece_safe += c;
+                    else { char buf[8]; snprintf(buf, sizeof(buf), "\\x%02x", (unsigned char)c); piece_safe += buf; }
+                }
+                if (piece_safe.size() > 40) piece_safe = piece_safe.substr(0, 40) + "...";
+                fprintf(stderr, "  #%d: id=%d logit=%.4f piece=%s\n",
+                        i+1, top[i].second, top[i].first, piece_safe.c_str());
+            }
+            double sum = 0, maxv = -INFINITY, minv = INFINITY;
+            for (int i = 0; i < n_vocab; i++) {
+                float v = logits[i];
+                sum += v;
+                if (v > maxv) maxv = v;
+                if (v < minv) minv = v;
+            }
+            double mean = sum / n_vocab;
+            double var = 0;
+            for (int i = 0; i < n_vocab; i++) {
+                double d = logits[i] - mean;
+                var += d * d;
+            }
+            var /= n_vocab;
+            fprintf(stderr, "[logit_diag] stats: min=%.4f max=%.4f mean=%.4f std=%.4f\n",
+                    minv, maxv, mean, sqrt(var));
+            // Reserve space for post-sample print
+            fprintf(stderr, "[logit_diag] LOGIT_DIAG_PRE_SAMPLE\n");
+        }
+    }
+
     const llama_token id = common_sampler_sample(smpl, ctx_omni->ctx_llama, -1);
     token_id = id;  // 保存token ID
+    // OMNI_LOGIT_DIAG: post-sample print
+    if (getenv("OMNI_LOGIT_DIAG")) {
+        static int logit_gen2 = 0;
+        logit_gen2++;
+        if (logit_gen2 == 1) {
+            fprintf(stderr, "[logit_diag] sampled: id=%d top1_margin=N/A (post-sample, pre-accept)\n", id);
+        }
+    }
     common_sampler_accept(smpl, id, true);
     static std::string ret;
     if (llama_vocab_is_eog(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)), id)) {
@@ -2556,6 +2619,25 @@ static const char * sample_with_hidden_and_token(struct common_sampler * smpl, s
         for (size_t i = 0; i < std::min(ret.size(), size_t(32)); i++)
             fprintf(stderr, "%02x", (unsigned char)ret[i]);
         fprintf(stderr, "\n");
+    }
+    // OMNI_TEXT_DIAG: log first 64 tokens (ID + piece) for corruption tracing (env-gated, default OFF)
+    if (getenv("OMNI_TEXT_DIAG")) {
+        static int text_seq = 0;
+        static int text_gen = 0;
+        if (text_seq == 0) text_gen++;
+        if (text_seq < 64) {
+            fprintf(stderr, "[text_diag] gen=%d seq=%d token_id=%d piece_hex=",
+                    text_gen, text_seq, id);
+            for (size_t i = 0; i < std::min(ret.size(), size_t(16)); i++)
+                fprintf(stderr, "%02x", (unsigned char)ret[i]);
+            fprintf(stderr, " piece_raw=");
+            for (size_t i = 0; i < std::min(ret.size(), size_t(32)); i++) {
+                unsigned char c = (unsigned char)ret[i];
+                fprintf(stderr, "%c", (c >= 32 && c < 127) ? c : '.');
+            }
+            fprintf(stderr, "\n");
+        }
+        text_seq++;
     }
     eval_id_with_hidden(ctx_omni, params, id, n_past, hidden_states);
     return ret.c_str();
@@ -3299,7 +3381,7 @@ bool load_tts_weights_from_gguf(struct omni_context * ctx_omni, const char * tts
 // 1. 在omni_context中添加emb_text_weight字段（float*, 152064 * 768）
 // 2. 在omni_init中从TTS模型文件加载emb_text权重
 // 3. 在这里实现查找逻辑
-static bool tts_emb_text(struct omni_context * ctx_omni, llama_token token_id, float * embedding_out, int tts_n_embd) {
+bool tts_emb_text(struct omni_context * ctx_omni, llama_token token_id, float * embedding_out, int tts_n_embd) {
     // Check if weights are loaded
     if (!ctx_omni->emb_text_weight) {
         LOG_ERR("TTS: emb_text_weight not loaded\n");
@@ -3344,7 +3426,7 @@ static bool tts_emb_text(struct omni_context * ctx_omni, llama_token token_id, f
 //     hidden_proj = ReLU(linear1(hidden) + bias1)  // (1, 4096) @ (4096, 768) = (1, 768)
 //     hidden_proj = linear2(hidden_proj) + bias2    // (1, 768) @ (768, 768) = (1, 768)
 //   归一化在调用者中完成（使用normalize_l2_per_token）
-static bool tts_projector_semantic(struct omni_context * ctx_omni, 
+bool tts_projector_semantic(struct omni_context * ctx_omni, 
                                     const float * llm_hidden_states, int n_tokens, int llm_n_embd,
                                     float * projected_hidden_states, int tts_n_embd) {
     // 优先使用新的 ggml 实现 (精度验证版本)
@@ -3437,7 +3519,7 @@ static bool tts_projector_semantic(struct omni_context * ctx_omni,
 // 辅助函数：L2归一化（对每个token的embedding分别归一化）
 // 匹配Python的 F.normalize(hidden_embeds, p=2, dim=-1)
 // 注意：PyTorch的F.normalize使用sqrt(sum(x^2) + eps)，然后除以norm
-static void normalize_l2_per_token(float * embeddings, int n_tokens, int n_embd, float eps = 1e-8f) {
+void normalize_l2_per_token(float * embeddings, int n_tokens, int n_embd, float eps) {
     for (int t = 0; t < n_tokens; t++) {
         float * vec = embeddings + t * n_embd;
         
@@ -4254,7 +4336,7 @@ static llama_token sample_tts_token_simplex(struct common_sampler * smpl, struct
     return id;
 }
 
-llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past_tts, const std::vector<llama_token> * all_generated_tokens, const std::vector<llama_token> * chunk_generated_tokens, int token_index_in_chunk, bool force_no_eos, bool is_final_text_chunk = false) {
+llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past_tts, const std::vector<llama_token> * all_generated_tokens, const std::vector<llama_token> * chunk_generated_tokens, int token_index_in_chunk, bool force_no_eos, bool is_final_text_chunk) {
     // Debug: Save logits directory (set via environment variable)
     const char* logits_debug_dir = getenv("TTS_LOGITS_DEBUG_DIR");
     
@@ -5390,7 +5472,21 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         }
         llama_context_params ctx_params = common_context_params_to_llama(*params);
         ctx_params.n_ctx                = params->n_ctx;
-        
+
+        // OMNI_CANN_FA_MAX_UBATCH: diagnostic env var to test Q-chunking
+        // Reduces n_ubatch to keep prefill Q below CANN FA NaN threshold
+        {
+            const char * env_ubatch = getenv("OMNI_CANN_FA_MAX_UBATCH");
+            if (env_ubatch) {
+                int max_ubatch = atoi(env_ubatch);
+                if (max_ubatch > 0 && (int)ctx_params.n_ubatch > max_ubatch) {
+                    fprintf(stderr, "[OMNI_CANN_FA_MAX_UBATCH] n_ubatch %u -> %d\n",
+                            ctx_params.n_ubatch, max_ubatch);
+                    ctx_params.n_ubatch = (uint32_t)max_ubatch;
+                }
+            }
+        }
+
         ctx_llama = llama_new_context_with_model(model, ctx_params);
         if (ctx_llama == NULL) {
             LOG_ERR("%s: error: failed to create the llama_context\n" , __func__);
@@ -6865,18 +6961,35 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                     int n_audio_tokens = embeds->audio_embed.size() / hidden_size;
                     bool has_audio = (n_audio_tokens > 0);
                     bool has_slices = (n_chunks > 1);
-                    
+                    const bool vis_substep_diag = (getenv("OMNI_VISION_SUBSTEP_NAN_CHECK") != nullptr);
+
+                    auto vis_check_logits = [&](const char *label) {
+                        if (!vis_substep_diag) return;
+                        float * l = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
+                        if (!l) return;
+                        int n_v = llama_n_vocab(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)));
+                        int nc = 0, ic = 0;
+                        for (int k = 0; k < n_v; k++) {
+                            if (isnan(l[k])) nc++; else if (isinf(l[k])) ic++;
+                        }
+                        fprintf(stderr, "[vis_substep] %s n_past=%d nan=%d inf=%d/%d\n",
+                                label, ctx_omni->n_past, nc, ic, n_v);
+                    };
+
                     // 🔧 [与 Python 对齐] 根据模式决定是否添加 <unit>
                     if (ctx_omni->duplex_mode) {
                         eval_string(ctx_omni, params, "<unit><image>", params->n_batch, &ctx_omni->n_past, false);
                     } else {
                         eval_string(ctx_omni, params, "<image>", params->n_batch, &ctx_omni->n_past, false);
                     }
-                    
+                    vis_check_logits("after_<image>");
+
                     // Prefill overview embedding (第一个 chunk)
-                    prefill_with_emb(ctx_omni, params, embeds->vision_embed[0].data(), tokens_per_chunk, 
+                    prefill_with_emb(ctx_omni, params, embeds->vision_embed[0].data(), tokens_per_chunk,
                                     params->n_batch, &ctx_omni->n_past);
+                    vis_check_logits("after_overview_emb");
                     eval_string(ctx_omni, params, "</image>", params->n_batch, &ctx_omni->n_past, false);
+                    vis_check_logits("after_</image>");
                     
                     // 🔧 [高清模式 V2.6 schema] 如果有 slices，添加 <slice> 标记
                     // 格式: <image>(overview)</image><slice>(slice1)</slice><slice>(slice2)</slice>\n
@@ -6963,13 +7076,59 @@ void llm_thread_func(omni_context* ctx_omni, common_params* params){
                 
                 // 释放嵌入数据的内存（由生产者线程分配）
                 delete embeds;
+
+                // OMNI_PREFILL_NAN_CHECK: per-step logit check to find NaN emergence point
+                if (getenv("OMNI_PREFILL_NAN_CHECK")) {
+                    float * step_logits = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
+                    if (step_logits != nullptr) {
+                        int n_vocab = llama_n_vocab(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)));
+                        int nan_count = 0, inf_count = 0;
+                        for (int k = 0; k < n_vocab; k++) {
+                            float v = step_logits[k];
+                            if (isnan(v)) nan_count++;
+                            else if (isinf(v)) inf_count++;
+                        }
+                        int type = embeds->vision_embed.size() > 0 ? 'V'
+                                 : !embeds->audio_embed.empty()    ? 'A'
+                                 :                                   'T';
+                        fprintf(stderr, "[prefill_step_nan_check] step=%d n_past=%d type=%c nan=%d inf=%d/%d\n",
+                                il, ctx_omni->n_past, (char)type, nan_count, inf_count, n_vocab);
+                    }
+                }
             }
             
             // 🔧 [诊断] 打印 prefill 结束后的 n_past
             print_with_timestamp("LLM thread: prefill done, n_past=%d, n_keep=%d, 本次消耗 %d tokens, duplex_mode=%d\n",
-                                 ctx_omni->n_past, ctx_omni->n_keep, 
+                                 ctx_omni->n_past, ctx_omni->n_keep,
                                  ctx_omni->n_past - ctx_omni->n_keep,
                                  ctx_omni->duplex_mode);
+
+            // OMNI_PREFILL_NAN_CHECK: check logits after prefill for NaN (Section 5)
+            if (getenv("OMNI_PREFILL_NAN_CHECK")) {
+                float * logits = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
+                if (logits != nullptr) {
+                    int n_vocab = llama_n_vocab(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)));
+                    float minv = INFINITY, maxv = -INFINITY;
+                    double sum = 0.0, sum2 = 0.0;
+                    int nan_count = 0, inf_count = 0;
+                    for (int k = 0; k < n_vocab; k++) {
+                        float v = logits[k];
+                        if (isnan(v)) { nan_count++; continue; }
+                        if (isinf(v)) { inf_count++; continue; }
+                        if (v < minv) minv = v;
+                        if (v > maxv) maxv = v;
+                        sum += v;
+                        sum2 += (double)v * v;
+                    }
+                    int finite_n = n_vocab - nan_count - inf_count;
+                    double mean = finite_n > 0 ? sum / finite_n : NAN;
+                    double var  = finite_n > 1 ? (sum2 - sum*sum/finite_n) / (finite_n - 1) : NAN;
+                    fprintf(stderr, "[prefill_nan_check] n_past=%d n_vocab=%d nan=%d inf=%d finite=%d\n",
+                            ctx_omni->n_past, n_vocab, nan_count, inf_count, finite_n);
+                    fprintf(stderr, "[prefill_nan_check] stats: min=%.4f max=%.4f mean=%.4f std=%.4f\n",
+                            minv, maxv, mean, sqrt(fmax(0.0, var)));
+                }
+            }
             
             // 🔧 [#39 滑动窗口] prefill 完成后检查是否需要滑窗
             if (ctx_omni->sliding_window_config.mode != "off") {
@@ -12938,6 +13097,29 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
     auto t_begin   = std::chrono::high_resolution_clock::now();
     int  n_past_0  = ctx_omni->n_past;
 
+    // OMNI_EMBED_TRACE: env-gated embed sequence tracing (Section 2)
+    const bool embed_trace = (getenv("OMNI_EMBED_TRACE") != nullptr);
+    static int trace_packet_idx = 0;
+    int trace_seg = 0;
+    auto trace_log = [&](const char *seg_type, int n_tokens, int n_past_before, int n_past_after) {
+        if (!embed_trace) return;
+        int pos_min = n_past_before;
+        int pos_max = n_past_after - 1;
+        fprintf(stderr, "[embed_trace] packet=%d seg=%d type=%-20s n_tokens=%d "
+                "n_past_before=%d n_past_after=%d pos=[%d,%d]\n",
+                trace_packet_idx, trace_seg++, seg_type, n_tokens,
+                n_past_before, n_past_after, pos_min, pos_max);
+    };
+    if (embed_trace) {
+        fprintf(stderr, "[embed_trace] ===== packet=%d index=%d has_vision=%d has_audio=%d "
+                "n_vision_chunks=%zu n_audio_tokens=%zu =====\n",
+                trace_packet_idx, packet->index,
+                !packet->vision_embed.empty() ? 1 : 0,
+                !packet->audio_embed.empty() ? 1 : 0,
+                packet->vision_embed.size(),
+                hidden_size > 0 ? packet->audio_embed.size() / hidden_size : 0);
+    }
+
     // 单 packet 版本：语义上等价于原 batch.size()==1 的情况。
     // duplex 下 prefill/decode 必须严格 1-1 配对，否则 decode 的 KV 上下文会被
     // 后续 chunk 的 prefill 污染；因此 llm_thread 每轮只消费 1 个 packet。
@@ -12958,36 +13140,84 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
             bool has_slices      = (n_chunks > 1);
 
             // duplex 格式：<unit><image>[overview]</image>(<slice>[slice]</slice>)*\n[audio]
+            int np_before = ctx_omni->n_past;
             eval_string(ctx_omni, params, "<unit><image>",
                         params->n_batch, &ctx_omni->n_past, false);
+            trace_log("text:<unit><image>", (int)strlen("<unit><image>"), np_before, ctx_omni->n_past);
+
+            np_before = ctx_omni->n_past;
             prefill_with_emb(ctx_omni, params, packet->vision_embed[0].data(),
                              tokens_per_chunk, params->n_batch, &ctx_omni->n_past);
+            // Compute embed norm stats
+            if (embed_trace) {
+                const float *emb = packet->vision_embed[0].data();
+                double sum = 0, maxv = 0;
+                for (int j = 0; j < tokens_per_chunk * hidden_size; j++) {
+                    float v = fabsf(emb[j]);
+                    sum += v; if (v > maxv) maxv = v;
+                }
+                double mean = sum / (tokens_per_chunk * hidden_size);
+                fprintf(stderr, "[embed_trace]   vision_embed[0]: shape=(%d,%d) norm_mean=%.6f norm_max=%.6f\n",
+                        tokens_per_chunk, hidden_size, mean, maxv);
+            }
+            trace_log("emb:vision_overview", tokens_per_chunk, np_before, ctx_omni->n_past);
+
+            np_before = ctx_omni->n_past;
             eval_string(ctx_omni, params, "</image>",
                         params->n_batch, &ctx_omni->n_past, false);
+            trace_log("text:</image>", (int)strlen("</image>"), np_before, ctx_omni->n_past);
+
             if (has_slices) {
                 for (int i = 1; i < n_chunks; i++) {
+                    np_before = ctx_omni->n_past;
                     eval_string(ctx_omni, params, "<slice>",
                                 params->n_batch, &ctx_omni->n_past, false);
+                    trace_log("text:<slice>", (int)strlen("<slice>"), np_before, ctx_omni->n_past);
+
+                    np_before = ctx_omni->n_past;
                     prefill_with_emb(ctx_omni, params, packet->vision_embed[i].data(),
                                      tokens_per_chunk, params->n_batch, &ctx_omni->n_past);
+                    if (embed_trace) {
+                        const float *emb = packet->vision_embed[i].data();
+                        double sum = 0, maxv = 0;
+                        for (int j = 0; j < tokens_per_chunk * hidden_size; j++) {
+                            float v = fabsf(emb[j]);
+                            sum += v; if (v > maxv) maxv = v;
+                        }
+                        double mean = sum / (tokens_per_chunk * hidden_size);
+                        fprintf(stderr, "[embed_trace]   vision_embed[%d]: shape=(%d,%d) norm_mean=%.6f norm_max=%.6f\n",
+                                i, tokens_per_chunk, hidden_size, mean, maxv);
+                    }
+                    trace_log("emb:vision_slice", tokens_per_chunk, np_before, ctx_omni->n_past);
+
+                    np_before = ctx_omni->n_past;
                     eval_string(ctx_omni, params, "</slice>",
                                 params->n_batch, &ctx_omni->n_past, false);
+                    trace_log("text:</slice>", (int)strlen("</slice>"), np_before, ctx_omni->n_past);
                 }
+                np_before = ctx_omni->n_past;
                 eval_string(ctx_omni, params, "\n",
                             params->n_batch, &ctx_omni->n_past, false);
+                trace_log("text:\\n", 1, np_before, ctx_omni->n_past);
             }
             if (has_audio) {
                 // duplex 下 audio 直接跟在 vision 后面（无 audio_start/end 标签）
+                np_before = ctx_omni->n_past;
                 prefill_with_emb(ctx_omni, params, packet->audio_embed.data(),
                                  n_audio_tokens, params->n_batch, &ctx_omni->n_past);
+                trace_log("emb:audio", n_audio_tokens, np_before, ctx_omni->n_past);
             }
         } else {
             // 纯音频 unit
+            int np_before = ctx_omni->n_past;
             eval_string(ctx_omni, params, "<unit>",
                         params->n_batch, &ctx_omni->n_past, false);
+            trace_log("text:<unit>", (int)strlen("<unit>"), np_before, ctx_omni->n_past);
             if (has_audio) {
+                np_before = ctx_omni->n_past;
                 prefill_with_emb(ctx_omni, params, packet->audio_embed.data(),
                                  n_audio_tokens, params->n_batch, &ctx_omni->n_past);
+                trace_log("emb:audio", n_audio_tokens, np_before, ctx_omni->n_past);
             }
         }
 
@@ -14659,6 +14889,21 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
             }
         }
         fflush(stdout);
+        // OMNI_TEXT_DIAG: hex dump of final response (after cleanup, before queue push)
+        if (getenv("OMNI_TEXT_DIAG") && !response.empty()) {
+            static int resp_seq = 0;
+            fprintf(stderr, "[text_diag] response_push seq=%d len=%zu hex=",
+                    resp_seq++, response.size());
+            for (size_t i = 0; i < std::min(response.size(), size_t(200)); i++)
+                fprintf(stderr, "%02x", (unsigned char)response[i]);
+            if (response.size() > 200) fprintf(stderr, "...");
+            fprintf(stderr, " text=");
+            for (size_t i = 0; i < std::min(response.size(), size_t(100)); i++) {
+                unsigned char c = (unsigned char)response[i];
+                fprintf(stderr, "%c", (c >= 32 && c < 127) ? c : '.');
+            }
+            fprintf(stderr, "\n");
+        }
         // push text fragment to text_queue (both sync and async modes)
         if (!response.empty()) {
             std::lock_guard<std::mutex> tl(ctx_omni->text_mtx);

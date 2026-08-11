@@ -2868,33 +2868,48 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev, const ggml_ten
                 }
 
                 // OMNI_CANN_FA_SAFE_DISPATCH: conservative shape-dependent CPU fallback
-                // CANN FusedInferAttentionScoreV2 produces NaN for large (Q, KV) prefill
-                // shapes (CANN 9.1.0-beta.1, Ascend910, MiniCPM-o-4_5 F16, heads=32 kv=8).
+                // CANN FusedInferAttentionScoreV2 produces NaN for (Q, KV) prefill
+                // shapes on CANN 9.1.0-beta.1 (Ascend910, MiniCPM-o-4_5 F16, heads=32 kv=8).
                 //
-                // Empirical characterization (Phase 1 sweep, 2026-08-11):
-                //   Direct NaN at KV=768:    Q >= 434  triggers NaN in fused kernel output
-                //   Direct NaN at KV=768:    Q <= 432  clean output
-                //   KV contamination:        Q >= 256  at KV=512 produces clean FA output
-                //     but contaminates KV cache entries, causing subsequent rounds at
-                //     higher KV to produce NaN even at small Q (observed Q=6 at KV=768
-                //     failing after Q=352 at KV=512 round; Q=148 failing after Q=256).
-                //   Clean region:            Q < 250   at KV < 700, or Q < 434 at KV >= 700
-                //     with no prior near-threshold round at lower KV.
+                // Tensor layout (ggml canonical, BEFORE CANN reshape):
+                //   src[0] (Q): ne = [head_dim, q_seq_len, n_heads, batch]
+                //   src[1] (K): ne = [head_dim, kv_seq_len, n_kv_heads, batch]
+                //   src[2] (V): ne = [head_dim, kv_seq_len, n_kv_heads, batch]
+                //   Sequence length is ne[1], NOT ne[2] (which is n_heads/n_kv_heads).
                 //
-                // Conservative gate: Q >= 250 AND KV >= 500 → CPU fallback
-                // This catches direct NaN triggers AND KV contamination sources while
-                // letting safe small-prefill and single-token decode stay on CANN fused.
+                // Empirical characterization (Phase 1 + VideoMME FA_NAN_CHECK, 2026-08-11):
+                //   TEXT-ONLY (Q-chunked with n_ubatch=384):
+                //     Direct NaN at KV=768:    Q >= 434  triggers NaN
+                //     Direct NaN at KV=768:    Q <= 432  clean
+                //     KV contamination:        Q >= 256  at KV=512 contaminates KV cache
+                //   VIDEO (FA_NAN_CHECK confirmed on fFjv93ACGo8.mp4, 64 frames, max-slice-nums=0):
+                //     First NaN:               Q=64 KV=768 nan=64/64 ← ALL 64 elements NaN
+                //     After contamination:     ALL subsequent FA NaN (Q=1 KV=768..29952 nan=1)
+                //     Clean region:            Q=64 KV=512 and below clean
+                //   Content-dependent: text Q=64@KV=768 is clean; video Q=64@KV=768 is NaN
+                //
+                // Conservative gates (if ANY fires → CPU non-fused attention):
+                //   Gate A: Q >= 250 AND KV >= 500  → text large-Q + KV contamination
+                //   Gate B: Q >= 50  AND KV >= 512  → video + moderate-Q (content-dependent)
+                // Gate B subsumes Gate A; both kept for documentation traceability.
                 //
                 // Env override: OMNI_CANN_FA_SAFE_DISPATCH=0 to force-disable (diagnostic)
                 // OMNI_CANN_FA_BYPASS=1 still works as full-CPU golden oracle.
-                // Remove when CANN fixes FusedInferAttentionScoreV2 for these shapes.
+                // Remove when CANN fixes FusedInferAttentionScoreV2.
                 {
                     const char * env_safe = getenv("OMNI_CANN_FA_SAFE_DISPATCH");
                     if (!env_safe || strcmp(env_safe, "0") != 0) {
-                        // Q seq len = src[0]->ne[2], KV seq len = src[1]->ne[2]
-                        int64_t q_len  = op->src[0]->ne[2];
-                        int64_t kv_len = op->src[1]->ne[2];
+                        // CORRECTED 2026-08-11: use ne[1] (seq_len), not ne[2] (n_heads)
+                        // Prior code read ne[2]=32/8 (n_heads) — dispatch NEVER triggered.
+                        int64_t q_len  = op->src[0]->ne[1];
+                        int64_t kv_len = op->src[1]->ne[1];
+                        // Gate A: large-Q prefill at medium+ KV (text NaN)
                         if (q_len >= 250 && kv_len >= 500) {
+                            return false;
+                        }
+                        // Gate B: moderate-Q at KV>=512 (video content-dependent NaN)
+                        // Confirmed: Q=64@KV=768 nan=64/64; Q=1@KV=768+ contaminated
+                        if (q_len >= 50 && kv_len >= 512) {
                             return false;
                         }
                     }

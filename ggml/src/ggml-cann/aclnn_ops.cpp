@@ -4214,6 +4214,21 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
     ggml_tensor * src2 = dst->src[2];  // v, fp16 | B, N, S, D (uncont) -> B, S, N, D (cont)
     ggml_tensor * src3 = dst->src[3];  // mask, fp16
 
+    // OMNI_CANN_FA_EVERY: log EVERY FA call for LLM prefill shape diagnosis
+    // DEFAULT OFF — enable with OMNI_CANN_FA_EVERY=1
+    if (getenv("OMNI_CANN_FA_EVERY")) {
+        static int fa_call_count = 0;
+        fa_call_count++;
+        fprintf(stderr,
+            "[cann_fa_EVERY] #%d name=%s Q_ne=[%ld,%ld,%ld,%ld] "
+            "K_ne=[%ld,%ld,%ld,%ld] V_ne=[%ld,%ld,%ld,%ld] dst_t=%d\n",
+            fa_call_count, dst->name,
+            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
+            src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
+            src2->ne[0], src2->ne[1], src2->ne[2], src2->ne[3],
+            dst->type);
+    }
+
     // B, N, S, D (uncont) -> B, S, N, D (cont)
     int64_t src0_bsnd_ne[GGML_MAX_DIMS];
     memcpy(src0_bsnd_ne, src0->ne, GGML_MAX_DIMS * sizeof(int64_t));
@@ -4248,6 +4263,15 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
     memcpy(&maxBias, (float *) dst->op_params + 1, sizeof(float));
     memcpy(&logitSoftcap, (float *) dst->op_params + 2, sizeof(float));
 
+    // OMNI_CANN_FA_DIAG: trace logitSoftcap branching (DEFAULT OFF)
+    if (getenv("OMNI_CANN_FA_DIAG")) {
+        static int ls_zero = 0, ls_nonzero = 0;
+        if (logitSoftcap == 0.0f) ls_zero++;
+        else { ls_nonzero++; fprintf(stderr, "[cann_fa_LS] NONZERO logitSoftcap=%.6f call=%d\n", logitSoftcap, ls_nonzero); }
+        if ((ls_zero + ls_nonzero) <= 10 || ls_nonzero > 0 || (ls_zero + ls_nonzero) % 100 == 0) {
+            fprintf(stderr, "[cann_fa_LS] total_calls=%d ls_zero=%d ls_nonzero=%d\n", ls_zero + ls_nonzero, ls_zero, ls_nonzero);
+        }
+    }
     if (logitSoftcap == 0.0f) {
         size_t faElemSize = sizeof(uint16_t);
         auto   faDataType = ACL_FLOAT16;  //ACL_BF16;
@@ -4410,9 +4434,18 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
         int64_t keyAntiquantMode   = 0;
         int64_t valueAntiquantMode = 0;
 
+        // OMNI_CANN_FA_INNER_PRECISE override: force innerPrecise for diagnostic A/B
+        {
+            const char * override_val = getenv("OMNI_CANN_FA_INNER_PRECISE");
+            if (override_val) {
+                innerPrecise = atoi(override_val);
+            }
+        }
+
         GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
         acl_tensor_ptr       fa_dst_tensor;
         ggml_cann_pool_alloc out_f16_allocator(ctx.pool());
+        void * fa_out_dev_ptr = nullptr;  // for OMNI_CANN_FA_NAN_CHECK
         if (dst->type == GGML_TYPE_F32 || needs_padding) {
             int64_t * out_f16_ne = src0_bsnd_ne;
             size_t    out_f16_nb[GGML_MAX_DIMS];
@@ -4422,11 +4455,55 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             }
             int64_t out_nelements = out_f16_ne[0] * out_f16_ne[1] * out_f16_ne[2] * out_f16_ne[3];
             void *  out_f16_buffer = out_f16_allocator.alloc(out_nelements * faElemSize);
+            fa_out_dev_ptr = out_f16_buffer;
 
             fa_dst_tensor =
                 ggml_cann_create_tensor(out_f16_buffer, faDataType, faElemSize, out_f16_ne, out_f16_nb, GGML_MAX_DIMS);
         } else {
             fa_dst_tensor = ggml_cann_create_tensor(dst);
+            fa_out_dev_ptr = dst->data;
+        }
+
+        // OMNI_CANN_FA_SHAPE_DIAG: record attention shapes before kernel call
+        if (getenv("OMNI_CANN_FA_SHAPE_DIAG")) {
+            // After transpose12, layout is [D, N, S, B] — ne[2] is seq_len, NOT ne[1]
+            int64_t q_seq_len  = src0_bsnd_ne[2];
+            int64_t kv_seq_len = src1_bsnd_ne[2];
+            int64_t head_dim   = D_padded;  // after possible padding
+            int64_t batch      = src0_bsnd_ne[3];
+            int     src0_type  = src0->type;
+            int     src1_type  = src1->type;
+            const char * dtype_str = (faDataType == ACL_FLOAT16) ? "f16" :
+                                     (faDataType == ACL_BF16)    ? "bf16" : "?";
+            // Check contiguity of src0/src1/src2
+            bool q_contig = true, k_contig = true, v_contig = true;
+            for (int d = 0; d < GGML_MAX_DIMS; d++) {
+                size_t expected = (d == 0) ? ggml_type_size(src0->type) : src0->nb[d-1] * src0->ne[d-1];
+                if (src0->nb[d] != expected) q_contig = false;
+                expected = (d == 0) ? ggml_type_size(src1->type) : src1->nb[d-1] * src1->ne[d-1];
+                if (src1->nb[d] != expected) k_contig = false;
+                expected = (d == 0) ? ggml_type_size(src2->type) : src2->nb[d-1] * src2->ne[d-1];
+                if (src2->nb[d] != expected) v_contig = false;
+            }
+            fprintf(stderr,
+                "[cann_fa_shape] Q=[%ld,%ld,%ld,%ld]%s K=[%ld,%ld,%ld,%ld]%s V=[%ld,%ld,%ld,%ld]%s "
+                "q_seq=%ld kv_seq=%ld heads=%ld kv_heads=%ld head_dim=%ld batch=%ld "
+                "dtype=%s layout=%s innerPrecise=%ld src0_type=%d src1_type=%d\n",
+                src0_bsnd_ne[0], src0_bsnd_ne[1], src0_bsnd_ne[2], src0_bsnd_ne[3],
+                q_contig ? "(cont)" : "(noncont)",
+                src1_bsnd_ne[0], src1_bsnd_ne[1], src1_bsnd_ne[2], src1_bsnd_ne[3],
+                k_contig ? "(cont)" : "(noncont)",
+                src2_bsnd_ne[0], src2_bsnd_ne[1], src2_bsnd_ne[2], src2_bsnd_ne[3],
+                v_contig ? "(cont)" : "(noncont)",
+                q_seq_len, kv_seq_len, numHeads, numKeyValueHeads, head_dim, batch,
+                dtype_str, layout, innerPrecise, src0_type, src1_type);
+            if (src3 != nullptr) {
+                fprintf(stderr,
+                    "[cann_fa_shape] mask=[%ld,%ld,%ld,%ld] mask_type=%d maxBias=%.6f\n",
+                    src3->ne[0], src3->ne[1], src3->ne[2], src3->ne[3], src3->type, maxBias);
+            } else {
+                fprintf(stderr, "[cann_fa_shape] mask=nullptr\n");
+            }
         }
 
         GGML_CANN_CALL_ACLNN_OP(ctx, FusedInferAttentionScoreV2, acl_q_tensor.get(), acl_k_tensor_list.get(),
@@ -4452,6 +4529,37 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
                                 fa_dst_tensor.get(),                   // attentionOut
                                 nullptr                                // softmaxLse
         );
+
+        // OMNI_CANN_FA_NAN_CHECK: check attention output for NaN after kernel
+        if (getenv("OMNI_CANN_FA_NAN_CHECK")) {
+            ACL_CHECK(aclrtSynchronizeStream(ctx.stream()));
+            // Copy first batch×seq×1×1 elements to host for check
+            // After transpose12: layout is [D, N, S, B] — ne[2]=seq_len, ne[3]=batch
+            int64_t n_check = src0_bsnd_ne[2] * src0_bsnd_ne[3];  // q_seq * batch
+            if (n_check > 256) n_check = 256;  // cap at 256 elements
+            std::vector<uint16_t> host_buf(n_check);
+            void * dev_ptr = fa_out_dev_ptr;
+            if (dev_ptr) {
+                ACL_CHECK(aclrtMemcpy(host_buf.data(), n_check * sizeof(uint16_t),
+                                      dev_ptr, n_check * sizeof(uint16_t),
+                                      ACL_MEMCPY_DEVICE_TO_HOST));
+                int nan_count = 0, inf_count = 0;
+                for (int64_t i = 0; i < n_check; i++) {
+                    // Check f16: exponent all-1s (0x7C00..0x7FFF or 0xFC00..0xFFFF)
+                    uint16_t v = host_buf[i];
+                    int exp = (v >> 10) & 0x1F;
+                    int mant = v & 0x3FF;
+                    if (exp == 0x1F) {
+                        if (mant == 0) inf_count++;
+                        else nan_count++;
+                    }
+                }
+                fprintf(stderr,
+                    "[cann_fa_output] q_seq=%ld kv_seq=%ld checked=%ld nan=%d inf=%d\n",
+                    (long)src0_bsnd_ne[2], (long)src1_bsnd_ne[2],
+                    (long)n_check, nan_count, inf_count);
+            }
+        }
 
         // Step 6: post-processing — slice padded output and/or cast to f32
         if (needs_padding) {
