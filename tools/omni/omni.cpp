@@ -11428,20 +11428,25 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
             }
 
             // [pipeline-diag] Correctness gate + per-window timing
-            if (pipeline_diag) {
-                float max_val = 0.0f, sum_sq = 0.0f;
-                int nan_count = 0, inf_count = 0;
-                for (auto x : chunk_wav) {
-                    if (!std::isfinite(x)) {
-                        if (std::isnan(x)) nan_count++; else inf_count++;
-                        continue;
-                    }
-                    float a = fabsf(x);
-                    if (a > max_val) max_val = a;
-                    sum_sq += x * x;
-                }
-                float rms = chunk_wav.empty() ? 0.0f : sqrtf(sum_sq / (float)chunk_wav.size());
-                int silent = (rms < 1e-7f) ? 1 : 0;
+    // NOTE: check the SANITIZED PCM buffer, not raw chunk_wav.
+    // chunk_wav may contain NaN/Inf from the CANN vocoder that get
+    // sanitized in the PCM conversion loop above (NaN→0, Inf→clamp).
+    // The PCM values are what actually reach the client and WAV file.
+    if (pipeline_diag) {
+        float max_val = 0.0f, sum_sq = 0.0f;
+        int nan_count = 0, inf_count = 0;
+        for (auto x : pcm) {
+            float fx = (float)x / 32767.0f;
+            if (!std::isfinite(fx)) {
+                if (std::isnan(fx)) nan_count++; else inf_count++;
+                continue;
+            }
+            float a = fabsf(fx);
+            if (a > max_val) max_val = a;
+            sum_sq += fx * fx;
+        }
+        float rms = pcm.empty() ? 0.0f : sqrtf(sum_sq / (float)pcm.size());
+        int silent = (rms < 1e-7f) ? 1 : 0;
 
                 uint64_t flow_us = (task->flow_end_ns - task->flow_start_ns) / 1000;
                 uint64_t voc_us  = (voc_end_ns - voc_start_ns) / 1000;
