@@ -55,10 +55,10 @@ MAX_FPS = 1.0
 MAX_SLICE_NUMS = 0
 MAX_TOKENS = 100          # 每题最多生成 token 数（CLI --n-predict）
 
-# 解码策略：TEMPERATURE > 0 是 sampling，改成 0 则退化为 greedy（对齐 Python
-# do_sample=False）。保持 sampling 的前提是 seed 必须固定，否则同一份构建每次跑
-# 出的准确率都不一样，没法用来判断改动的好坏。
-TEMPERATURE = 0.2
+# 解码策略：0 是 greedy，对齐 Python 参考实现的 do_sample=False。跑分必须用 greedy ——
+# 单选题在 temperature>0 下有相当比例的题会跑偏成长文本，答案里没有选项字母就直接算错，
+# 优化带来的真实差异会被这部分噪声盖掉。留 env 覆盖只为了对照实验。
+TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.0"))
 TOP_P = 0.8
 TOP_K = 100
 REPEAT_PENALTY = 1.02
@@ -81,3 +81,10 @@ USER_PROMPT_TEMPLATE = (
 
 CLI_STARTUP_TIMEOUT = 300      # 等待 CLI 加载模型（秒）
 INFER_TIMEOUT = 300            # 单题推理超时（秒），多帧 prefill + decode 可能较慢
+
+# 单题超时或 CLI 进程已退出时，杀掉重启再重试一次；每张卡最多重启这么多次。
+# 不重启的话，一次算子卡死会让该分片剩下的每道题都空等满 INFER_TIMEOUT ——
+# 实测过一次：一张卡卡死后剩余 89 个视频要耗 22 小时，全部记零分。
+# 超过上限说明不是偶发，整个任务直接失败退出，而不是继续把余下题目记成答错：
+# 崩掉的分片如果只体现为"分数偏低"，就分不清是选手代码差还是评测挂了。
+MAX_CLI_RESTARTS = int(os.environ.get("MAX_CLI_RESTARTS", "3"))

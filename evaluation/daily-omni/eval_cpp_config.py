@@ -58,13 +58,16 @@ MAX_SLICE_NUMS = 0          # 视频场景不分块，cpp参数0代表不分块�
 MAX_TOKENS = 128
 AUDIO_SR = 16000             # 音频采样率
 
-TEMPERATURE = 0.7
+# 解码策略：0 是 greedy，对齐 Python 参考实现的 do_sample=False。跑分必须用 greedy ——
+# 单选题在 temperature>0 下有相当比例的题会跑偏成长文本，答案里没有选项字母就直接算错，
+# 优化带来的真实差异会被这部分噪声盖掉。留 env 覆盖只为了对照实验。
+TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.0"))
 TOP_P = 0.8
 TOP_K = 100
 REPEAT_PENALTY = 1.02
 
-# 采样种子。固定值让重复跑得到同一条 token 轨迹；具体取几无所谓，别是随机的。
-# 这个任务 temp=0.7 比 Video-MME 高，不固定的话准确率波动会更明显。
+# 采样种子。greedy 下用不到，但 TEMPERATURE 被覆盖成非 0 时它决定 token 轨迹，
+# 固定住才能让两次跑的结果可比。
 SAMPLER_SEED = int(os.environ.get("SAMPLER_SEED", "42"))
 
 # 注：CLI 侧固定 media_type=2（audio+vision）、use_tts=false，无需从这里配置。
@@ -83,3 +86,10 @@ USER_PROMPT_TEMPLATE = (
 
 CLI_STARTUP_TIMEOUT = 300      # 等待 CLI 加载模型（秒）
 INFER_TIMEOUT = 300            # 单题推理超时（秒），多帧+多音频 prefill + decode 可能较慢
+
+# 单题超时或 CLI 进程已退出时，杀掉重启再重试一次；每张卡最多重启这么多次。
+# 不重启的话，一次算子卡死会让该分片剩下的每道题都空等满 INFER_TIMEOUT ——
+# 实测过一次：一张卡卡死后剩余 89 个视频要耗 22 小时，全部记零分。
+# 超过上限说明不是偶发，整个任务直接失败退出，而不是继续把余下题目记成答错：
+# 崩掉的分片如果只体现为"分数偏低"，就分不清是选手代码差还是评测挂了。
+MAX_CLI_RESTARTS = int(os.environ.get("MAX_CLI_RESTARTS", "3"))

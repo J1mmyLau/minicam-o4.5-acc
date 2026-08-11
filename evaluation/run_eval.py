@@ -149,6 +149,7 @@ def task_videomme(args, run_dir: Path) -> Dict[str, Any]:
         "DEVICE_ENV_VAR": cfg("DEVICE_ENV_VAR", "ASCEND_RT_VISIBLE_DEVICES"),
         cfg("DEVICE_ENV_VAR", "ASCEND_RT_VISIBLE_DEVICES"): ",".join(ids),
         "EXTRA_LD_LIBRARY_PATH": cfg("EVAL_BIN_DIR"),
+        "GGML_CANN_WEIGHT_NZ": cfg("GGML_CANN_WEIGHT_NZ", "off"),
         "GGML_CANN_ACL_GRAPH": cfg("GGML_CANN_ACL_GRAPH", "off"),
     })
 
@@ -192,6 +193,7 @@ def task_daily_omni(args, run_dir: Path) -> Dict[str, Any]:
         "DEVICE_ENV_VAR": cfg("DEVICE_ENV_VAR", "ASCEND_RT_VISIBLE_DEVICES"),
         cfg("DEVICE_ENV_VAR", "ASCEND_RT_VISIBLE_DEVICES"): ",".join(ids),
         "EXTRA_LD_LIBRARY_PATH": cfg("EVAL_BIN_DIR"),
+        "GGML_CANN_WEIGHT_NZ": cfg("GGML_CANN_WEIGHT_NZ", "off"),
         "GGML_CANN_ACL_GRAPH": cfg("GGML_CANN_ACL_GRAPH", "off"),
     })
 
@@ -285,6 +287,7 @@ def task_tts(args, run_dir: Path) -> Dict[str, Any]:
         "NUM_SAMPLES": str(limit if limit > 0 else 10_000_000),
         "DEVICE_ENV_VAR": cfg("DEVICE_ENV_VAR", "ASCEND_RT_VISIBLE_DEVICES"),
         "DEVICE_IDS": ",".join(ids),
+        "GGML_CANN_WEIGHT_NZ": cfg("GGML_CANN_WEIGHT_NZ", "off"),
         "GGML_CANN_ACL_GRAPH": cfg("GGML_CANN_ACL_GRAPH", "off"),
     })
 
@@ -337,6 +340,7 @@ def task_rts(args, run_dir: Path) -> Dict[str, Any]:
 
     env = base_env({
         "OMNI_SERVER_BIN": cfg("OMNI_SERVER_BIN"),
+        "GGML_CANN_WEIGHT_NZ": cfg("GGML_CANN_WEIGHT_NZ", "off"),
         "GGML_CANN_ACL_GRAPH": cfg("GGML_CANN_ACL_GRAPH", "off"),
         "OMNI_T2W_DEVICE": os.environ.get("OMNI_T2W_DEVICE", "gpu"),
         "OMNI_T2M_DEVICE": os.environ.get("OMNI_T2M_DEVICE", "gpu:0"),
@@ -384,22 +388,23 @@ def _collect_rts_metrics(judge_root: Path, runs_dir: Path, stdout: str) -> Dict[
 
     if report:
         rtf = report.get("rtf") or {}
-        inner = rtf.get("rtf") or {}
-        stage = rtf.get("stage_rtf") or {}
-        metrics["RTF_每帧均值"] = inner.get("mean")
-        metrics["RTF_总耗时比总音频"] = rtf.get("rtf_aggregate")
+        # 主指标用 core 稳态窗口；完整帧数、全量对照和告警保留在原始 report 中，
+        # 最终汇总只展示用户最关心的均值、阶段分解与端到端延迟。
+        core = rtf.get("core") or {}
+        main = core if core.get("available") else rtf
+        stage = main.get("stage_rtf") or {}
+        metrics["均值"] = main.get("rtf_aggregate")
         if stage:
-            metrics["RTF_分解"] = " + ".join(
+            metrics["分解"] = " + ".join(
                 f"{k} {v}" for k, v in stage.items())
         e2e = report.get("e2e_speak_recv_to_wav_poll_ms") or {}
-        metrics["SPEAK→wav_均值ms"] = e2e.get("mean_ms")
-        metrics["SPEAK→wav_中位ms"] = e2e.get("median_ms")
-        metrics["音频总时长ms"] = rtf.get("audio_total_ms")
-        metrics["算力总耗时ms"] = rtf.get("compute_total_ms")
+        metrics["SPEAK→wav均值(ms)"] = e2e.get("mean_ms")
+        metrics["SPEAK→wav中位数(ms)"] = e2e.get("median_ms")
     else:
-        metrics["RTF_每帧均值"] = _grep_last(stdout, r"每帧全链路\s+([\d.]+)")
-        metrics["RTF_总耗时比总音频"] = _grep_last(stdout, r"总耗时/总音频\s+([\d.]+)")
-        metrics["SPEAK→wav_均值ms"] = _grep_last(stdout, r"SPEAK→wav e2e\s+([\d.]+) ms")
+        metrics["均值"] = _grep_last(
+            stdout, r"RTF（掐头去尾）[\s\S]*?Σ耗时/Σ音频\s+([\d.]+)")
+        metrics["SPEAK→wav均值(ms)"] = _grep_last(
+            stdout, r"SPEAK→wav e2e\s+([\d.]+) ms")
 
     return metrics
 
@@ -427,7 +432,7 @@ HEADLINE = {
     "videomme": ["准确率", "官方Overall"],
     "daily-omni": ["准确率", "官方Overall"],
     "tts": ["WER", "SIM(ASV)"],
-    "rts": ["RTF_总耗时比总音频", "SPEAK→wav_均值ms"],
+    "rts": ["均值", "SPEAK→wav均值(ms)"],
 }
 
 
