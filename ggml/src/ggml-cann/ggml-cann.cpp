@@ -2418,6 +2418,74 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                 GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
             }
             GGML_ASSERT(ok);
+
+            // OMNI_CANN_NAN_TRACE: check output of each CANN op for NaN/Inf
+            static bool nan_trace_enabled = (getenv("OMNI_CANN_NAN_TRACE") != nullptr);
+            static int64_t nan_trace_ops_checked = 0;
+            if (nan_trace_enabled && node->data != nullptr &&
+                node->buffer != nullptr &&
+                ggml_backend_buft_is_cann(node->buffer->buft)) {
+                nan_trace_ops_checked++;
+                // Sync stream to ensure output is ready
+                ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+                size_t el_size = ggml_type_size(node->type);
+                // Sample first N elements (cap at 64 to keep overhead low)
+                int64_t n_sample = 64;
+                int64_t n_total = ggml_nelements(node);
+                if (n_total < n_sample) n_sample = n_total;
+                if (n_sample > 0 && (el_size == 2 || el_size == 4)) {
+                    // Read as f32 for fp32, as f16 for fp16
+                    if (el_size == 2) {
+                        std::vector<uint16_t> host_buf(n_sample);
+                        ACL_CHECK(aclrtMemcpy(host_buf.data(), n_sample * el_size,
+                                              node->data, n_sample * el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        int nan_c = 0, inf_c = 0;
+                        for (int64_t k = 0; k < n_sample; k++) {
+                            uint16_t v = host_buf[k];
+                            int exp = (v >> 10) & 0x1F;
+                            int mant = v & 0x3FF;
+                            if (exp == 0x1F) {
+                                if (mant == 0) inf_c++; else nan_c++;
+                            }
+                        }
+                        if (nan_c > 0 || inf_c > 0) {
+                            fprintf(stderr,
+                                "[cann_nan_trace] FIRST_NONFINITE (after %ld CANN ops) op=%s name=%s "
+                                "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld nan=%d inf=%d\n",
+                                (long)nan_trace_ops_checked, ggml_op_name(node->op), node->name,
+                                node->ne[0], node->ne[1], node->ne[2], node->ne[3],
+                                node->type, (long)n_sample, nan_c, inf_c);
+                            nan_trace_enabled = false;
+                        }
+                    } else {  // el_size == 4, f32
+                        std::vector<float> host_buf(n_sample);
+                        ACL_CHECK(aclrtMemcpy(host_buf.data(), n_sample * el_size,
+                                              node->data, n_sample * el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        int nan_c = 0, inf_c = 0;
+                        for (int64_t k = 0; k < n_sample; k++) {
+                            float v = host_buf[k];
+                            if (isnan(v)) nan_c++; else if (isinf(v)) inf_c++;
+                        }
+                        if (nan_c > 0 || inf_c > 0) {
+                            fprintf(stderr,
+                                "[cann_nan_trace] FIRST_NONFINITE (after %ld CANN ops) op=%s name=%s "
+                                "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld nan=%d inf=%d\n",
+                                (long)nan_trace_ops_checked, ggml_op_name(node->op), node->name,
+                                node->ne[0], node->ne[1], node->ne[2], node->ne[3],
+                                node->type, (long)n_sample, nan_c, inf_c);
+                            nan_trace_enabled = false;
+                        }
+                    }
+                }
+            }
+            // Emit summary at end if enabled
+            static bool nan_trace_summary_emitted = false;
+            if (getenv("OMNI_CANN_NAN_TRACE") && !nan_trace_summary_emitted && !nan_trace_enabled) {
+                // Already emitted first nonfinite above
+                nan_trace_summary_emitted = true;
+            }
         }
     }
 
@@ -2793,6 +2861,44 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev, const ggml_ten
             return true;
         case GGML_OP_FLASH_ATTN_EXT:
             {
+                // OMNI_CANN_FA_BYPASS: diagnostic env var to force non-fused (CPU) attention path
+                // for proving FusedInferAttentionScoreV2 kernel attribution
+                if (getenv("OMNI_CANN_FA_BYPASS")) {
+                    return false;
+                }
+
+                // OMNI_CANN_FA_SAFE_DISPATCH: conservative shape-dependent CPU fallback
+                // CANN FusedInferAttentionScoreV2 produces NaN for large (Q, KV) prefill
+                // shapes (CANN 9.1.0-beta.1, Ascend910, MiniCPM-o-4_5 F16, heads=32 kv=8).
+                //
+                // Empirical characterization (Phase 1 sweep, 2026-08-11):
+                //   Direct NaN at KV=768:    Q >= 434  triggers NaN in fused kernel output
+                //   Direct NaN at KV=768:    Q <= 432  clean output
+                //   KV contamination:        Q >= 256  at KV=512 produces clean FA output
+                //     but contaminates KV cache entries, causing subsequent rounds at
+                //     higher KV to produce NaN even at small Q (observed Q=6 at KV=768
+                //     failing after Q=352 at KV=512 round; Q=148 failing after Q=256).
+                //   Clean region:            Q < 250   at KV < 700, or Q < 434 at KV >= 700
+                //     with no prior near-threshold round at lower KV.
+                //
+                // Conservative gate: Q >= 250 AND KV >= 500 → CPU fallback
+                // This catches direct NaN triggers AND KV contamination sources while
+                // letting safe small-prefill and single-token decode stay on CANN fused.
+                //
+                // Env override: OMNI_CANN_FA_SAFE_DISPATCH=0 to force-disable (diagnostic)
+                // OMNI_CANN_FA_BYPASS=1 still works as full-CPU golden oracle.
+                // Remove when CANN fixes FusedInferAttentionScoreV2 for these shapes.
+                {
+                    const char * env_safe = getenv("OMNI_CANN_FA_SAFE_DISPATCH");
+                    if (!env_safe || strcmp(env_safe, "0") != 0) {
+                        // Q seq len = src[0]->ne[2], KV seq len = src[1]->ne[2]
+                        int64_t q_len  = op->src[0]->ne[2];
+                        int64_t kv_len = op->src[1]->ne[2];
+                        if (q_len >= 250 && kv_len >= 500) {
+                            return false;
+                        }
+                    }
+                }
 #ifdef ASCEND_310P
                 // FA not support on 310p device
                 return false;

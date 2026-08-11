@@ -1,0 +1,30 @@
+=== PHASE 0 BASELINE ===
+DATE: 2026-08-11
+START_COMMIT: b6b6af0252427de2495b5e3895f21e9ae7a10d0a
+BRANCH: fix/cann-fa-safe-prefill (created from integration/bench-huawei-port)
+CANN_VERSION: 9.1.0-beta.1 (V100R001C11B050)
+NPU: Ascend910, Health=OK, HBM=3137/65536 MB
+
+PROTECTED_FILE_HASHES:
+  401de5aac1cc20019a1557cadd9b129c  evaluation/README.md
+  f74a8e52d054c3f14fa508865c2ff8ba  tools/omni/omni-eval-cli.cpp
+  5c15556fd6a1bdedb1ef704854ebd7a4  tools/omni/omni-eval-daily-cli.cpp
+  5ddb7f022eb93b894b10ddef20aca383  tools/omni/omni-tts-eval.cpp
+  ae4c7ce5eee9592f401ec4f4b2c45647  tools/omni/CMakeLists.txt
+
+BINARY_HASHES (with diagnostic edits):
+  2ed3acab447c2a4243c231424ca4636e  build/bin/llama-omni-server
+  2cad140919a51ca8b753179853bff46e  build/bin/llama-omni-eval-cli
+  b2621c2b25959bfa05d7650299bbba1a  build/bin/llama-omni-eval-daily-cli
+  dc5e7d19892a6191747f28a8e61749ee  build/bin/llama-omni-tts-eval
+
+MODIFIED_FILES (6 files, 462 insertions):
+  evaluation/config.env
+  ggml/src/ggml-cann/aclnn_ops.cpp
+  ggml/src/ggml-cann/ggml-cann.cpp
+  tools/omni/omni.cpp
+  tools/omni/omni.h
+  tools/omni/token2wav/token2wav-impl.h
+
+DISK: 2.9T/7.0T used (41%)
+MEMORY: 78Gi/2.0Ti used, 432Gi free

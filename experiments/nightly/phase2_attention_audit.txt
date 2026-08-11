@@ -1,0 +1,69 @@
+=== PHASE 2 — CANN ATTENTION ALTERNATIVES AUDIT ===
+DATE: 2026-08-11
+
+KEY FINDING: ONLY ONE fused attention kernel in CANN stack.
+
+=== Path A: FusedInferAttentionScoreV2 (CURRENT, BROKEN) ===
+File: aclnn_ops.cpp:4211 (ggml_cann_flash_attn_ext)
+Kernel: aclnnFusedInferAttentionScoreV2
+Device: CANN/NPU
+DTYPE: F16 K/V, F16/F32 out
+GQA: YES (kv_heads=8, heads=32)
+Causal: YES (via mask)
+Prefill: YES (innerPrecise=2 when Q ne[1]!=1)
+KV cache: YES (K/V from src1/src2 tensors)
+Perf: fastest path when it works
+Status: BROKEN for Q>=434 at KV>=768 (NaN)
+
+=== Path B: Alternative aclnn fused attention ===
+RESULT: NONE EXIST
+- No aclnnIncreFlashAttention
+- No aclnnFlashAttentionScore
+- No other fused attention aclnn
+- Commented-out: aclnn_recurrent_gated_delta_rule (not in CANN 25.5.1)
+
+=== Path C: Non-fused CANN/NPU (decomposed) ===
+Not explicitly implemented as a single function, but building blocks exist:
+- ggml_cann_mul_mat (QK^T and output projection)
+- ggml_cann_softmax (with scale + ALiBi)
+- ggml_cann_diag_mask (causal masking)
+- ggml_cann_rope (position encoding)
+- ggml_cann_scale, ggml_cann_add
+
+A custom ggml_cann_flash_attn_ext decomposition could use:
+  QK^T = MUL_MAT(Q, K^T) → SOFT_MAX(scale + mask) → MUL_MAT(attn, V)
+But: this would require implementing a replacement for ggml_cann_flash_attn_ext
+that uses the CANN primitives instead of aclnnFusedInferAttentionScoreV2.
+
+Performance cost: likely significant (3 separate kernel calls + intermediate tensors)
+vs 1 fused kernel call.
+
+=== Path D: Generic ggml decomposition (CPU) ===
+The llama.cpp ggml backend scheduler handles FLASH_ATTN_EXT on CPU when
+CANN supports_op returns false. Already tested via OMNI_CANN_FA_BYPASS=1.
+This is the current golden oracle.
+
+=== Path E: CPU fallback (existing, shape-gated) ===
+Already implemented: OMNI_CANN_FA_BYPASS=1 env var in supports_op (ggml-cann.cpp:2866).
+For production: add shape check alongside the env var check.
+If (Q >= 434 && KV >= 768) → return false → CPU handles it.
+
+=== PRODUCTION CANDIDATES ===
+
+Candidate A: Safe-shape dispatch (shape-aware CPU fallback)
+  Implementation: add shape check in supports_op for GGML_OP_FLASH_ATTN_EXT
+  Pros: minimal change, guaranteed correct, no cache contamination
+  Cons: CPU attention cost for large prefill rounds
+  Risk: low
+
+Candidate B: Q-chunking (n_ubatch reduction)
+  Implementation: split large prefill into smaller micro-batches
+  Pros: stays on CANN fused, no CPU fallback
+  Cons: more micro-batches = more kernel calls, n_ubatch affects other ops
+  Risk: medium (need to prove semantic equivalence)
+
+Candidate C: Non-fused CANN decomposition
+  Implementation: replace FA with MUL_MAT + SOFT_MAX + MUL_MAT
+  Pros: stays on NPU, no fused kernel
+  Cons: higher perf cost, needs new code, no existing implementation
+  Risk: high (CANN may have same shape issues with individual ops)
