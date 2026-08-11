@@ -1,0 +1,33 @@
+{
+  "config": {
+    "rounds": 1,
+    "chunks_per_round": 30,
+    "warmup": 3,
+    "chunk_dur_s": 1.0,
+    "source": "PINNED_MINICPM_O_DEMO"
+  },
+  "identity": {
+    "model": "F16",
+    "model_sha256": "d1e6984537e9f7b2d4a1c2a0e3f5b8d9c0a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+    "binary_sha256": "2ab7e1b11f83f33da773d0efe748978fcea6f126cea654ae0f8310e0e2ff01ec",
+    "can_version": "Invalid chip id.\nError parameter of -c\nUsage: npu-smi info <watch|proc|-h|-m|-l|-t type> [Options...]\n\nCommands:\n       watch          Show all device's status in scrolling format\n       proc         ",
+    "hostname": "28deb674f123",
+    "timestamp": "2026-08-07T06:20:58.654354"
+  },
+  "speak_rtf_mean": null,
+  "speak_wall_p50_ms": null,
+  "speak_wall_p95_ms": null,
+  "speak_samples": 0,
+  "listen_wall_p50_ms": null,
+  "listen_samples": 0,
+  "total_errors": 1,
+  "rounds": [
+    {
+      "round_id": 0,
+      "chunks": [],
+      "errors": [
+        "round_exception: received 1000 (OK); then sent 1000 (OK)"
+      ]
+    }
+  ]
+}

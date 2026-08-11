@@ -1,0 +1,11 @@
+{
+  "request_index": 0,
+  "generation_id": 1,
+  "profile_status": "audio_complete",
+  "async_stages_ms": {
+    "wav_ready": 4111,
+    "flow_end": 3967,
+    "vocoder_start": 3967,
+    "vocoder_end": 4111
+  }
+}

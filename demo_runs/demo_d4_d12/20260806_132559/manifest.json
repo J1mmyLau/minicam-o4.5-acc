@@ -1,0 +1,92 @@
+{
+  "run_id": "20260806_132559",
+  "started": "2026-08-06T13:25:59.869297Z",
+  "results": {
+    "D1-D3": {
+      "gate": "D1-D3",
+      "text": "",
+      "text_len": 0,
+      "events": 2,
+      "elapsed_s": 0.06,
+      "success": false
+    },
+    "D4": {
+      "gate": "D4",
+      "text": "",
+      "text_len": 0,
+      "events": 2,
+      "elapsed_s": 0.08,
+      "success": false
+    },
+    "D5": {
+      "gate": "D5",
+      "text": "",
+      "text_len": 0,
+      "events": 2,
+      "elapsed_s": 0.07,
+      "success": false
+    },
+    "D7": {
+      "gate": "D7",
+      "text": "",
+      "text_len": 0,
+      "audio_chunks": 0,
+      "audio_bytes": 0,
+      "audio_duration_s": 0.0,
+      "events": 2,
+      "elapsed_s": 0.06,
+      "success": false
+    },
+    "D8": {
+      "gate": "D8",
+      "text": "",
+      "text_len": 0,
+      "text_chunks": 0,
+      "events": 2,
+      "elapsed_s": 0.05,
+      "success": false
+    },
+    "D9": {
+      "gate": "D9",
+      "text": "",
+      "text_len": 0,
+      "audio_chunks": 0,
+      "audio_duration_s": 0.0,
+      "events": 2,
+      "elapsed_s": 0.06,
+      "success": false
+    },
+    "D10": {
+      "gate": "D10",
+      "text": "",
+      "text_len": 0,
+      "audio_chunks": 0,
+      "audio_duration_s": 0.0,
+      "events": 2,
+      "elapsed_s": 0.06,
+      "success": false
+    },
+    "D11": {
+      "gate": "D11",
+      "turns_total": 3,
+      "turns_completed": 1,
+      "turn_results": [
+        {
+          "turn": 1,
+          "input": "你好，今天天气怎么样？",
+          "output": "",
+          "success": false
+        }
+      ],
+      "text_total": 0,
+      "elapsed_s": 0.05,
+      "success": false
+    }
+  },
+  "finished": "2026-08-06T13:26:00.759553Z",
+  "summary": {
+    "passed": 0,
+    "total": 8,
+    "pass_rate": "0/8"
+  }
+}

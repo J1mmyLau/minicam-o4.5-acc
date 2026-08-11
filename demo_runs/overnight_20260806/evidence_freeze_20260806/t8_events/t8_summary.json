@@ -1,0 +1,80 @@
+[
+  {
+    "interval_ms": 100,
+    "A": {
+      "session_id": "bf727892b356d24786fdefef01768971",
+      "text_len": 303,
+      "audio_deltas": 50,
+      "wavs_on_disk": 50,
+      "error": null
+    },
+    "B": {
+      "session_id": "a308c2cc28c7ad4a2fadbbbb4031edf9",
+      "text_len": 300,
+      "audio_deltas": 55,
+      "wavs_on_disk": 55,
+      "error": null
+    },
+    "isolation": {
+      "text_isolation": "PASS",
+      "apple_in_b": false,
+      "blackhole_in_a": false,
+      "wav_dirs_distinct": "PASS",
+      "drain_timeout_new": 3,
+      "drain_ok": "FAIL"
+    },
+    "overall": "FAIL"
+  },
+  {
+    "interval_ms": 500,
+    "A": {
+      "session_id": "d4bfb4c00571906b202d9f668ec55da7",
+      "text_len": 339,
+      "audio_deltas": 56,
+      "wavs_on_disk": 56,
+      "error": null
+    },
+    "B": {
+      "session_id": "18a7e71062a499d998b4ac08a8443fc1",
+      "text_len": 337,
+      "audio_deltas": 67,
+      "wavs_on_disk": 67,
+      "error": null
+    },
+    "isolation": {
+      "text_isolation": "PASS",
+      "apple_in_b": false,
+      "blackhole_in_a": false,
+      "wav_dirs_distinct": "PASS",
+      "drain_timeout_new": 3,
+      "drain_ok": "FAIL"
+    },
+    "overall": "FAIL"
+  },
+  {
+    "interval_ms": 1000,
+    "A": {
+      "session_id": "a2a4791e0057519e711dccacbf119490",
+      "text_len": 454,
+      "audio_deltas": 71,
+      "wavs_on_disk": 71,
+      "error": null
+    },
+    "B": {
+      "session_id": "ad710c41bd8beed06adf7d6e6e5abb2c",
+      "text_len": 405,
+      "audio_deltas": 72,
+      "wavs_on_disk": 72,
+      "error": null
+    },
+    "isolation": {
+      "text_isolation": "PASS",
+      "apple_in_b": false,
+      "blackhole_in_a": false,
+      "wav_dirs_distinct": "PASS",
+      "drain_timeout_new": 2,
+      "drain_ok": "FAIL"
+    },
+    "overall": "FAIL"
+  }
+]

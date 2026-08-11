@@ -1,0 +1,22 @@
+enum_idx,enum_name,storage_domain,writer_thread,json_stages_ms,json_async_stages_ms,json_audio_profile,independent_timestamp,recorded,notes
+0,request_received,timestamps_ns[0],HTTP handler,TRUE,FALSE,FALSE,TRUE,TRUE,
+1,prompt_processing_start,,,FALSE,FALSE,FALSE,FALSE,FALSE,DEAD: never recorded
+2,llm_first_token,timestamps_ns[2],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,
+3,speak_token,timestamps_ns[3],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,
+4,talker_start,timestamps_ns[4],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,
+5,talker_first_audio_token,timestamps_ns[5],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,
+6,talker_token_28,timestamps_ns[6],T2W thread,TRUE,FALSE,FALSE,TRUE,TRUE,
+7,t2w_submit,timestamps_ns[7],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,Q0
+8,t2w_dequeue,timestamps_ns[8],T2W thread,TRUE,TRUE,FALSE,TRUE,TRUE,Q1
+9,flow_start,timestamps_ns[9]+global,T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,F0; dual storage
+10,flow_end,timestamps_ns[10]+global,T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,F1; dual storage
+11,vocoder_start,timestamps_ns[11]+global,T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,V0; dual storage
+12,vocoder_end,timestamps_ns[12]+global,T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,V1; dual storage
+13,wav_ready,timestamps_ns[13],T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,W0
+14,client_first_audio,timestamps_ns[14],T2W thread,TRUE,TRUE,TRUE,TRUE,TRUE,C0
+15,request_done,,,FALSE,FALSE,FALSE,FALSE,FALSE,DEAD: never recorded
+16,decode_loop_begin,timestamps_ns[16],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,D0
+17,llm_first_decode_step,timestamps_ns[17],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,D1
+18,tts_wake,timestamps_ns[18],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,G0
+19,tts_first_decode,timestamps_ns[19],TTS thread,TRUE,FALSE,FALSE,TRUE,TRUE,G2
+20,t2w_preprocess_end,timestamps_ns[20],T2W thread,TRUE,TRUE,FALSE,TRUE,TRUE,Q2

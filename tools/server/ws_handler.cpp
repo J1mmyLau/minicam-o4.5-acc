@@ -164,6 +164,131 @@ static void clear_text_stream_state(omni_context * octx) {
     octx->text_streaming = false;
 }
 
+// F6 Session Lifecycle Fix: unified context finalizer for WebSocket /backend path.
+//
+// After stream_decode completes or the session is cleaned up, this transitions
+// the shared context back to REUSABLE so the next request (same session or new
+// session) can proceed without being rejected by the stream_decode lifecycle
+// guard (omni.cpp:13416-13418).
+//
+// For TTS sessions, omni_duplex_drain_tts_audio already manages state.
+// For text-only sessions, stream_decode leaves context_state=ACTIVE and
+// omni_prepare_for_reuse does not reset it — this function closes that gap.
+//
+// Safety:
+//   - Uses compare_exchange → won't overwrite NOT_REUSABLE (drain failure)
+//   - Checks active_t2w_generation == 0 before final REUSABLE transition
+//   - Goes through DRAINING phase for observability
+// Clear KV cache and reset n_past for the shared omni_context.
+// Called on session disconnect to ensure the next session starts with a
+// clean KV state.  Idempotent — safe to call even if KV was already cleared
+// by the normal decode completion path.
+//
+// For normal text/TTS completion, stream_decode clears KV at end-of-decode
+// (omni.cpp:14150-14154).  On abort/exception, that code is never reached,
+// making this the backstop — without it, n_past retains stale tokens and
+// the next session's output is contaminated by the aborted session's context.
+void ws_cleanup_kv_cache_for_reuse(omni_context * octx) {
+    if (!octx) return;
+
+    // ── Main LLM KV cache ─────────────────────────────────────────
+    if (octx->ctx_llama) {
+        auto mem = llama_get_memory(octx->ctx_llama);
+        if (mem) {
+            llama_memory_clear(mem, true);
+        }
+    }
+    octx->n_past = 0;
+
+    // ── TTS model KV cache ────────────────────────────────────────
+    if (octx->ctx_tts_llama) {
+        auto mem = llama_get_memory(octx->ctx_tts_llama);
+        if (mem) {
+            // seq_id=0, p0=0, p1=-1 → remove all tokens from sequence 0
+            llama_memory_seq_rm(mem, 0, 0, -1);
+        }
+    }
+    octx->tts_n_past_accumulated = 0;
+
+    LOG_INF("WS cleanup: KV cache cleared + n_past reset for next session\n");
+}
+
+// Transition context_state from ACTIVE → DRAINING → REUSABLE.
+// See FINALIZER_AUDIT.md for the full state machine and call site analysis.
+void ws_finalize_context_reusable(omni_context * octx) {
+    if (!octx) return;
+
+    // Note: do NOT check octx->use_tts here. After a text-only decode,
+    // use_tts has already been restored to prev_use_tts (which may be true
+    // from the session init). The CAS-based safety below ensures we never
+    // overwrite NOT_REUSABLE, and if the TTS drain path already set REUSABLE,
+    // this is a no-op.
+
+    // ── Step 1: ACTIVE → DRAINING ────────────────────────────────
+    int expected_active = CTX_STATE_ACTIVE;
+    bool became_draining = octx->context_state.compare_exchange_strong(
+        expected_active, CTX_STATE_DRAINING);
+
+    if (!became_draining) {
+        // Already DRAINING: proceed to REUSABLE (another thread may have
+        // started drain).  Already REUSABLE: nothing to do.  NOT_REUSABLE:
+        // leave it — recovery logic in stream_decode handles that path.
+        if (expected_active == CTX_STATE_DRAINING) {
+            // fall through to REUSABLE transition below
+        } else {
+            return;  // REUSABLE or NOT_REUSABLE — don't touch
+        }
+    }
+
+    // ── Step 2: Advance generation counters ────────────────────
+    // Text-only sessions produce no WAV; the drain predicates in
+    // omni_duplex_drain_tts_audio and t2w_drain_signal_and_wait would
+    // otherwise wait for TTS producer completion that never arrives.
+    // Advance all generation-scoped counters so both the request guard
+    // (drain_complete_generation) and the T2W drain predicate
+    // (tts_producer_done_generation, final_processed_generation) pass
+    // immediately when omni_prepare_for_reuse runs at disconnect.
+    uint32_t req_gen = octx->request_generation.load(std::memory_order_relaxed);
+    octx->drain_complete_generation.store(req_gen);
+
+    if (octx->t2w_thread_info) {
+        // Advance TTS producer done (drain predicate condition 1)
+        uint32_t prev_tts = octx->t2w_thread_info->tts_producer_done_generation.load(std::memory_order_relaxed);
+        if (req_gen > prev_tts) {
+            octx->t2w_thread_info->tts_producer_done_generation.store(req_gen, std::memory_order_release);
+            octx->t2w_thread_info->drain_cv.notify_one();
+        }
+        // Advance final processed (drain predicate condition 4)
+        uint32_t prev_fp = octx->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+        if (req_gen > prev_fp) {
+            octx->t2w_thread_info->final_processed_generation.store(req_gen, std::memory_order_release);
+            octx->t2w_thread_info->drain_cv.notify_one();
+        }
+    }
+
+    // ── Step 3: DRAINING → REUSABLE ──────────────────────────────
+    // Safety check: no active T2W generation must exist before reuse.
+    uint32_t active_gen = octx->t2w_thread_info
+        ? octx->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed)
+        : 0;
+    if (active_gen != 0) {
+        LOG_WRN("WS finalize: active_t2w_generation=%u != 0 — leaving DRAINING, "
+                "generation still in-flight\n", active_gen);
+        return;
+    }
+
+    int expected_draining = CTX_STATE_DRAINING;
+    if (!octx->context_state.compare_exchange_strong(
+            expected_draining, CTX_STATE_REUSABLE)) {
+        LOG_WRN("WS finalize: expected DRAINING(%d), got %d — forcing REUSABLE\n",
+                CTX_STATE_DRAINING, expected_draining);
+        // Force: only if still not REUSABLE (don't hide NOT_REUSABLE)
+        if (expected_draining != CTX_STATE_NOT_REUSABLE) {
+            octx->context_state.store(CTX_STATE_REUSABLE);
+        }
+    }
+}
+
 static void stop_reusable_octx_threads(omni_context * octx) {
     omni_prepare_for_reuse(octx);
 }
@@ -527,6 +652,10 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
 
     // Build params for omni_init
     auto & p = params;
+    // F6 S13: Save/restore n_predict to prevent WS default (2048) from
+    // contaminating HTTP simplex sessions that share the same params pointer.
+    // WS sessions set n_predict per-turn via update_session_config anyway.
+    int saved_n_predict = p.n_predict;
     p.n_predict = 2048;
     ensure_omni_model_paths(p);
 
@@ -537,6 +666,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
         apply_session_config(p, shared_octx, init);
         LOG_INF("create_session_octx: reused shared octx, duplex=%d, output_dir=%s\n",
                 duplex_mode, output_dir.c_str());
+        p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
         return shared_octx;
     }
 
@@ -550,6 +680,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
                                      model, ctx, output_dir);
     if (!octx) {
         LOG_ERR("create_session_octx: omni_init failed\n");
+        p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
         return nullptr;
     }
 
@@ -565,6 +696,7 @@ static omni_context * create_session_octx(common_params & params, const ParsedSe
 
     LOG_INF("create_session_octx: session octx created, duplex=%d, output_dir=%s\n",
             duplex_mode, output_dir.c_str());
+    p.n_predict = saved_n_predict;  // F6 S13: restore CLI n_predict
     return octx;
 }
 
@@ -713,6 +845,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
         bool accumulate = false;
         std::vector<float> accum;
         bool emitted_audio = false;
+        // F6 formal: per-chunk incremental counters for official classify_chunk()
+        // Reset at each input.append; accumulated during chunk processing.
+        int chunk_text_tokens_before = 0;  // snapshot of ctx->generated_token_count before decode
+        int chunk_audio_byte_count = 0;    // float32 PCM bytes in audio deltas this chunk
+        int chunk_tts_tokens_before = 0;   // snapshot of ctx->tts_all_generated_tokens.size() before decode
     };
     auto audio_state = std::make_shared<AudioCbState>();
     audio_state->session_id = session_id;
@@ -740,6 +877,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 response_id = audio_state->response_id;
                 response_start = audio_state->response_start;
                 audio_state->emitted_audio = true;
+                audio_state->chunk_audio_byte_count += n_samples * (int)sizeof(float);
             }
             std::string b64 = float32_pcm_to_b64(samples, n_samples);
             ProtocolMetrics metrics = make_runtime_metrics(
@@ -797,6 +935,7 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             audio_state->response_id = response_id; // update for audio callback
             audio_state->response_start = t_request_start;
             audio_state->emitted_audio = false;
+            audio_state->chunk_audio_byte_count = 0;
         }
 
         // Branch: full_duplex vs turn_based. The input shape MUST match the
@@ -981,7 +1120,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                         octx->text_queue.pop_front();
                     }
 
-                    if (octx->text_done_flag && octx->text_queue.empty()) {
+                    // P0 formal: only break on done+empty when we have no pending frag
+                    if (frag.empty() && octx->text_done_flag && octx->text_queue.empty()) {
                         break;
                     }
                 }
@@ -998,11 +1138,20 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                                                  elapsed_ms(t_generate_start),
                                                  elapsed_ms(t_request_start), 0,
                                                  turn_vision_slices)));
-                        break;
-                    } else if (frag == "__END_OF_TURN__" || frag == "__TURN_IDLE__") {
+                        // Continue polling — text_done_flag is set, next
+                        // iteration will break naturally on empty queue.
+                    } else if (frag == "__END_OF_TURN__") {
                         // handled by response.done
                     } else {
                         const std::string text = sanitize_utf8_stream(utf8_pending, frag);
+                        // P0-3: hex-dump text after sanitize_utf8_stream (env-gated, default OFF)
+                        if (getenv("OMNI_ENCODING_DIAG")) {
+                            fprintf(stderr, "[enc_diag] ws_text_delta frag_len=%zu text_len=%zu text_hex=",
+                                    frag.size(), text.size());
+                            for (size_t i = 0; i < std::min(text.size(), size_t(64)); i++)
+                                fprintf(stderr, "%02x", (unsigned char)text[i]);
+                            fprintf(stderr, "\n");
+                        }
                         full_text += text;
                         if (streaming && !text.empty()) {
                             send_event(make_text_delta(
@@ -1041,6 +1190,13 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 }
             }
             octx->use_tts = prev_use_tts;
+
+            // F6 Session Lifecycle: text-only decode leaves context_state=ACTIVE.
+            // Reset to REUSABLE so the same session can handle the next turn
+            // without being rejected by the stream_decode lifecycle guard.
+            if (!parsed_input.use_tts_template) {
+                ws_finalize_context_reusable(octx);
+            }
 
             // Non-streaming: hand the buffered PCM to response.done.audio and
             // stop accumulating so later turns / full-duplex stream normally.
@@ -1084,6 +1240,9 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
 
             TempMediaFiles tmp_files;
             int input_index = ++msg_counter;
+            // F6 formal: propagate frame index to T2W queue items via simplex_round_idx
+            // so [bench_wav] lines can be correlated to [bench] frames.
+            octx->simplex_round_idx = input_index;
             double prefill_ms = 0.0;
             int turn_vision_slices = parsed_input.video_frames_b64.empty() ? 0 : 1;
 
@@ -1100,8 +1259,8 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             }
 
             // Prefill
+            const auto t_prefill_start = std::chrono::steady_clock::now();
             {
-                const auto t_prefill_start = std::chrono::steady_clock::now();
                 std::lock_guard<std::mutex> lock(octx_mutex);
                 if (!stream_prefill(octx, tmp_files.audio_path, tmp_files.image_path,
                                     input_index, parsed_input.max_slice_nums)) {
@@ -1117,6 +1276,14 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             tmp_files.audio_path.clear();
             tmp_files.image_path.clear();
 
+            // F6 formal: snapshot token count after prefill (before decode)
+            // for per-chunk classify_chunk() n_tokens / n_tts_tokens delta.
+            {
+                std::lock_guard<std::mutex> lk(audio_state->mtx);
+                audio_state->chunk_text_tokens_before = octx->generated_token_count;
+                audio_state->chunk_tts_tokens_before = (int)octx->tts_all_generated_tokens.size();
+            }
+
             // force_listen: caller forces this step to LISTEN — skip decoding
             // and immediately report a listen delta, then wait for next input.
             if (parsed_input.force_listen) {
@@ -1127,6 +1294,10 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                                          turn_vision_slices)));
                 continue;
             }
+
+            // Propagate generation.max_new_tokens to the omni context so the
+            // duplex decode path can pick it up (matching turn_based path L1032).
+            octx->request_max_tokens = parsed_input.max_new_tokens;
 
             // Decode: start background thread, poll text_queue on this thread
             std::string debug_dir = session_output_dir;
@@ -1140,13 +1311,14 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             }
 
             const auto t_generate_start = std::chrono::steady_clock::now();
-            std::thread decode_thread([octx, debug_dir]() {
-                stream_decode(octx, debug_dir, -1);
+            std::thread decode_thread([octx, debug_dir, chunk_seq = input_index]() {
+                stream_decode(octx, debug_dir, chunk_seq);
             });
 
             // Collect full text for response.done
             std::string full_text;
             std::string utf8_pending;
+            bool emitted_listen = false;  // F6 formal: track LISTEN for bench
 
             // Poll text_queue
             while (true) {
@@ -1162,7 +1334,11 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                         octx->text_queue.pop_front();
                     }
 
-                    if (octx->text_done_flag && octx->text_queue.empty()) {
+                    // P0 formal: only break on done+empty when we have no pending frag.
+                    // If frag was just popped (e.g. __IS_LISTEN__ from force_listen),
+                    // we must process it first. The next iteration will see empty queue
+                    // + done flag and break cleanly.
+                    if (frag.empty() && octx->text_done_flag && octx->text_queue.empty()) {
                         break;
                     }
                 }
@@ -1170,18 +1346,28 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 if (!frag.empty()) {
                     if (frag == "__IS_LISTEN__") {
                         // Model switched to listen
+                        emitted_listen = true;  // F6 formal: track for bench
                         send_event(make_listen_delta(
                             session_id, response_id,
                             make_runtime_metrics(octx, prefill_ms,
                                                  elapsed_ms(t_generate_start),
                                                  elapsed_ms(t_request_start), 0,
                                                  turn_vision_slices)));
-                        break; // Done for this input
-                    } else if (frag == "__END_OF_TURN__" || frag == "__TURN_IDLE__") {
+                        // Continue polling — text_done_flag is set, next
+                        // iteration will break naturally on empty queue.
+                    } else if (frag == "__END_OF_TURN__") {
                         // Turn ended — will be handled by response.done
                     } else {
                         // Text delta
                         const std::string text = sanitize_utf8_stream(utf8_pending, frag);
+                        // P0-3: hex-dump text after sanitize_utf8_stream (duplex path, env-gated)
+                        if (getenv("OMNI_ENCODING_DIAG")) {
+                            fprintf(stderr, "[enc_diag] ws_text_delta_dup frag_len=%zu text_len=%zu text_hex=",
+                                    frag.size(), text.size());
+                            for (size_t i = 0; i < std::min(text.size(), size_t(64)); i++)
+                                fprintf(stderr, "%02x", (unsigned char)text[i]);
+                            fprintf(stderr, "\n");
+                        }
                         full_text += text;
                         if (!text.empty()) {
                             send_event(make_text_delta(
@@ -1208,6 +1394,22 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
             if (decode_thread.joinable()) {
                 decode_thread.join();
             }
+
+            // F6 Session Lifecycle: drain TTS audio BEFORE resetting context_state.
+            // The turn-based path (line 1180) already does this; the full-duplex
+            // path was missing it, causing T2W tasks to accumulate across chunks
+            // and per-chunk generation tracking to fail (gen stayed 0).
+            // omni_duplex_drain_tts_audio is a no-op when !use_tts.
+            //
+            // Per-chunk drain ensures causal per-generation WAV attribution but
+            // serializes the pipeline (T2W/prefill no longer overlap).
+            // DEFAULT OFF: natural full-duplex pipeline with T2W/prefill overlap.
+            // Set OMNI_PER_CHUNK_DRAIN=1 ONLY for debug/validation of causal mapping.
+            if (getenv("OMNI_PER_CHUNK_DRAIN") != nullptr && strcmp(getenv("OMNI_PER_CHUNK_DRAIN"), "1") == 0) {
+                omni_duplex_drain_tts_audio(octx, /*max_wait_ms*/120000, /*idle_ms*/3000);
+            }
+            ws_finalize_context_reusable(octx);
+
             double generate_ms = elapsed_ms(t_generate_start);
             {
                 const std::string text = sanitize_utf8_stream(utf8_pending, "", true);
@@ -1226,6 +1428,94 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                 std::lock_guard<std::mutex> lk(audio_state->mtx);
                 emitted_audio = audio_state->emitted_audio;
             }
+
+            // ── F6 formal benchmark: server-side per-chunk timing ──
+            // Only logs; does NOT change inference behavior or event ordering.
+            {
+                // Per-chunk counters for SPEAK_GENERATION classification.
+                // Implements same logic as benchmarks/speak_wav_rtf_client.py:classify_chunk()
+                // NOTE: this is OUR best-effort reimplementation, NOT the official formula.
+                // The official competition spec describes states semantically:
+                //   SPEAK_GENERATION: VPM+APM+LLM+TTS+T2W all active
+                //   SPEAK_TAIL:       LLM ended, only TTS/T2W continue
+                //   LISTEN:           VPM+APM+LLM only (no TTS/T2W)
+                // but does NOT provide the classify_chunk() formula.
+                // Our reimplementation uses per-chunk observable counters as proxy.
+                int chunk_text_tokens = 0;
+                int chunk_audio_bytes = 0;
+                int chunk_tts_tokens = 0;
+                {
+                    std::lock_guard<std::mutex> lk(audio_state->mtx);
+                    chunk_text_tokens = octx->generated_token_count - audio_state->chunk_text_tokens_before;
+                    chunk_audio_bytes = audio_state->chunk_audio_byte_count;
+                    chunk_tts_tokens = (int)octx->tts_all_generated_tokens.size() - audio_state->chunk_tts_tokens_before;
+                }
+
+                // Our reimplemented classification (NOT official):
+                //   SPEAK_GENERATION: n_tokens > 0 && audio_bytes > 0
+                //   SPEAK_TAIL:       n_tokens == 0 && (n_tts_tokens > 0 || audio_bytes > 0)
+                //   LISTEN:           emitted_listen
+                //
+                // Parity: SERVER_CLIENT_REIMPLEMENTATION_PARITY = PASS
+                //         OFFICIAL_CLASSIFICATION_PARITY        = NOT_PROVEN
+                const char * bench_state = "UNKNOWN";
+                if (emitted_listen) {
+                    bench_state = "LISTEN";
+                } else if (chunk_text_tokens > 0 && chunk_audio_bytes > 0) {
+                    bench_state = "SPEAK_GENERATION";
+                } else if (chunk_text_tokens == 0 &&
+                           (chunk_tts_tokens > 0 || chunk_audio_bytes > 0)) {
+                    bench_state = "SPEAK_TAIL";
+                } else {
+                    bench_state = "OTHER";
+                }
+
+                auto t_now = std::chrono::steady_clock::now();
+                int64_t t_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_now.time_since_epoch()).count();
+                int64_t pf_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_prefill_start.time_since_epoch()).count();
+                int64_t pf_end_ns   = pf_start_ns + (int64_t)(prefill_ms * 1e6);
+                int64_t llm_start_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_generate_start.time_since_epoch()).count();
+                int64_t llm_end_ns   = llm_start_ns + (int64_t)(generate_ms * 1e6);
+
+                // Query T2W status (non-blocking, observation only)
+                uint32_t t2w_final_processed_gen = 0;
+                uint32_t t2w_active_gen = 0;
+                size_t   t2w_queued = 0;
+                size_t   t2w_active = 0;
+                int      t2w_wav_count = 0;
+                if (octx->t2w_thread_info) {
+                    t2w_final_processed_gen = octx->t2w_thread_info->final_processed_generation.load(
+                        std::memory_order_relaxed);
+                    t2w_active_gen = octx->t2w_thread_info->active_t2w_generation.load(
+                        std::memory_order_relaxed);
+                    t2w_queued = octx->t2w_thread_info->queued_t2w_task_count.load(
+                        std::memory_order_relaxed);
+                    t2w_active = octx->t2w_thread_info->active_t2w_task_count.load(
+                        std::memory_order_relaxed);
+                    t2w_wav_count = octx->t2w_thread_info->wav_count.load(
+                        std::memory_order_relaxed);
+                }
+                uint32_t current_gen = octx->request_generation.load(std::memory_order_relaxed);
+
+                fprintf(stderr,
+                    "[bench] session=%.8s frame=%d chunk_seq=%d gen=%u state=%s "
+                    "prefill_start=%lld prefill_end=%lld "
+                    "llm_start=%lld llm_end=%lld "
+                    "text_len=%zu text_done_ts=%lld emitted_audio=%d "
+                    "chunk_n_tokens=%d chunk_n_tts_tokens=%d chunk_audio_bytes=%d "
+                    "t2w_final_processed_gen=%u t2w_active_gen=%u t2w_queued=%zu t2w_active=%zu t2w_wav_count=%d\n",
+                    session_id.c_str(), input_index, octx->simplex_round_idx, current_gen, bench_state,
+                    (long long)pf_start_ns, (long long)pf_end_ns,
+                    (long long)llm_start_ns, (long long)llm_end_ns,
+                    full_text.size(), (long long)t_now_ns, emitted_audio ? 1 : 0,
+                    chunk_text_tokens, chunk_tts_tokens, chunk_audio_bytes,
+                    t2w_final_processed_gen, t2w_active_gen, t2w_queued, t2w_active, t2w_wav_count);
+            }
+            // ── end bench instrumentation ──
+
             if (!full_text.empty() || emitted_audio) {
                 // Full-duplex speak responses also need an explicit completion
                 // boundary; pure listen steps are represented by listen delta only.
@@ -1264,7 +1554,27 @@ cleanup:
                 session->octx->text_done_flag = true;
             }
             session->octx->text_cv.notify_all();
+            // F6 Session Lifecycle: Advance T2W drain generations BEFORE
+            // omni_prepare_for_reuse so t2w_drain_signal_and_wait fast-paths
+            // for text-only (no WAV produced, no TTS producer to drain).
+            // Step 1-2 only — Step 3 (REUSABLE) is deferred until after
+            // threads are joined (active_t2w_generation check requires it).
+            ws_finalize_context_reusable(session->octx);
+
             omni_prepare_for_reuse(session->octx);
+
+            // F6 Session Lifecycle: omni_prepare_for_reuse stops threads and
+            // clears queues but does NOT reset context_state or KV cache.
+            // 1) Clear KV cache + n_past → next session starts with clean state
+            //    (critical for abort recovery — normal decode clears KV at
+            //    end-of-decode, but abort skips that code path entirely).
+            ws_cleanup_kv_cache_for_reuse(session->octx);
+
+            // 2) Complete context_state → REUSABLE.  The first call above may
+            //    have left state as DRAINING (active_t2w_generation was non-zero
+            //    while threads were still running).  Now threads are joined, so
+            //    the CAS in Step 3 will succeed — active_t2w_generation == 0.
+            ws_finalize_context_reusable(session->octx);
         }
         session_mgr.close(session_id);
     }

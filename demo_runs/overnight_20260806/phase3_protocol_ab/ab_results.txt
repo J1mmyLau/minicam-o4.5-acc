@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "<stdin>", line 89, in <module>
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "<stdin>", line 65, in main
+  File "<stdin>", line 61, in test_case
+TypeError: 'NoneType' object is not subscriptable

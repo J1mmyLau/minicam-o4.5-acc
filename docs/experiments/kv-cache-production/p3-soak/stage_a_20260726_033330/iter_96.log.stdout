@@ -1,0 +1,663 @@
+=== Model Paths ===
+  Base dir:   /workspace/models/MiniCPM-o-4_5-gguf
+  LLM:        /workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-Q4_K_M.gguf [OK]
+  Vision:     /workspace/models/MiniCPM-o-4_5-gguf/vision/MiniCPM-o-4_5-vision-F16.gguf [OK]
+  Audio:      /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf [OK]
+  TTS:        /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-tts-F16.gguf [OK]
+  Projector:  /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf [OK]
+===================
+=== Initializing Omni Context ===
+  Media type: 2 (omni: audio+vision)
+  TTS enabled: yes
+  Context size: 4096
+  GPU layers: 0
+  Vision backend: metal
+  Vision batch encode: disabled
+  TTS bin dir: /workspace/models/MiniCPM-o-4_5-gguf/tts
+  Ref audio: tools/omni/assets/default_ref_audio/default_ref_audio.wav
+04:26:25.466 === omni_init start
+04:26:25.466 media_type = 2, duplex_mode = 0, base_output_dir = ./tools/omni/output
+04:26:25.466 === omni_init: loading new LLM model
+04:26:27.529 === omni_init: loading TTS model
+04:26:27.529 TTS model: loading with n_gpu_layers=0
+04:26:27.907 TTS sampler: temp=0.80, top_p=0.85, top_k=25, rep_penalty=1.05
+04:26:27.907 TTS: loading weights from GGUF (emb_code, emb_text, projector_semantic, head_code)...
+04:26:28.483 TTS: head_code shape: dim0=6562, dim1=768, will transpose to [6562, 768]
+04:26:28.491 TTS: head_code loaded, verifying first few values:
+04:26:28.491   head_code_weight[0] = 0.01361084 (expect ~0.01385498)
+04:26:28.491   head_code_weight[1] = -0.01660156 (expect ~-0.01647949)
+04:26:28.491   head_code_weight[768] = 0.04101562 (this is weight[1, 0], expect ~0.04150391)
+04:26:28.554 TTS: weights loaded successfully
+04:26:28.554 Projector: loading from /workspace/models/MiniCPM-o-4_5-gguf/tts/MiniCPM-o-4_5-projector-F16.gguf
+04:26:28.562 Projector: loaded successfully
+04:26:28.563 === omni_init: loading APM model
+04:26:28.883 APM: init from /workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf
+04:26:29.802 Token2Wav: found models in /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf
+04:26:29.802 Token2Wav: all model files found, initializing session...
+04:26:29.802 Token2Wav: CANN flow-only mode — deferring init to worker thread
+04:26:29.802 Token2Wav: CANN流跨线程需算子适配，vocoder暂用CPU
+04:26:29.802 Token2Wav: using prompt_cache from /workspace/models/MiniCPM-o-4_5-gguf/token2wav-gguf/prompt_cache.gguf
+04:26:29.802 Token2Wav: init deferred to worker thread
+04:26:29.802 Token2Wav: initialized successfully
+04:26:29.802 Python T2W: script_dir=./tools/omni/pyt2w, model_dir=./tools/omni/pyt2w/token2wav
+04:26:29.802 Token2Wav: 使用 C++ 实现
+04:26:29.802 === omni_init success: ctx_llama = 0xaaab1fd32d70
+=== Running test case ===
+  Audio prefix: /workspace/llama.cpp-omni-kvcache-prod/tools/omni/assets/test_case/omni_test_case/omni_test_case_
+  Count: 1
+  Start index: 0
+04:26:29.802 stream_prefill: n_past = 0
+ voice_clone_prompt = <|im_start|>system
+模仿音频样本的音色并生成新的内容。
+<|audio_start|>
+ assistant_prompt = <|audio_end|>你的任务是用这种声音模式来当一个助手。请认真、高质量地回复用户的问题。请用高自然度的方式和用户聊天。<|im_end|>
+<|im_start|>user
+
+04:26:29.838 🔁 KV cache HIT: loaded 62 positions (9143908 bytes) from /tmp/omni-kvcache/omni_kvcache_e2b568b6078ce027.bin (key=e2b568b6078ce027)
+04:26:29.838 [SW] system_prompt registered: preserve_length=62 (will be protected from sliding)
+04:26:29.838 
+
+c++ finish stream_prefill(index=0). n_past=62, n_keep=62, n_ctx=4096
+
+prefill 0 (audio+vision) : 0.0363389 s
+04:26:29.838 📍 stream_decode 开始: n_past=62, n_keep=62, n_ctx=4096, duplex_mode=0
+04:26:29.838 stream_decode: create tts thread (simplex mode)
+04:26:29.838 TTS: 创建单工模式输出目录: ./tools/omni/output/round_000
+04:26:29.838 stream_decode: create t2w thread
+04:26:29.838 wait prefill done
+04:26:29.838 📍 [单工TTS] 添加 assistant prompt: "<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<|tts_bos|>", n_past=62
+04:26:29.838 T2W thread (C++) started
+04:26:29.839 [token2wav] worker-thread init: flow=gpu voc=cpu
+04:26:29.839 TTS thread started
+04:26:30.864 [token2wav] worker-thread init complete
+04:26:31.363 📍 [单工TTS] assistant prompt 完成, n_past=72
+04:26:31.363 LLM decode: max_tgt_len = 4096, n_predict = -1, n_ctx = 4096
+04:26:33.775 LLM->TTS: text='这道题问的是关于中国近代史的', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[43288 44793 33872 56007 100146 101888 58695 110414 99497 9370]
+04:26:33.775 TTS<-LLM: chunk_idx=0, text='这道题问的是关于中国近代史的', n_tokens=10, hidden_size=40960, token_ids=[43288 44793 33872 56007 100146 101888 58695 110414 99497 9370]
+04:26:33.775 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:33.775 TTS: before empty check - response.empty=0, response='这道题问的是关于中国近代史的', llm_finish=0
+04:26:33.775 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:33.775 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:33.777 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:33.897 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_0/merged_embeddings.txt
+04:26:33.897 TTS Simplex: generating audio tokens for chunk 0 (n_tokens=10, tts_n_embd=768)
+04:26:33.897 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=0, new_size=11)
+04:26:33.897 TTS Simplex: first chunk - cleared KV cache
+04:26:33.897 TTS Simplex: first chunk - cleared tts_all_generated_tokens and tts_token_buffer
+04:26:34.065 TTS Simplex: prefill completed, n_past_tts=11
+04:26:34.065 TTS Simplex: sampler created
+04:26:34.065 TTS simplex: is_audio_bos=true (first audio token)
+04:26:34.241 TTS Simplex Phase1: token 1/500: rel_id=1487
+04:26:34.276 TTS Simplex Phase1: token 2/500: rel_id=4299
+04:26:34.312 TTS Simplex Phase1: token 3/500: rel_id=6486
+04:26:34.346 TTS Simplex Phase1: token 4/500: rel_id=6486
+04:26:34.380 TTS Simplex Phase1: token 5/500: rel_id=4299
+04:26:35.474 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+04:26:35.474 TTS Simplex Phase1: token 25/500: rel_id=2237
+04:26:35.474 T2W线程(C++): 轮次切换 (-1 -> 0)，更新输出目录
+04:26:35.474 T2W线程(C++): 新输出目录 ./tools/omni/output/round_000/tts_wav
+04:26:36.485 🎉 首响时间 (First Audio Response): 6646ms (decode_to_first_audio) | 6683ms (request_to_first_audio)
+04:26:36.485 T2W线程: wav_0.wav | 0.84s audio | 1009.2ms inference | RTF=1.20 | t=6646ms | queue_wait=0.0ms
+04:26:37.138 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 50, buffer=25)
+04:26:37.138 TTS Simplex Phase1: token 50/500: rel_id=626
+04:26:37.209 LLM->TTS: text='哪件事情是正确的，选项是关于义', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99459 14224 99916 20412 105045 3837 109487 20412 101888 64559]
+04:26:37.276 TTS Simplex Phase1: EOS token at step 53
+04:26:37.276 TTS Simplex: chunk 结束，tts_token_buffer 剩余 2 tokens (保留等下一个 chunk)
+04:26:37.276 TTS Simplex: generated 52 audio tokens for chunk 0
+04:26:37.276 TTS Simplex: chunk 0 first tokens: [1487 4299 6486 6486 4299 ], last tokens: [651 1457 626 2407 5650 ]
+04:26:37.276 TTS Simplex: updated tts_n_past_accumulated=63, total_generated_tokens=52
+04:26:37.277 TTS<-LLM: chunk_idx=1, text='哪件事情是正确的，选项是关于义', n_tokens=10, hidden_size=40960, token_ids=[99459 14224 99916 20412 105045 3837 109487 20412 101888 64559]
+04:26:37.277 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:37.277 TTS: before empty check - response.empty=0, response='哪件事情是正确的，选项是关于义', llm_finish=0
+04:26:37.277 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:37.277 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:37.277 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:37.291 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_1/merged_embeddings.txt
+04:26:37.291 TTS Simplex: generating audio tokens for chunk 1 (n_tokens=10, tts_n_embd=768)
+04:26:37.291 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=1, new_size=11)
+04:26:37.291 TTS Simplex: chunk 1 - keeping KV cache, n_past_tts=63
+04:26:37.485 TTS Simplex: prefill completed, n_past_tts=74
+04:26:37.485 TTS Simplex: sampler created
+04:26:37.558 TTS Simplex Phase1: token 1/500: rel_id=4434
+04:26:37.634 TTS Simplex Phase1: token 2/500: rel_id=4992
+04:26:37.707 TTS Simplex Phase1: token 3/500: rel_id=6018
+04:26:37.783 TTS Simplex Phase1: token 4/500: rel_id=1026
+04:26:37.857 TTS Simplex Phase1: token 5/500: rel_id=4540
+04:26:38.269 T2W线程: wav_1.wav | 1.00s audio | 1130.1ms inference | RTF=1.13 | t=8430ms | queue_wait=0.0ms
+04:26:39.133 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 23, buffer=25)
+04:26:39.269 TTS Simplex Phase1: token 25/500: rel_id=3054
+04:26:40.023 T2W线程: wav_2.wav | 1.00s audio | 888.7ms inference | RTF=0.89 | t=10184ms | queue_wait=0.0ms
+04:26:40.569 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 48, buffer=25)
+04:26:40.677 TTS Simplex Phase1: token 50/500: rel_id=6486
+04:26:41.046 LLM->TTS: text='和团运动的。首先我得回忆一下', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[33108 99305 101079 9370 1773 101140 35946 49828 104843 100158]
+04:26:41.649 T2W线程: wav_3.wav | 1.00s audio | 1078.2ms inference | RTF=1.08 | t=11810ms | queue_wait=0.0ms
+04:26:41.819 TTS Simplex Phase1: EOS token at step 67
+04:26:41.819 TTS Simplex: chunk 结束，tts_token_buffer 剩余 18 tokens (保留等下一个 chunk)
+04:26:41.819 TTS Simplex: generated 66 audio tokens for chunk 1
+04:26:41.819 TTS Simplex: chunk 1 first tokens: [4434 4992 6018 1026 4540 ], last tokens: [62 2267 4675 4400 6158 ]
+04:26:41.819 TTS Simplex: updated tts_n_past_accumulated=140, total_generated_tokens=118
+04:26:41.820 TTS<-LLM: chunk_idx=2, text='和团运动的。首先我得回忆一下', n_tokens=10, hidden_size=40960, token_ids=[33108 99305 101079 9370 1773 101140 35946 49828 104843 100158]
+04:26:41.820 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:41.820 TTS: before empty check - response.empty=0, response='和团运动的。首先我得回忆一下', llm_finish=0
+04:26:41.820 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:41.820 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:41.821 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:41.833 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_2/merged_embeddings.txt
+04:26:41.833 TTS Simplex: generating audio tokens for chunk 2 (n_tokens=10, tts_n_embd=768)
+04:26:41.833 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=2, new_size=11)
+04:26:41.833 TTS Simplex: chunk 2 - keeping KV cache, n_past_tts=140
+04:26:42.020 TTS Simplex: prefill completed, n_past_tts=151
+04:26:42.020 TTS Simplex: sampler created
+04:26:42.093 TTS Simplex Phase1: token 1/500: rel_id=5528
+04:26:42.166 TTS Simplex Phase1: token 2/500: rel_id=5967
+04:26:42.240 TTS Simplex Phase1: token 3/500: rel_id=6048
+04:26:42.312 TTS Simplex Phase1: token 4/500: rel_id=2979
+04:26:42.382 TTS Simplex Phase1: token 5/500: rel_id=5909
+04:26:42.526 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 7, buffer=25)
+04:26:43.593 T2W线程: wav_4.wav | 1.00s audio | 1065.6ms inference | RTF=1.07 | t=13754ms | queue_wait=0.0ms
+04:26:43.820 TTS Simplex Phase1: token 25/500: rel_id=300
+04:26:44.176 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 32, buffer=25)
+04:26:44.739 T2W线程: wav_5.wav | 1.00s audio | 562.3ms inference | RTF=0.56 | t=14901ms | queue_wait=0.0ms
+04:26:44.970 LLM->TTS: text='义和团运动的时间和背景。义和', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[64559 33108 99305 101079 101975 33108 102193 1773 64559 33108]
+04:26:45.069 TTS Simplex Phase1: token 50/500: rel_id=5838
+04:26:45.412 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 57, buffer=25)
+04:26:45.912 TTS Simplex Phase1: EOS token at step 68
+04:26:45.912 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+04:26:45.912 TTS Simplex: generated 67 audio tokens for chunk 2
+04:26:45.912 TTS Simplex: chunk 2 first tokens: [5528 5967 6048 2979 5909 ], last tokens: [4517 4463 4466 4960 1979 ]
+04:26:45.912 TTS Simplex: updated tts_n_past_accumulated=218, total_generated_tokens=185
+04:26:45.913 TTS<-LLM: chunk_idx=3, text='义和团运动的时间和背景。义和', n_tokens=10, hidden_size=40960, token_ids=[64559 33108 99305 101079 101975 33108 102193 1773 64559 33108]
+04:26:45.913 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:45.913 TTS: before empty check - response.empty=0, response='义和团运动的时间和背景。义和', llm_finish=0
+04:26:45.913 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:45.913 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:45.914 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:45.928 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_3/merged_embeddings.txt
+04:26:45.928 TTS Simplex: generating audio tokens for chunk 3 (n_tokens=10, tts_n_embd=768)
+04:26:45.928 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=3, new_size=11)
+04:26:45.928 TTS Simplex: chunk 3 - keeping KV cache, n_past_tts=218
+04:26:45.970 T2W线程: wav_6.wav | 1.00s audio | 557.1ms inference | RTF=0.56 | t=16131ms | queue_wait=0.0ms
+04:26:46.114 TTS Simplex: prefill completed, n_past_tts=229
+04:26:46.114 TTS Simplex: sampler created
+04:26:46.184 TTS Simplex Phase1: token 1/500: rel_id=2068
+04:26:46.253 TTS Simplex Phase1: token 2/500: rel_id=4373
+04:26:46.324 TTS Simplex Phase1: token 3/500: rel_id=5086
+04:26:46.396 TTS Simplex Phase1: token 4/500: rel_id=300
+04:26:46.465 TTS Simplex Phase1: token 5/500: rel_id=4523
+04:26:47.160 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+04:26:47.885 TTS Simplex Phase1: token 25/500: rel_id=5100
+04:26:48.265 T2W线程: wav_7.wav | 1.00s audio | 1103.8ms inference | RTF=1.10 | t=18426ms | queue_wait=0.0ms
+04:26:48.720 LLM->TTS: text='团运动发生在19世纪末，主要是反对', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99305 101079 108132 16 24 101186 100072 3837 104312 105018]
+04:26:48.888 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+04:26:49.591 TTS Simplex Phase1: token 50/500: rel_id=5651
+04:26:49.769 T2W线程: wav_8.wav | 1.00s audio | 879.5ms inference | RTF=0.88 | t=19930ms | queue_wait=0.0ms
+04:26:50.517 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 65, buffer=25)
+04:26:51.090 TTS Simplex Phase1: token 75/500: rel_id=4218
+04:26:51.385 TTS Simplex Phase1: EOS token at step 80
+04:26:51.385 TTS Simplex: chunk 结束，tts_token_buffer 剩余 14 tokens (保留等下一个 chunk)
+04:26:51.385 TTS Simplex: generated 79 audio tokens for chunk 3
+04:26:51.385 TTS Simplex: chunk 3 first tokens: [2068 4373 5086 300 4523 ], last tokens: [4218 5838 5919 5838 3894 ]
+04:26:51.385 TTS Simplex: updated tts_n_past_accumulated=308, total_generated_tokens=264
+04:26:51.386 TTS<-LLM: chunk_idx=4, text='团运动发生在19世纪末，主要是反对', n_tokens=10, hidden_size=40960, token_ids=[99305 101079 108132 16 24 101186 100072 3837 104312 105018]
+04:26:51.386 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:51.386 TTS: before empty check - response.empty=0, response='团运动发生在19世纪末，主要是反对', llm_finish=0
+04:26:51.386 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:51.386 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:51.386 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:51.389 T2W线程: wav_9.wav | 1.00s audio | 871.1ms inference | RTF=0.87 | t=21550ms | queue_wait=0.0ms
+04:26:51.399 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_4/merged_embeddings.txt
+04:26:51.399 TTS Simplex: generating audio tokens for chunk 4 (n_tokens=10, tts_n_embd=768)
+04:26:51.399 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=4, new_size=11)
+04:26:51.399 TTS Simplex: chunk 4 - keeping KV cache, n_past_tts=308
+04:26:51.564 TTS Simplex: prefill completed, n_past_tts=319
+04:26:51.564 TTS Simplex: sampler created
+04:26:51.637 TTS Simplex Phase1: token 1/500: rel_id=6081
+04:26:51.704 TTS Simplex Phase1: token 2/500: rel_id=3975
+04:26:51.773 TTS Simplex Phase1: token 3/500: rel_id=4218
+04:26:51.846 TTS Simplex Phase1: token 4/500: rel_id=1950
+04:26:51.918 TTS Simplex Phase1: token 5/500: rel_id=3454
+04:26:52.227 LLM->TTS: text='外国势力和基督教传教活动。然后我', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[101566 102793 33108 115553 41683 99182 99600 1773 101889 35946]
+04:26:52.330 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 11, buffer=25)
+04:26:53.321 TTS Simplex Phase1: token 25/500: rel_id=1403
+04:26:53.415 T2W线程: wav_10.wav | 1.00s audio | 1083.9ms inference | RTF=1.08 | t=23576ms | queue_wait=0.0ms
+04:26:54.065 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 36, buffer=25)
+04:26:55.040 TTS Simplex Phase1: token 50/500: rel_id=2183
+04:26:55.072 T2W线程: wav_11.wav | 1.00s audio | 1005.6ms inference | RTF=1.01 | t=25233ms | queue_wait=0.0ms
+04:26:55.680 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 61, buffer=25)
+04:26:55.785 LLM->TTS: text='看看选项里哪些是准确的。我记得义', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[101997 109487 69249 102224 20412 102188 9370 1773 116169 64559]
+04:26:56.063 TTS Simplex Phase1: EOS token at step 71
+04:26:56.063 TTS Simplex: chunk 结束，tts_token_buffer 剩余 9 tokens (保留等下一个 chunk)
+04:26:56.063 TTS Simplex: generated 70 audio tokens for chunk 4
+04:26:56.063 TTS Simplex: chunk 4 first tokens: [6081 3975 4218 1950 3454 ], last tokens: [6486 4299 5838 5832 5835 ]
+04:26:56.063 TTS Simplex: updated tts_n_past_accumulated=389, total_generated_tokens=334
+04:26:56.064 TTS<-LLM: chunk_idx=5, text='外国势力和基督教传教活动。然后我', n_tokens=10, hidden_size=40960, token_ids=[101566 102793 33108 115553 41683 99182 99600 1773 101889 35946]
+04:26:56.064 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:26:56.064 TTS: before empty check - response.empty=0, response='外国势力和基督教传教活动。然后我', llm_finish=0
+04:26:56.064 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:26:56.064 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:26:56.064 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:26:56.076 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_5/merged_embeddings.txt
+04:26:56.076 TTS Simplex: generating audio tokens for chunk 5 (n_tokens=10, tts_n_embd=768)
+04:26:56.076 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=5, new_size=11)
+04:26:56.076 TTS Simplex: chunk 5 - keeping KV cache, n_past_tts=389
+04:26:56.214 TTS Simplex: prefill completed, n_past_tts=400
+04:26:56.214 TTS Simplex: sampler created
+04:26:56.259 TTS Simplex Phase1: token 1/500: rel_id=5835
+04:26:56.300 TTS Simplex Phase1: token 2/500: rel_id=3651
+04:26:56.302 T2W线程: wav_12.wav | 1.00s audio | 621.3ms inference | RTF=0.62 | t=26463ms | queue_wait=0.0ms
+04:26:56.347 TTS Simplex Phase1: token 3/500: rel_id=2112
+04:26:56.386 TTS Simplex Phase1: token 4/500: rel_id=1518
+04:26:56.422 TTS Simplex Phase1: token 5/500: rel_id=3861
+04:26:56.911 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 16, buffer=25)
+04:26:57.362 TTS Simplex Phase1: token 25/500: rel_id=4607
+04:26:57.638 T2W线程: wav_13.wav | 1.00s audio | 726.9ms inference | RTF=0.73 | t=27800ms | queue_wait=0.0ms
+04:26:58.080 LLM->TTS: text='和团运动确实是在1899年', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[33108 99305 101079 102068 101219 16 23 24 24 7948]
+04:26:58.143 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 41, buffer=25)
+04:26:58.574 TTS Simplex Phase1: token 50/500: rel_id=623
+04:26:58.834 T2W线程: wav_14.wav | 1.00s audio | 690.5ms inference | RTF=0.69 | t=28996ms | queue_wait=0.0ms
+04:26:59.334 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 66, buffer=25)
+04:26:59.770 TTS Simplex Phase1: token 75/500: rel_id=582
+04:27:00.011 T2W线程: wav_15.wav | 1.00s audio | 676.3ms inference | RTF=0.68 | t=30172ms | queue_wait=0.0ms
+04:27:00.255 TTS Simplex Phase1: EOS token at step 86
+04:27:00.255 TTS Simplex: chunk 结束，tts_token_buffer 剩余 19 tokens (保留等下一个 chunk)
+04:27:00.255 TTS Simplex: generated 85 audio tokens for chunk 5
+04:27:00.255 TTS Simplex: chunk 5 first tokens: [5835 3651 2112 1518 3861 ], last tokens: [2861 2087 4299 6486 6486 ]
+04:27:00.255 TTS Simplex: updated tts_n_past_accumulated=485, total_generated_tokens=419
+04:27:00.256 TTS<-LLM: chunk_idx=6, text='看看选项里哪些是准确的。我记得义', n_tokens=10, hidden_size=40960, token_ids=[101997 109487 69249 102224 20412 102188 9370 1773 116169 64559]
+04:27:00.256 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:00.256 TTS: before empty check - response.empty=0, response='看看选项里哪些是准确的。我记得义', llm_finish=0
+04:27:00.256 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:00.256 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:00.256 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:00.268 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_6/merged_embeddings.txt
+04:27:00.268 TTS Simplex: generating audio tokens for chunk 6 (n_tokens=10, tts_n_embd=768)
+04:27:00.268 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=6, new_size=11)
+04:27:00.268 TTS Simplex: chunk 6 - keeping KV cache, n_past_tts=485
+04:27:00.442 TTS Simplex: prefill completed, n_past_tts=496
+04:27:00.442 TTS Simplex: sampler created
+04:27:00.513 TTS Simplex Phase1: token 1/500: rel_id=4218
+04:27:00.591 TTS Simplex Phase1: token 2/500: rel_id=5835
+04:27:00.671 TTS Simplex Phase1: token 3/500: rel_id=5835
+04:27:00.749 TTS Simplex Phase1: token 4/500: rel_id=5835
+04:27:00.830 TTS Simplex Phase1: token 5/500: rel_id=5838
+04:27:00.908 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 6, buffer=25)
+04:27:01.982 T2W线程: wav_16.wav | 1.00s audio | 1072.4ms inference | RTF=1.07 | t=32143ms | queue_wait=0.0ms
+04:27:02.387 TTS Simplex Phase1: token 25/500: rel_id=4379
+04:27:02.786 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 31, buffer=25)
+04:27:03.642 T2W线程: wav_17.wav | 1.00s audio | 855.8ms inference | RTF=0.86 | t=33804ms | queue_wait=0.0ms
+04:27:03.670 LLM->TTS: text='左右兴起的，主要在山东、直隶', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[101081 109156 9370 3837 99558 18493 101992 5373 73145 101023]
+04:27:03.900 TTS Simplex Phase1: token 50/500: rel_id=5224
+04:27:04.165 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 56, buffer=25)
+04:27:04.712 TTS Simplex Phase1: EOS token at step 69
+04:27:04.712 TTS Simplex: chunk 结束，tts_token_buffer 剩余 12 tokens (保留等下一个 chunk)
+04:27:04.712 TTS Simplex: generated 68 audio tokens for chunk 6
+04:27:04.712 TTS Simplex: chunk 6 first tokens: [4218 5835 5835 5835 5838 ], last tokens: [54 2 491 1217 4299 ]
+04:27:04.712 TTS Simplex: updated tts_n_past_accumulated=564, total_generated_tokens=487
+04:27:04.713 TTS<-LLM: chunk_idx=7, text='和团运动确实是在1899年', n_tokens=10, hidden_size=40960, token_ids=[33108 99305 101079 102068 101219 16 23 24 24 7948]
+04:27:04.713 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:04.713 TTS: before empty check - response.empty=0, response='和团运动确实是在1899年', llm_finish=0
+04:27:04.713 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:04.713 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:04.713 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:04.715 T2W线程: wav_18.wav | 1.00s audio | 549.2ms inference | RTF=0.55 | t=34877ms | queue_wait=0.0ms
+04:27:04.725 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_7/merged_embeddings.txt
+04:27:04.725 TTS Simplex: generating audio tokens for chunk 7 (n_tokens=10, tts_n_embd=768)
+04:27:04.725 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=7, new_size=11)
+04:27:04.725 TTS Simplex: chunk 7 - keeping KV cache, n_past_tts=564
+04:27:04.909 TTS Simplex: prefill completed, n_past_tts=575
+04:27:04.909 TTS Simplex: sampler created
+04:27:04.991 TTS Simplex Phase1: token 1/500: rel_id=6486
+04:27:05.064 TTS Simplex Phase1: token 2/500: rel_id=6486
+04:27:05.123 TTS Simplex Phase1: token 3/500: rel_id=6486
+04:27:05.183 TTS Simplex Phase1: token 4/500: rel_id=4218
+04:27:05.240 TTS Simplex Phase1: token 5/500: rel_id=5835
+04:27:05.701 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 13, buffer=25)
+04:27:06.491 TTS Simplex Phase1: token 25/500: rel_id=1258
+04:27:06.722 T2W线程: wav_19.wav | 1.00s audio | 1020.2ms inference | RTF=1.02 | t=36883ms | queue_wait=0.0ms
+04:27:07.334 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 38, buffer=25)
+04:27:08.086 LLM->TTS: text='一带，他们喊的口号是“扶清', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[102601 3837 99650 104611 9370 111269 20412 2073 100086 79766]
+04:27:08.157 TTS Simplex Phase1: token 50/500: rel_id=4578
+04:27:08.302 T2W线程: wav_20.wav | 1.00s audio | 967.4ms inference | RTF=0.97 | t=38464ms | queue_wait=0.0ms
+04:27:08.749 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 63, buffer=25)
+04:27:09.234 TTS Simplex Phase1: EOS token at step 74
+04:27:09.234 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+04:27:09.234 TTS Simplex: generated 73 audio tokens for chunk 7
+04:27:09.234 TTS Simplex: chunk 7 first tokens: [6486 6486 6486 4218 5835 ], last tokens: [1431 6158 5914 4540 4920 ]
+04:27:09.234 TTS Simplex: updated tts_n_past_accumulated=648, total_generated_tokens=560
+04:27:09.234 TTS<-LLM: chunk_idx=8, text='左右兴起的，主要在山东、直隶', n_tokens=10, hidden_size=40960, token_ids=[101081 109156 9370 3837 99558 18493 101992 5373 73145 101023]
+04:27:09.234 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:09.234 TTS: before empty check - response.empty=0, response='左右兴起的，主要在山东、直隶', llm_finish=0
+04:27:09.234 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:09.234 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:09.235 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:09.248 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_8/merged_embeddings.txt
+04:27:09.248 TTS Simplex: generating audio tokens for chunk 8 (n_tokens=10, tts_n_embd=768)
+04:27:09.248 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=8, new_size=11)
+04:27:09.248 TTS Simplex: chunk 8 - keeping KV cache, n_past_tts=648
+04:27:09.478 TTS Simplex: prefill completed, n_past_tts=659
+04:27:09.478 TTS Simplex: sampler created
+04:27:09.505 T2W线程: wav_21.wav | 1.00s audio | 755.4ms inference | RTF=0.76 | t=39667ms | queue_wait=0.0ms
+04:27:09.559 TTS Simplex Phase1: token 1/500: rel_id=2382
+04:27:09.635 TTS Simplex Phase1: token 2/500: rel_id=1370
+04:27:09.712 TTS Simplex Phase1: token 3/500: rel_id=2912
+04:27:09.794 TTS Simplex Phase1: token 4/500: rel_id=2424
+04:27:09.864 TTS Simplex Phase1: token 5/500: rel_id=4758
+04:27:10.612 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+04:27:11.363 TTS Simplex Phase1: token 25/500: rel_id=5772
+04:27:11.721 T2W线程: wav_22.wav | 1.00s audio | 1107.4ms inference | RTF=1.11 | t=41882ms | queue_wait=0.0ms
+04:27:12.491 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+04:27:13.204 LLM->TTS: text='灭洋”，也就是支持清朝政府但反对外国', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[100493 99840 33590 102200 100143 112463 99563 77288 105018 101566]
+04:27:13.239 TTS Simplex Phase1: token 50/500: rel_id=2591
+04:27:13.374 T2W线程: wav_23.wav | 1.00s audio | 881.6ms inference | RTF=0.88 | t=43535ms | queue_wait=0.0ms
+04:27:13.886 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 65, buffer=25)
+04:27:14.114 TTS Simplex Phase1: EOS token at step 71
+04:27:14.114 TTS Simplex: chunk 结束，tts_token_buffer 剩余 5 tokens (保留等下一个 chunk)
+04:27:14.114 TTS Simplex: generated 70 audio tokens for chunk 8
+04:27:14.114 TTS Simplex: chunk 8 first tokens: [2382 1370 2912 2424 4758 ], last tokens: [6261 300 5087 5047 5772 ]
+04:27:14.114 TTS Simplex: updated tts_n_past_accumulated=729, total_generated_tokens=630
+04:27:14.115 TTS<-LLM: chunk_idx=9, text='一带，他们喊的口号是“扶清', n_tokens=10, hidden_size=40960, token_ids=[102601 3837 99650 104611 9370 111269 20412 2073 100086 79766]
+04:27:14.115 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:14.115 TTS: before empty check - response.empty=0, response='一带，他们喊的口号是“扶清', llm_finish=0
+04:27:14.115 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:14.115 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:14.116 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:14.129 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_9/merged_embeddings.txt
+04:27:14.129 TTS Simplex: generating audio tokens for chunk 9 (n_tokens=10, tts_n_embd=768)
+04:27:14.129 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=9, new_size=11)
+04:27:14.129 TTS Simplex: chunk 9 - keeping KV cache, n_past_tts=729
+04:27:14.363 TTS Simplex: prefill completed, n_past_tts=740
+04:27:14.363 TTS Simplex: sampler created
+04:27:14.455 TTS Simplex Phase1: token 1/500: rel_id=1887
+04:27:14.538 TTS Simplex Phase1: token 2/500: rel_id=5241
+04:27:14.623 TTS Simplex Phase1: token 3/500: rel_id=3783
+04:27:14.709 TTS Simplex Phase1: token 4/500: rel_id=1538
+04:27:14.766 T2W线程: wav_24.wav | 1.00s audio | 878.5ms inference | RTF=0.88 | t=44928ms | queue_wait=0.0ms
+04:27:14.793 TTS Simplex Phase1: token 5/500: rel_id=1615
+04:27:15.806 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 20, buffer=25)
+04:27:16.067 TTS Simplex Phase1: token 25/500: rel_id=5103
+04:27:16.406 T2W线程: wav_25.wav | 1.00s audio | 599.2ms inference | RTF=0.60 | t=46567ms | queue_wait=0.0ms
+04:27:17.149 LLM->TTS: text='人的侵略。所以如果选项里提到义和', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[103947 114979 1773 99999 62244 109487 69249 104496 64559 33108]
+04:27:17.234 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 45, buffer=25)
+04:27:17.460 TTS Simplex Phase1: token 50/500: rel_id=2991
+04:27:17.695 TTS Simplex Phase1: EOS token at step 56
+04:27:17.695 TTS Simplex: chunk 结束，tts_token_buffer 剩余 10 tokens (保留等下一个 chunk)
+04:27:17.695 TTS Simplex: generated 55 audio tokens for chunk 9
+04:27:17.695 TTS Simplex: chunk 9 first tokens: [1887 5241 3783 1538 1615 ], last tokens: [3803 1607 1207 6534 6537 ]
+04:27:17.695 TTS Simplex: updated tts_n_past_accumulated=795, total_generated_tokens=685
+04:27:17.696 TTS<-LLM: chunk_idx=10, text='灭洋”，也就是支持清朝政府但反对外国', n_tokens=10, hidden_size=40960, token_ids=[100493 99840 33590 102200 100143 112463 99563 77288 105018 101566]
+04:27:17.696 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:17.696 TTS: before empty check - response.empty=0, response='灭洋”，也就是支持清朝政府但反对�', llm_finish=0
+04:27:17.696 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:17.696 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:17.696 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:17.709 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_10/merged_embeddings.txt
+04:27:17.709 TTS Simplex: generating audio tokens for chunk 10 (n_tokens=10, tts_n_embd=768)
+04:27:17.709 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=10, new_size=11)
+04:27:17.709 TTS Simplex: chunk 10 - keeping KV cache, n_past_tts=795
+04:27:17.871 T2W线程: wav_26.wav | 1.00s audio | 636.9ms inference | RTF=0.64 | t=48033ms | queue_wait=0.0ms
+04:27:17.932 TTS Simplex: prefill completed, n_past_tts=806
+04:27:17.932 TTS Simplex: sampler created
+04:27:18.012 TTS Simplex Phase1: token 1/500: rel_id=4359
+04:27:18.087 TTS Simplex Phase1: token 2/500: rel_id=2186
+04:27:18.171 TTS Simplex Phase1: token 3/500: rel_id=5581
+04:27:18.251 TTS Simplex Phase1: token 4/500: rel_id=4920
+04:27:18.334 TTS Simplex Phase1: token 5/500: rel_id=4513
+04:27:19.155 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 15, buffer=25)
+04:27:19.977 TTS Simplex Phase1: token 25/500: rel_id=5838
+04:27:19.996 T2W线程: wav_27.wav | 1.00s audio | 839.8ms inference | RTF=0.84 | t=50158ms | queue_wait=0.0ms
+04:27:20.984 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 40, buffer=25)
+04:27:21.034 LLM->TTS: text='团是反对外国教会和侵略，那应该是', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[99305 20412 105018 101566 109126 33108 114979 3837 99212 104583]
+04:27:21.477 TTS Simplex Phase1: token 50/500: rel_id=6258
+04:27:21.613 T2W线程: wav_28.wav | 1.00s audio | 628.2ms inference | RTF=0.63 | t=51775ms | queue_wait=0.0ms
+04:27:22.151 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 65, buffer=25)
+04:27:22.198 TTS Simplex Phase1: EOS token at step 67
+04:27:22.198 TTS Simplex: chunk 结束，tts_token_buffer 剩余 1 tokens (保留等下一个 chunk)
+04:27:22.198 TTS Simplex: generated 66 audio tokens for chunk 10
+04:27:22.198 TTS Simplex: chunk 10 first tokens: [4359 2186 5581 4920 4513 ], last tokens: [2186 1448 2177 2087 4299 ]
+04:27:22.198 TTS Simplex: updated tts_n_past_accumulated=872, total_generated_tokens=751
+04:27:22.199 TTS<-LLM: chunk_idx=11, text='人的侵略。所以如果选项里提到义和', n_tokens=10, hidden_size=40960, token_ids=[103947 114979 1773 99999 62244 109487 69249 104496 64559 33108]
+04:27:22.199 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:22.199 TTS: before empty check - response.empty=0, response='人的侵略。所以如果选项里提到义和', llm_finish=0
+04:27:22.199 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:22.199 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:22.199 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:22.212 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_11/merged_embeddings.txt
+04:27:22.212 TTS Simplex: generating audio tokens for chunk 11 (n_tokens=10, tts_n_embd=768)
+04:27:22.212 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=11, new_size=11)
+04:27:22.212 TTS Simplex: chunk 11 - keeping KV cache, n_past_tts=872
+04:27:22.369 TTS Simplex: prefill completed, n_past_tts=883
+04:27:22.369 TTS Simplex: sampler created
+04:27:22.436 TTS Simplex Phase1: token 1/500: rel_id=2139
+04:27:22.493 TTS Simplex Phase1: token 2/500: rel_id=2250
+04:27:22.550 TTS Simplex Phase1: token 3/500: rel_id=5266
+04:27:22.608 TTS Simplex Phase1: token 4/500: rel_id=4385
+04:27:22.668 TTS Simplex Phase1: token 5/500: rel_id=3989
+04:27:22.803 T2W线程: wav_29.wav | 1.00s audio | 651.4ms inference | RTF=0.65 | t=52965ms | queue_wait=0.0ms
+04:27:23.806 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 24, buffer=25)
+04:27:23.861 TTS Simplex Phase1: token 25/500: rel_id=3886
+04:27:24.458 T2W线程: wav_30.wav | 1.00s audio | 651.6ms inference | RTF=0.65 | t=54619ms | queue_wait=0.0ms
+04:27:24.798 LLM->TTS: text='对的。再想想其他选项，有没有说', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[32664 9370 1773 87256 105839 92894 109487 3837 104710 36587]
+04:27:25.026 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 49, buffer=25)
+04:27:25.068 TTS Simplex Phase1: token 50/500: rel_id=3651
+04:27:25.677 T2W线程: wav_31.wav | 1.00s audio | 651.2ms inference | RTF=0.65 | t=55839ms | queue_wait=0.0ms
+04:27:26.139 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 74, buffer=25)
+04:27:26.182 TTS Simplex Phase1: token 75/500: rel_id=4435
+04:27:26.551 TTS Simplex Phase1: EOS token at step 84
+04:27:26.551 TTS Simplex: chunk 结束，tts_token_buffer 剩余 9 tokens (保留等下一个 chunk)
+04:27:26.551 TTS Simplex: generated 83 audio tokens for chunk 11
+04:27:26.551 TTS Simplex: chunk 11 first tokens: [2139 2250 5266 4385 3989 ], last tokens: [2240 2753 484 1518 4947 ]
+04:27:26.551 TTS Simplex: updated tts_n_past_accumulated=966, total_generated_tokens=834
+04:27:26.552 TTS<-LLM: chunk_idx=12, text='团是反对外国教会和侵略，那应该是', n_tokens=10, hidden_size=40960, token_ids=[99305 20412 105018 101566 109126 33108 114979 3837 99212 104583]
+04:27:26.552 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:26.552 TTS: before empty check - response.empty=0, response='团是反对外国教会和侵略，那应该是', llm_finish=0
+04:27:26.552 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:26.552 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:26.552 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:26.565 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_12/merged_embeddings.txt
+04:27:26.565 TTS Simplex: generating audio tokens for chunk 12 (n_tokens=10, tts_n_embd=768)
+04:27:26.565 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=12, new_size=11)
+04:27:26.565 TTS Simplex: chunk 12 - keeping KV cache, n_past_tts=966
+04:27:26.787 T2W线程: wav_32.wav | 1.00s audio | 647.5ms inference | RTF=0.65 | t=56949ms | queue_wait=0.0ms
+04:27:26.789 TTS Simplex: prefill completed, n_past_tts=977
+04:27:26.789 TTS Simplex: sampler created
+04:27:26.861 TTS Simplex Phase1: token 1/500: rel_id=1293
+04:27:26.929 TTS Simplex Phase1: token 2/500: rel_id=160
+04:27:26.999 TTS Simplex Phase1: token 3/500: rel_id=54
+04:27:27.069 TTS Simplex Phase1: token 4/500: rel_id=4537
+04:27:27.140 TTS Simplex Phase1: token 5/500: rel_id=4943
+04:27:27.868 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 16, buffer=25)
+04:27:28.507 TTS Simplex Phase1: token 25/500: rel_id=6537
+04:27:28.738 T2W线程: wav_33.wav | 1.00s audio | 869.9ms inference | RTF=0.87 | t=58900ms | queue_wait=0.1ms
+04:27:29.276 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 41, buffer=25)
+04:27:29.370 LLM->TTS: text='义和团支持外国势力的，那肯定是', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[64559 33108 99305 100143 101566 102793 9370 3837 99212 106616]
+04:27:29.640 TTS Simplex Phase1: token 50/500: rel_id=2850
+04:27:29.822 T2W线程: wav_34.wav | 1.00s audio | 546.0ms inference | RTF=0.55 | t=59984ms | queue_wait=0.0ms
+04:27:30.289 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 66, buffer=25)
+04:27:30.293 TTS Simplex Phase1: EOS token at step 67
+04:27:30.293 TTS Simplex: chunk 结束，tts_token_buffer 剩余 0 tokens (保留等下一个 chunk)
+04:27:30.293 TTS Simplex: generated 66 audio tokens for chunk 12
+04:27:30.293 TTS Simplex: chunk 12 first tokens: [1293 160 54 4537 4943 ], last tokens: [6255 4851 5341 224 764 ]
+04:27:30.293 TTS Simplex: updated tts_n_past_accumulated=1043, total_generated_tokens=900
+04:27:30.294 TTS<-LLM: chunk_idx=13, text='对的。再想想其他选项，有没有说', n_tokens=10, hidden_size=40960, token_ids=[32664 9370 1773 87256 105839 92894 109487 3837 104710 36587]
+04:27:30.294 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:30.294 TTS: before empty check - response.empty=0, response='对的。再想想其他选项，有没有说', llm_finish=0
+04:27:30.294 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:30.294 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:30.294 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:30.306 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_13/merged_embeddings.txt
+04:27:30.306 TTS Simplex: generating audio tokens for chunk 13 (n_tokens=10, tts_n_embd=768)
+04:27:30.306 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=13, new_size=11)
+04:27:30.306 TTS Simplex: chunk 13 - keeping KV cache, n_past_tts=1043
+04:27:30.470 TTS Simplex: prefill completed, n_past_tts=1054
+04:27:30.470 TTS Simplex: sampler created
+04:27:30.519 TTS Simplex Phase1: token 1/500: rel_id=1492
+04:27:30.560 TTS Simplex Phase1: token 2/500: rel_id=4218
+04:27:30.600 TTS Simplex Phase1: token 3/500: rel_id=1806
+04:27:30.641 TTS Simplex Phase1: token 4/500: rel_id=3663
+04:27:30.684 TTS Simplex Phase1: token 5/500: rel_id=5914
+04:27:30.794 T2W线程: wav_35.wav | 1.00s audio | 504.3ms inference | RTF=0.50 | t=60956ms | queue_wait=0.0ms
+04:27:31.505 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 25, buffer=25)
+04:27:31.505 TTS Simplex Phase1: token 25/500: rel_id=6486
+04:27:32.117 T2W线程: wav_36.wav | 1.00s audio | 611.1ms inference | RTF=0.61 | t=62278ms | queue_wait=0.0ms
+04:27:32.432 LLM->TTS: text='错的。综合来看，正确答案应该是指', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[28726 9370 1773 99799 100192 3837 88991 102349 99730 104442]
+04:27:32.573 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 50, buffer=25)
+04:27:32.573 TTS Simplex Phase1: token 50/500: rel_id=831
+04:27:33.136 T2W线程: wav_37.wav | 1.00s audio | 562.1ms inference | RTF=0.56 | t=63298ms | queue_wait=0.0ms
+04:27:33.221 TTS Simplex Phase1: EOS token at step 68
+04:27:33.221 TTS Simplex: chunk 结束，tts_token_buffer 剩余 17 tokens (保留等下一个 chunk)
+04:27:33.221 TTS Simplex: generated 67 audio tokens for chunk 13
+04:27:33.221 TTS Simplex: chunk 13 first tokens: [1492 4218 1806 3663 5914 ], last tokens: [4675 2239 5915 5591 1235 ]
+04:27:33.221 TTS Simplex: updated tts_n_past_accumulated=1121, total_generated_tokens=967
+04:27:33.222 TTS<-LLM: chunk_idx=14, text='义和团支持外国势力的，那肯定是', n_tokens=10, hidden_size=40960, token_ids=[64559 33108 99305 100143 101566 102793 9370 3837 99212 106616]
+04:27:33.222 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:33.222 TTS: before empty check - response.empty=0, response='义和团支持外国势力的，那肯定是', llm_finish=0
+04:27:33.222 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:33.222 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:33.222 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:33.234 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_14/merged_embeddings.txt
+04:27:33.235 TTS Simplex: generating audio tokens for chunk 14 (n_tokens=10, tts_n_embd=768)
+04:27:33.235 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=14, new_size=11)
+04:27:33.235 TTS Simplex: chunk 14 - keeping KV cache, n_past_tts=1121
+04:27:33.455 TTS Simplex: prefill completed, n_past_tts=1132
+04:27:33.455 TTS Simplex: sampler created
+04:27:33.530 TTS Simplex Phase1: token 1/500: rel_id=1948
+04:27:33.604 TTS Simplex Phase1: token 2/500: rel_id=4299
+04:27:33.678 TTS Simplex Phase1: token 3/500: rel_id=6486
+04:27:33.748 TTS Simplex Phase1: token 4/500: rel_id=5838
+04:27:33.824 TTS Simplex Phase1: token 5/500: rel_id=5838
+04:27:34.047 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 8, buffer=25)
+04:27:34.945 T2W线程: wav_38.wav | 1.00s audio | 896.3ms inference | RTF=0.90 | t=65106ms | queue_wait=0.0ms
+04:27:35.362 TTS Simplex Phase1: token 25/500: rel_id=1763
+04:27:35.923 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 33, buffer=25)
+04:27:36.669 LLM->TTS: text='义和团反对外国侵略和教会，支持', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[64559 33108 99305 105018 101566 114979 33108 109126 3837 100143]
+04:27:36.728 T2W线程: wav_39.wav | 1.00s audio | 805.1ms inference | RTF=0.81 | t=66890ms | queue_wait=0.0ms
+04:27:36.946 TTS Simplex Phase1: token 50/500: rel_id=3642
+04:27:37.225 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 58, buffer=25)
+04:27:37.559 TTS Simplex Phase1: EOS token at step 68
+04:27:37.559 TTS Simplex: chunk 结束，tts_token_buffer 剩余 9 tokens (保留等下一个 chunk)
+04:27:37.559 TTS Simplex: generated 67 audio tokens for chunk 14
+04:27:37.559 TTS Simplex: chunk 14 first tokens: [1948 4299 6486 5838 5838 ], last tokens: [3717 2753 323 1029 56 ]
+04:27:37.559 TTS Simplex: updated tts_n_past_accumulated=1199, total_generated_tokens=1034
+04:27:37.560 TTS<-LLM: chunk_idx=15, text='错的。综合来看，正确答案应该是指', n_tokens=10, hidden_size=40960, token_ids=[28726 9370 1773 99799 100192 3837 88991 102349 99730 104442]
+04:27:37.560 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:37.560 TTS: before empty check - response.empty=0, response='错的。综合来看，正确答案应该是指', llm_finish=0
+04:27:37.560 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:37.560 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:37.560 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:37.573 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_15/merged_embeddings.txt
+04:27:37.573 TTS Simplex: generating audio tokens for chunk 15 (n_tokens=10, tts_n_embd=768)
+04:27:37.573 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=15, new_size=11)
+04:27:37.573 TTS Simplex: chunk 15 - keeping KV cache, n_past_tts=1199
+04:27:37.820 TTS Simplex: prefill completed, n_past_tts=1210
+04:27:37.820 TTS Simplex: sampler created
+04:27:37.849 T2W线程: wav_40.wav | 1.00s audio | 623.2ms inference | RTF=0.62 | t=68011ms | queue_wait=0.0ms
+04:27:37.908 TTS Simplex Phase1: token 1/500: rel_id=1217
+04:27:37.983 TTS Simplex Phase1: token 2/500: rel_id=500
+04:27:38.054 TTS Simplex Phase1: token 3/500: rel_id=1945
+04:27:38.131 TTS Simplex Phase1: token 4/500: rel_id=4299
+04:27:38.212 TTS Simplex Phase1: token 5/500: rel_id=6486
+04:27:39.020 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 16, buffer=25)
+04:27:39.746 TTS Simplex Phase1: token 25/500: rel_id=2806
+04:27:39.972 T2W线程: wav_41.wav | 1.00s audio | 951.0ms inference | RTF=0.95 | t=70134ms | queue_wait=0.0ms
+04:27:41.007 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 41, buffer=25)
+04:27:41.039 LLM->TTS: text='清朝的选项。所以我觉得选那个符合史', n_tokens=10, hidden_size=40960, n_embd=4096, token_ids=[112463 9370 109487 1773 99999 104288 30767 101095 101137 99497]
+04:27:41.462 TTS Simplex Phase1: token 50/500: rel_id=2685
+04:27:41.707 T2W线程: wav_42.wav | 1.00s audio | 698.5ms inference | RTF=0.70 | t=71868ms | queue_wait=0.0ms
+04:27:42.212 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 66, buffer=25)
+04:27:42.657 TTS Simplex Phase1: token 75/500: rel_id=3992
+04:27:42.875 TTS Simplex Phase1: EOS token at step 80
+04:27:42.875 TTS Simplex: chunk 结束，tts_token_buffer 剩余 13 tokens (保留等下一个 chunk)
+04:27:42.875 TTS Simplex: generated 79 audio tokens for chunk 15
+04:27:42.875 TTS Simplex: chunk 15 first tokens: [1217 500 1945 4299 6486 ], last tokens: [3992 2751 5325 4074 4604 ]
+04:27:42.875 TTS Simplex: updated tts_n_past_accumulated=1289, total_generated_tokens=1113
+04:27:42.876 TTS<-LLM: chunk_idx=16, text='义和团反对外国侵略和教会，支持', n_tokens=10, hidden_size=40960, token_ids=[64559 33108 99305 105018 101566 114979 33108 109126 3837 100143]
+04:27:42.876 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:42.876 TTS: before empty check - response.empty=0, response='义和团反对外国侵略和教会，支持', llm_finish=0
+04:27:42.876 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:42.876 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:42.876 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:42.889 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_16/merged_embeddings.txt
+04:27:42.889 TTS Simplex: generating audio tokens for chunk 16 (n_tokens=10, tts_n_embd=768)
+04:27:42.889 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=16, new_size=11)
+04:27:42.889 TTS Simplex: chunk 16 - keeping KV cache, n_past_tts=1289
+04:27:42.912 T2W线程: wav_43.wav | 1.00s audio | 699.6ms inference | RTF=0.70 | t=73073ms | queue_wait=0.0ms
+04:27:43.168 TTS Simplex: prefill completed, n_past_tts=1300
+04:27:43.168 TTS Simplex: sampler created
+04:27:43.250 TTS Simplex Phase1: token 1/500: rel_id=56
+04:27:43.336 TTS Simplex Phase1: token 2/500: rel_id=1113
+04:27:43.418 TTS Simplex Phase1: token 3/500: rel_id=731
+04:27:43.504 TTS Simplex Phase1: token 4/500: rel_id=1703
+04:27:43.585 TTS Simplex Phase1: token 5/500: rel_id=3899
+04:27:44.168 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 12, buffer=25)
+04:27:45.313 TTS Simplex Phase1: token 25/500: rel_id=3725
+04:27:45.315 T2W线程: wav_44.wav | 1.00s audio | 1146.8ms inference | RTF=1.15 | t=75476ms | queue_wait=0.0ms
+04:27:45.835 LLM: detected end token, set llm_generation_done=true
+04:27:45.835 LLM->TTS: text='实的选项就是对的。', n_tokens=7, hidden_size=28672, n_embd=4096, token_ids=[39973 9370 109487 99486 32664 9370 1773]
+04:27:46.082 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 37, buffer=25)
+04:27:46.772 TTS Simplex Phase1: token 50/500: rel_id=2665
+04:27:46.784 T2W线程: wav_45.wav | 1.00s audio | 701.8ms inference | RTF=0.70 | t=76946ms | queue_wait=0.0ms
+04:27:47.333 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 62, buffer=25)
+04:27:48.008 T2W线程: wav_46.wav | 1.00s audio | 675.3ms inference | RTF=0.68 | t=78170ms | queue_wait=0.0ms
+04:27:48.025 TTS Simplex Phase1: token 75/500: rel_id=228
+04:27:48.028 TTS Simplex Phase1: EOS token at step 76
+04:27:48.028 TTS Simplex: chunk 结束，tts_token_buffer 剩余 13 tokens (保留等下一个 chunk)
+04:27:48.028 TTS Simplex: generated 75 audio tokens for chunk 16
+04:27:48.028 TTS Simplex: chunk 16 first tokens: [56 1113 731 1703 3899 ], last tokens: [524 4860 486 623 228 ]
+04:27:48.028 TTS Simplex: updated tts_n_past_accumulated=1375, total_generated_tokens=1188
+04:27:48.029 TTS<-LLM: chunk_idx=17, text='清朝的选项。所以我觉得选那个符合史', n_tokens=10, hidden_size=40960, token_ids=[112463 9370 109487 1773 99999 104288 30767 101095 101137 99497]
+04:27:48.029 TTS: after queue pop - speek_done=0, llm_finish=0, llm_text.empty=0, token_ids.size=10
+04:27:48.029 TTS: before empty check - response.empty=0, response='清朝的选项。所以我觉得选那个符合�', llm_finish=0
+04:27:48.029 TTS: DEBUG before has_llm_data - token_ids.size=10, hidden_states.size=40960, n_embd=4096
+04:27:48.029 TTS: has_llm_data=1, token_ids=10, hidden_states=40960, n_embd=4096, llm_finish=0
+04:27:48.029 📍 Decode 结束: n_past=260, 剩余空间=3836, 无需滑窗
+04:27:48.029 📍 轮次 1 结束，记录边界于 n_past=260
+04:27:48.029 TTS: n_tokens_orig=10, n_tokens_filtered=10 (filtered 0 special tokens)
+04:27:48.042 TTS: saved merged embeddings (text) to ./tools/omni/output/round_000/llm_debug/chunk_17/merged_embeddings.txt
+04:27:48.042 TTS Simplex: generating audio tokens for chunk 17 (n_tokens=10, tts_n_embd=768)
+04:27:48.042 TTS Simplex: 在 prefill 前添加 audio_bos (chunk_idx=17, new_size=11)
+04:27:48.042 TTS Simplex: chunk 17 - keeping KV cache, n_past_tts=1375
+04:27:48.241 TTS Simplex: prefill completed, n_past_tts=1386
+04:27:48.241 TTS Simplex: sampler created
+04:27:48.301 TTS Simplex Phase1: token 1/500: rel_id=4922
+04:27:48.360 TTS Simplex Phase1: token 2/500: rel_id=4615
+04:27:48.419 TTS Simplex Phase1: token 3/500: rel_id=4780
+04:27:48.477 TTS Simplex Phase1: token 4/500: rel_id=2762
+04:27:48.535 TTS Simplex Phase1: token 5/500: rel_id=2915
+04:27:48.941 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 12, buffer=25)
+04:27:49.038 📍 为下一轮准备: eval <|im_end|>\n<|im_start|>user\n, n_past=265
+04:27:49.038 omni_stop_threads: stop signals sent (T2W kept alive for drain)
+04:27:49.660 TTS Simplex Phase1: token 25/500: rel_id=1610
+04:27:49.671 T2W线程: wav_47.wav | 1.00s audio | 729.1ms inference | RTF=0.73 | t=79832ms | queue_wait=0.0ms
+04:27:50.227 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 37, buffer=25)
+04:27:50.760 T2W线程: wav_48.wav | 1.00s audio | 532.2ms inference | RTF=0.53 | t=80922ms | queue_wait=0.0ms
+04:27:50.825 TTS Simplex Phase1: token 50/500: rel_id=6486
+04:27:51.317 TTS Simplex Phase1: yield 25 tokens 到 T2W (step 62, buffer=25)
+04:27:51.882 TTS Simplex Phase1: token 75/500: rel_id=116
+04:27:51.953 T2W线程: wav_49.wav | 1.00s audio | 634.9ms inference | RTF=0.63 | t=82114ms | queue_wait=0.0ms
+04:27:52.093 TTS Simplex Phase1: EOS token at step 81
+04:27:52.093 TTS Simplex: chunk 结束，tts_token_buffer 剩余 18 tokens (保留等下一个 chunk)
+04:27:52.093 TTS Simplex: generated 80 audio tokens for chunk 17
+04:27:52.093 TTS Simplex: chunk 17 first tokens: [4922 4615 4780 2762 2915 ], last tokens: [734 41 1482 3666 4459 ]
+04:27:52.093 TTS Simplex: updated tts_n_past_accumulated=1466, total_generated_tokens=1268
+tts thread end
+04:27:52.094 T2W drain: waiting up to 10000ms for is_final processing...
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+0404::27:2752:.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+5204:27:52..094 094T2W drain: complete (wav_count=50)
+ T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+0404::2727:52.094: T2W(C++): EOS drain — buffer empty (wav_count=50)
+52.094 04:27:52.T2W terminal: AUDIO_SUCCESS (50 WAV(s))
+094 T2W(C++): EOS drain — buffer empty (wav_count=50)
+04:27:52.094 T2W(C++) 线程: 停止

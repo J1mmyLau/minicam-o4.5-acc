@@ -1,0 +1,19 @@
+{
+  "stage": "S4",
+  "timestamp": "2026-08-06T04:16:33Z",
+  "unix_epoch": 1785989793.1783237,
+  "pid": 856797,
+  "thread_count": 1917,
+  "tid_count": 1917,
+  "vmrss_kb": 11281892,
+  "fd_count": 4,
+  "cgroup_pids_current": "2832",
+  "comm_distribution": {
+    "llama-omni-serv": 1917
+  },
+  "wchan_distribution": {
+    "inet_csk_wait_for_connect": 1,
+    "futex_wait_queue_me": 1916
+  },
+  "description": "After short TTS: 3 audio chunks, 53.5s wall"
+}

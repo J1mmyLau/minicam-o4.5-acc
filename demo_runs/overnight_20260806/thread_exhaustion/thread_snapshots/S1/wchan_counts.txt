@@ -1,0 +1,2 @@
+   959 futex_wait_queue_me
+     1 inet_csk_wait_for_connect

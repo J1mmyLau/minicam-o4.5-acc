@@ -1,0 +1,17 @@
+{
+  "chunks_sent": 10,
+  "text_count": 10,
+  "audio_wavs": 10,
+  "speak_count": 10,
+  "listen_count": 0,
+  "errors": 10,
+  "invalid_audio": 10,
+  "wall_mean_ms": 798.4562730000001,
+  "rtf_mean": 0.7984562730000001,
+  "text_sample": "         ",
+  "audio_validation": {
+    "valid": 0,
+    "invalid": 10
+  },
+  "verdict": "FAIL"
+}

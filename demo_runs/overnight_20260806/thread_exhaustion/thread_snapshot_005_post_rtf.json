@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-08-06T02:52:28Z",
+  "unix_epoch": 1785984748.3196082,
+  "pid": 377377,
+  "threads": 4480,
+  "note": "After SPEAK-to-WAV RTF measurement (S2W-2 session, 60 audio chunks, 776s wall)"
+}

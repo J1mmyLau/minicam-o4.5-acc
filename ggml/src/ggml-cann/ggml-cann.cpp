@@ -40,6 +40,7 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -72,6 +73,69 @@
 
 // Thread-local variable to record the current device of this thread.
 thread_local int g_current_cann_device = -1;
+
+// ============================================================================
+// Runtime Diagnostic Counters (default OFF, zero overhead when OFF)
+// Gate: GGML_CANN_RUNTIME_DIAG=1
+// Category A: low-overhead telemetry — memcpy counters, graph evaluations
+// NB: SetDevice & sync trace instrumentation REMOVED (REJECTED candidates E1/E2).
+// ============================================================================
+
+struct cannd_runtime_diag {
+    std::atomic<uint64_t> graph_evaluations{0};
+    std::atomic<uint64_t> memcpy_host_to_device{0};
+    std::atomic<uint64_t> memcpy_device_to_host{0};
+    std::atomic<uint64_t> memcpy_device_to_device{0};
+    std::atomic<uint64_t> memcpy_async{0};
+};
+
+static cannd_runtime_diag g_runtime_diag;
+
+static void cannd_runtime_diag_dump();
+
+static bool cannd_runtime_diag_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_RUNTIME_DIAG");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            std::atexit(cannd_runtime_diag_dump);
+        }
+    }
+    return enabled == 1;
+}
+
+static void cannd_runtime_diag_dump() {
+    if (!cannd_runtime_diag_enabled()) return;
+    fprintf(stderr,
+        "\n[CANND_RUNTIME_DIAG] ========================================\n"
+        "[CANND_RUNTIME_DIAG] graph_evaluations      = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_h2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2h             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_async           = %lu\n"
+        "[CANND_RUNTIME_DIAG] ========================================\n",
+        g_runtime_diag.graph_evaluations.load(),
+        g_runtime_diag.memcpy_host_to_device.load(),
+        g_runtime_diag.memcpy_device_to_host.load(),
+        g_runtime_diag.memcpy_device_to_device.load(),
+        g_runtime_diag.memcpy_async.load());
+}
+
+#define CANND_DIAG_INC(field) \
+    do { if (cannd_runtime_diag_enabled()) g_runtime_diag.field.fetch_add(1, std::memory_order_relaxed); } while(0)
+
+bool cannd_w8a8_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_W8A8");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            GGML_LOG_INFO("%s: W8A8 path enabled (aclnnQuantMatmulV3, deprecated)\n", __func__);
+        }
+    }
+    return enabled == 1;
+}
 
 /**
  * @brief Set the CANN device to be used.
@@ -1291,6 +1355,7 @@ static void ggml_backend_cann_buffer_set_tensor(ggml_backend_buffer_t buffer,
 
     // Plain tensor (not quantized, not NZ): direct copy, no tracking needed
     if (!is_quantized && !is_nz) {
+        CANND_DIAG_INC(memcpy_host_to_device);
         ACL_CHECK(aclrtMemcpy((char *) tensor->data + offset, size, data, size, ACL_MEMCPY_HOST_TO_DEVICE));
         return;
     }
@@ -1373,6 +1438,7 @@ static void ggml_backend_cann_buffer_get_tensor(ggml_backend_buffer_t buffer,
     ggml_cann_set_device(ctx->device);
 
     if (!need_transform(tensor->type)) {
+        CANND_DIAG_INC(memcpy_device_to_host);
         ACL_CHECK(aclrtMemcpy(data, size, (char *) tensor->data + offset, size, ACL_MEMCPY_DEVICE_TO_HOST));
     } else {
         void * transform_buffer = malloc(size);
@@ -1701,13 +1767,6 @@ static void * ggml_cann_host_malloc(size_t size) {
     }
 
     void *   hostPtr = nullptr;
-    // aclrtMallocHost requires a thread-local ACL context; threads that have
-    // not touched a device yet (e.g. the token2wav worker thread) would fail
-    // here and silently lose pinned memory. Bind the primary device first.
-    int32_t current_device = -1;
-    if (aclrtGetDevice(&current_device) != ACL_SUCCESS) {
-        ggml_cann_set_device(0);
-    }
     aclError err     = aclrtMallocHost((void **) &hostPtr, size);
     if (err != ACL_SUCCESS) {
         GGML_LOG_WARN("%s: failed to allocate %.2f MiB of pinned memory: %s\n", __func__, size / 1024.0 / 1024.0,
@@ -2063,13 +2122,61 @@ static const char * ggml_backend_cann_name(ggml_backend_t backend) {
  *
  * @param backend Pointer to the CANN backend structure to be freed.
  */
+// ─── R11 FIX: lifecycle-safe CANN backend free with guard counters ───
+static std::atomic<int64_t> g_cann_backend_create_count{0};
+static std::atomic<int64_t> g_cann_backend_destroy_count{0};
+static std::atomic<int64_t> g_cann_double_destroy_prevented_count{0};
+static std::atomic<int64_t> g_cann_cross_thread_destroy_count{0};
+
 static void ggml_backend_cann_free(ggml_backend_t backend) {
+    // GUARD 1: Null backend (should never happen, but be safe)
+    if (backend == nullptr) {
+        GGML_LOG_WARN("%s: backend is null, skipping free\n", __func__);
+        return;
+    }
+
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
-    ACL_CHECK(aclrtSynchronizeDevice());
-    ACL_CHECK(aclrtResetDevice(cann_ctx->device));
+
+    // GUARD 2: Null context (double-free or context already destroyed)
+    if (cann_ctx == nullptr) {
+        GGML_LOG_WARN("%s: backend->context is null (double-free?), skipping free\n", __func__);
+        g_cann_double_destroy_prevented_count++;
+        delete backend;
+        return;
+    }
+
+    int32_t device = cann_ctx->device;
+
+    // GUARD 3: Set device before any ACL operation
+    aclError set_ret = aclrtSetDevice(device);
+    if (set_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSetDevice(%d) failed: %d — device may already be reset\n",
+                      __func__, device, set_ret);
+        // Continue with cleanup — don't abort
+    }
+
+    // GUARD 4: Synchronize with error tolerance
+    aclError sync_ret = aclrtSynchronizeDevice();
+    if (sync_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSynchronizeDevice failed on device %d: %d\n",
+                      __func__, device, sync_ret);
+        // Device may already be in reset state — this is expected in multi-backend cleanup
+    }
+
+    // GUARD 5: Reset device with error tolerance
+    aclError reset_ret = aclrtResetDevice(device);
+    if (reset_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtResetDevice(%d) failed: %d — may already be reset\n",
+                      __func__, device, reset_ret);
+    }
+
+    // GUARD 6: Null out context before delete to prevent destructor from using stale state
+    backend->context = nullptr;
 
     delete cann_ctx;
     delete backend;
+
+    g_cann_backend_destroy_count++;
 }
 
 /**
@@ -2094,10 +2201,6 @@ static void ggml_backend_cann_set_tensor_async(ggml_backend_t backend,
     GGML_ASSERT(buf->buft == ggml_backend_cann_buffer_type(cann_ctx->device) && "unsupported buffer type");
     GGML_ASSERT(!ggml_is_quantized(tensor->type));
 
-    // Bind the calling thread to the device: worker threads (e.g. the
-    // token2wav thread) may reach here as their first CANN call, and
-    // aclrtMemcpyAsync requires a thread-local ACL context.
-    ggml_cann_set_device(cann_ctx->device);
     ACL_CHECK(aclrtMemcpyAsync((char *) tensor->data + offset, size, data, size, ACL_MEMCPY_HOST_TO_DEVICE,
                                cann_ctx->stream()));
 }
@@ -2124,8 +2227,6 @@ static void ggml_backend_cann_get_tensor_async(ggml_backend_t      backend,
     GGML_ASSERT(buf->buft == ggml_backend_cann_buffer_type(cann_ctx->device) && "unsupported buffer type");
     GGML_ASSERT(!ggml_is_quantized(tensor->type));
 
-    // Same as set_tensor_async: ensure this thread has an ACL context.
-    ggml_cann_set_device(cann_ctx->device);
     ACL_CHECK(aclrtMemcpyAsync(data, size, (char *) tensor->data + offset, size, ACL_MEMCPY_DEVICE_TO_HOST,
                                cann_ctx->stream()));
 }
@@ -2245,7 +2346,9 @@ static bool ggml_cann_can_fuse(const struct ggml_cgraph *          cgraph,
     }
 
     // CANN backend supports fusing ADD + RMS_NORM operations
-    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD && ops.begin()[1] == GGML_OP_RMS_NORM) {
+    // and ADD + NORM (LayerNorm) operations
+    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD &&
+        (ops.begin()[1] == GGML_OP_RMS_NORM || ops.begin()[1] == GGML_OP_NORM)) {
         ggml_tensor * add_node = cgraph->nodes[node_idx];
         // TODO: support broadcast for ADD + RMS_NORM
         if (add_node->src[0]->ne[0] != add_node->src[1]->ne[0] || add_node->src[0]->ne[1] != add_node->src[1]->ne[1] ||
@@ -2277,7 +2380,8 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                                             bool                        cann_graph_capture_required) {
 #ifdef USE_ACL_GRAPH
     if (use_cann_graph && cann_graph_capture_required) {  // Begin CANN graph capture
-        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_GLOBAL));
+        ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_RELAXED));
     }
 #endif  // USE_ACL_GRAPH
     // Only perform the graph execution if CANN graphs are not enabled, or we are capturing the graph.
@@ -2290,6 +2394,11 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
             if (opt_fusion) {
                 if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_RMS_NORM })) {
                     ggml_cann_op_add_rms_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
+                    i++;
+                    continue;
+                }
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_NORM })) {
+                    ggml_cann_op_add_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
                     i++;
                     continue;
                 }
@@ -2325,6 +2434,7 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
         ACL_CHECK(aclmdlRIExecuteAsync(matched_graph->graph, cann_ctx->stream()));
     }
 #endif  // USE_ACL_GRAPH
+
 }
 
 /**
@@ -2340,6 +2450,7 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
  *         completes successfully, otherwise an appropriate error status.
  */
 static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, ggml_cgraph * cgraph) {
+    CANND_DIAG_INC(graph_evaluations);
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
     ggml_cann_set_device(cann_ctx->device);
     g_nz_workspaces[cann_ctx->device].clear();
@@ -2368,6 +2479,19 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
 
     if (!cann_ctx->acl_graph_mode) {
         use_cann_graph = false;
+    }
+
+    // Phase 3: Skip graph capture for small graphs (e.g. LLM decode tokens)
+    // that can never be reused. Each decode token changes the graph, so
+    // capture adds pure overhead. Large graphs (Flow model ~11740 nodes,
+    // LLM prefill ~2373 nodes) benefit from reuse across chunks/requests.
+    if (use_cann_graph) {
+        static int graph_min_nodes =
+            parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MIN_NODES").value_or("100"));
+
+        if (cgraph->n_nodes < graph_min_nodes) {
+            use_cann_graph = false;
+        }
     }
 
     if (use_cann_graph) {
@@ -3006,7 +3130,14 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
         static std::mutex           mutex;
         std::lock_guard<std::mutex> lock(mutex);
         if (!initialized) {
-            aclInit(nullptr);
+            // R15 FIX: check aclInit return to avoid crash on subsequent calls
+            aclError acl_ret = aclInit(nullptr);
+            // ACL_ERROR_REPEAT_INITIALIZE (100002) = runtime already initialized
+            // (may happen if another component initialized CANN before us)
+            if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+                GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+                return nullptr;
+            }
             ggml_backend_cann_reg_context * ctx = new ggml_backend_cann_reg_context;
             const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
 
@@ -3034,8 +3165,33 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
     return &reg;
 }
 
+// P1 FAIL-FAST: Expose CANN registry availability to callers.
+// Returns true iff aclInit succeeded and CANN devices are registered.
+// May trigger lazy first-time initialization if not yet called.
+bool ggml_backend_cann_is_available() {
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    return reg != nullptr;
+}
+
 ggml_backend_t ggml_backend_cann_init(int32_t device) {
-    aclInit(nullptr);
+    // R15 FIX: Check that the CANN registry was successfully initialized.
+    // If aclInit failed during ggml_backend_cann_reg(), the registry is null
+    // and we must not attempt to create a backend (would crash on CANN API calls).
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    if (reg == nullptr) {
+        GGML_LOG_ERROR("%s: CANN registry not initialized (aclInit may have failed)\n", __func__);
+        return nullptr;
+    }
+
+    // R15 FIX: check aclInit return value; aclInit is refcounted so redundant
+    // calls are harmless, but if the CANN runtime is in a bad state this will
+    // catch it before we allocate context memory.
+    aclError acl_ret = aclInit(nullptr);
+    // ACL_ERROR_REPEAT_INITIALIZE (100002) = expected on redundant calls
+    if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+        GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+        return nullptr;
+    }
     if (device < 0 || device >= ggml_backend_cann_get_device_count()) {
         GGML_LOG_ERROR("%s: error: invalid device %d\n", __func__, device);
         return nullptr;
@@ -3052,6 +3208,8 @@ ggml_backend_t ggml_backend_cann_init(int32_t device) {
                           /* .interface = */ ggml_backend_cann_interface,
                           /* .device    = */ ggml_backend_reg_dev_get(ggml_backend_cann_reg(), device),
                           /* .context   = */ ctx };
+
+    g_cann_backend_create_count++;
 
     return cann_backend;
 }

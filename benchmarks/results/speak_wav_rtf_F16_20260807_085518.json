@@ -1,0 +1,395 @@
+{
+  "config": {
+    "rounds": 1,
+    "chunks_per_round": 33,
+    "warmup": 3,
+    "chunk_dur_s": 1.0,
+    "source": "PINNED_MINICPM_O_DEMO"
+  },
+  "identity": {
+    "model": "F16",
+    "model_sha256": "d1e6984537e9f7b2d4a1c2a0e3f5b8d9c0a1b2c3d4e5f6a7b8c9d0e1f2a3b4",
+    "binary_sha256": "2ab7e1b11f83f33da773d0efe748978fcea6f126cea654ae0f8310e0e2ff01ec",
+    "can_version": "Invalid chip id.\nError parameter of -c\nUsage: npu-smi info <watch|proc|-h|-m|-l|-t type> [Options...]\n\nCommands:\n       watch          Show all device's status in scrolling format\n       proc         ",
+    "hostname": "28deb674f123",
+    "timestamp": "2026-08-07T08:54:11.800110"
+  },
+  "speak_rtf_mean": 0.7027450613333331,
+  "speak_wall_p50_ms": 715.84521,
+  "speak_wall_p95_ms": 765.86166,
+  "speak_samples": 30,
+  "listen_wall_p50_ms": null,
+  "listen_samples": 0,
+  "total_errors": 0,
+  "rounds": [
+    {
+      "round_id": 0,
+      "chunks": [
+        {
+          "chunk_id": 0,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 1405.18759,
+          "audio_bytes": 80640,
+          "audio_dur_s": 0.84,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 1,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 523.72185,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 2,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 521.69143,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 3,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 542.05192,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 4,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 579.08352,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 5,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 752.20247,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 6,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 677.00603,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 7,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 729.72092,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 8,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 751.58865,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 9,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 680.40641,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 10,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 689.39735,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 11,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 728.72408,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 12,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 809.70426,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 13,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 677.64638,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 14,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 694.41381,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 15,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 656.29394,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 16,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 689.23034,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 17,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 759.0238,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 18,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 742.71011,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 19,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 654.72547,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 20,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 650.16081,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 21,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 689.90602,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 22,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 753.81434,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 23,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 715.84521,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 24,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 712.26039,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 25,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 639.99565,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 26,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 752.70989,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 27,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 735.97014,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 28,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 737.61604,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 29,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 630.90069,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 30,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 728.15542,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 31,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 755.22612,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        },
+        {
+          "chunk_id": 32,
+          "state": "SPEAK_GENERATION",
+          "wall_ms": 765.86166,
+          "audio_bytes": 96000,
+          "audio_dur_s": 1.0,
+          "text": "",
+          "n_tokens": 0,
+          "llm_active": true,
+          "confidence": "DIRECT"
+        }
+      ],
+      "errors": []
+    }
+  ]
+}

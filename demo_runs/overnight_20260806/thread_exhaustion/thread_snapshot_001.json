@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-08-06T02:14:33Z",
+  "unix_epoch": 1785982473.438497,
+  "pid": 377377,
+  "threads": 1598,
+  "vmrss_kb": 11253004,
+  "tasks_count": 1598,
+  "system_threads": 2529,
+  "cgroup_pids_current": 2528,
+  "cgroup_pids_max": 10000
+}

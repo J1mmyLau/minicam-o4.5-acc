@@ -1,0 +1,14 @@
+{
+  "-t_4": {
+    "failures": 0,
+    "rtf_p50": 4.98,
+    "thread_growth": 6
+  },
+  "-t_8": {
+    "failures": 0,
+    "rtf_p50": 5.04,
+    "thread_growth": 7
+  },
+  "winner": "-t 4",
+  "criteria": "0 failures, thread growth <5%, best performance"
+}

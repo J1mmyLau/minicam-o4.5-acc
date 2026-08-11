@@ -1,0 +1,150 @@
+{
+ "meta": {
+  "run": "T6_FULL",
+  "binary_sha": "e77b43c31d3c575da63a519e956810081f2a5c76bbf9157e01a196f0faab0dd8",
+  "port": 18093
+ },
+ "sessions": {
+  "session1": {
+   "s13": {
+    "n": 120,
+    "ok": 120,
+    "errs": 0,
+    "eos": 86,
+    "max_tokens": 34,
+    "wall_timeout": 0,
+    "sliding_window": 0,
+    "prompt_modified": 0,
+    "strict_pass": true,
+    "runaway_free": true,
+    "decode_wall_p50": 5463.265180587769,
+    "generated_tokens_p50": 34,
+    "first_attempt_ok": 120,
+    "errors": []
+   },
+   "extended": {
+    "per_sub": {
+     "long": {
+      "n": 20,
+      "ok": 20,
+      "wall_timeout": 0,
+      "slide": 0
+     },
+     "mixed": {
+      "n": 10,
+      "ok": 10,
+      "wall_timeout": 0,
+      "slide": 0
+     }
+    },
+    "total_ok": 30,
+    "total": 30,
+    "errors": []
+   },
+   "voice": {
+    "n": 5,
+    "ok": 5,
+    "isolation": true,
+    "audios_distinct": true,
+    "distinct_hashes": 5,
+    "wav0_shas": [
+     "b228d936ce9f4bf5",
+     "fb35f2fb3e11e669",
+     "41a4da52de16cd1d",
+     "ba342206f55e0598",
+     "3369fac4da11b49b"
+    ],
+    "errors": []
+   },
+   "disconnect": {
+    "n": 5,
+    "all_server_alive": true,
+    "all_abort_ok": true,
+    "followup_ok": true,
+    "followup_retried": false,
+    "detail": [
+     {
+      "i": 0,
+      "abort_ok": true,
+      "server_alive": true
+     },
+     {
+      "i": 1,
+      "abort_ok": true,
+      "server_alive": true
+     },
+     {
+      "i": 2,
+      "abort_ok": true,
+      "server_alive": true
+     },
+     {
+      "i": 3,
+      "abort_ok": true,
+      "server_alive": true
+     },
+     {
+      "i": 4,
+      "abort_ok": true,
+      "server_alive": true
+     }
+    ]
+   }
+  },
+  "session2": {
+   "kv_cache": {
+    "n_pairs": 30,
+    "n_valid": 30,
+    "gate_pass": true,
+    "miss_prefill_p50": 201.7,
+    "hit_prefill_p50": 83.1,
+    "delta_p50": 119.0,
+    "speedup_p50": 2.43,
+    "loaded_positions_range": [
+     130,
+     130
+    ]
+   }
+  },
+  "session3": {
+   "smoke": {
+    "per_sub": {
+     "long": {
+      "n": 0,
+      "ok": 0,
+      "wall_timeout": 0,
+      "slide": 0
+     },
+     "mixed": {
+      "n": 5,
+      "ok": 5,
+      "wall_timeout": 0,
+      "slide": 0
+     }
+    },
+    "total_ok": 5,
+    "total": 5,
+    "errors": []
+   }
+  }
+ },
+ "gates": {
+  "S13_STRICT_BASELINE": true,
+  "S13_RUNAWAY_FREE": true,
+  "EXTENDED_OK": true,
+  "VOICE_SWITCH_OK": true,
+  "VOICE_SWITCH_ISOLATION": true,
+  "DISCONNECT_SURVIVAL": true,
+  "DISCONNECT_FOLLOWUP": true,
+  "KV_CACHE_AB": true,
+  "RESTART_3_SESSIONS": 2696037,
+  "CPU_FALLBACK_ZERO": true,
+  "CANN_ERROR_ZERO": true
+ },
+ "global_integrity": {
+  "cpu_fallback_count": 0,
+  "cann_error_count": 0,
+  "cann_ok_count": 4
+ },
+ "accept": true
+}

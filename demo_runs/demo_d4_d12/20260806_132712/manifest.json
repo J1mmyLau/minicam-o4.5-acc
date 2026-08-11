@@ -1,0 +1,97 @@
+{
+  "run_id": "20260806_132712",
+  "started": "2026-08-06T13:27:12.467496Z",
+  "results": {
+    "D1-D3": {
+      "gate": "D1-D3",
+      "text": "北京是中华人民共和国的首都，是政治、文化、国际交往中心，拥有悠久的历史和灿烂的文化。",
+      "text_len": 42,
+      "events": 6,
+      "elapsed_s": 15.5,
+      "success": true
+    },
+    "D4": {
+      "gate": "D4",
+      "text": "这是植物大战僵尸的游戏界面。",
+      "text_len": 14,
+      "events": 4,
+      "elapsed_s": 39.7,
+      "success": true
+    },
+    "D5": {
+      "gate": "D5",
+      "text": "好的，我将复述用户说的话。",
+      "text_len": 13,
+      "events": 4,
+      "elapsed_s": 17.71,
+      "success": true
+    },
+    "D7": {
+      "gate": "D7",
+      "text": "今天天气真好，适合出去玩。",
+      "text_len": 13,
+      "audio_chunks": 5,
+      "audio_bytes": 449280,
+      "audio_duration_s": 9.36,
+      "events": 10,
+      "elapsed_s": 42.52,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_132712/D7_tts_output.wav",
+      "wav_sha256": "4876c8fc02d6371ea3dc96a9355618560faef8a9970da89f698a583f7c1f03fb",
+      "wav_size": 449280,
+      "success": true
+    },
+    "D8": {
+      "gate": "D8",
+      "text": "",
+      "text_len": 0,
+      "text_chunks": 0,
+      "events": 2,
+      "elapsed_s": 0.05,
+      "success": false
+    },
+    "D9": {
+      "gate": "D9",
+      "text": "",
+      "text_len": 0,
+      "audio_chunks": 0,
+      "audio_duration_s": 0.0,
+      "events": 2,
+      "elapsed_s": 0.06,
+      "success": false
+    },
+    "D10": {
+      "gate": "D10",
+      "text": "嗯如果说想去看美丽的风景啊当然有啦嗯像之前电影当中的。",
+      "text_len": 27,
+      "audio_chunks": 6,
+      "audio_duration_s": 12.08,
+      "events": 12,
+      "elapsed_s": 53.67,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_132712/D10_audio_input_tts.wav",
+      "wav_sha256": "9a09724ab31e04657802f6c76be46f98bc218dd398133906c8a6acbccca60747",
+      "success": true
+    },
+    "D11": {
+      "gate": "D11",
+      "turns_total": 3,
+      "turns_completed": 1,
+      "turn_results": [
+        {
+          "turn": 1,
+          "input": "你好，今天天气怎么样？",
+          "output": "",
+          "success": false
+        }
+      ],
+      "text_total": 0,
+      "elapsed_s": 0.05,
+      "success": false
+    }
+  },
+  "finished": "2026-08-06T13:30:34.420171Z",
+  "summary": {
+    "passed": 5,
+    "total": 8,
+    "pass_rate": "5/8"
+  }
+}

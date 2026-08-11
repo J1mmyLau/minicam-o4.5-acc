@@ -1,0 +1,19 @@
+{
+  "stage": "S2",
+  "timestamp": "2026-08-06T04:00:01Z",
+  "unix_epoch": 1785988801.4986272,
+  "pid": 856797,
+  "thread_count": 1279,
+  "tid_count": 1279,
+  "vmrss_kb": 11244920,
+  "fd_count": 4,
+  "cgroup_pids_current": "2190",
+  "comm_distribution": {
+    "llama-omni-serv": 1279
+  },
+  "wchan_distribution": {
+    "inet_csk_wait_for_connect": 1,
+    "futex_wait_queue_me": 1278
+  },
+  "description": "After medium TTS: 71 audio chunks, 934.7s wall"
+}

@@ -1,0 +1,51 @@
+[
+  {
+    "type": "response.output.delta",
+    "kind": "text",
+    "session_id": "5ae374c156098f85dd9368e4ea2678f2",
+    "response_id": "5ae374c156098f85dd9368e4ea2678f2_resp_1",
+    "text": "好的，我准备好了！请告诉我您的问题",
+    "server_send_ts": 1786029176.490708,
+    "metrics": {
+      "backend": "llama.cpp-omni",
+      "kv_cache_length": 41,
+      "prefill_ms": 3223.33236,
+      "generate_ms": 3266.94102,
+      "wall_clock_ms": 6490.28082,
+      "cost_llm_ms": 3266.94102
+    }
+  },
+  {
+    "type": "response.output.delta",
+    "kind": "text",
+    "session_id": "5ae374c156098f85dd9368e4ea2678f2",
+    "response_id": "5ae374c156098f85dd9368e4ea2678f2_resp_1",
+    "text": "，我会尽力为您提供清晰、准确的回答。",
+    "server_send_ts": 1786029178.4729445,
+    "metrics": {
+      "backend": "llama.cpp-omni",
+      "kv_cache_length": 51,
+      "prefill_ms": 3223.33236,
+      "generate_ms": 5249.18189,
+      "wall_clock_ms": 8472.52167,
+      "cost_llm_ms": 5249.18189
+    }
+  },
+  {
+    "type": "response.done",
+    "session_id": "5ae374c156098f85dd9368e4ea2678f2",
+    "response_id": "5ae374c156098f85dd9368e4ea2678f2_resp_1",
+    "text": "好的，我准备好了！请告诉我您的问题，我会尽力为您提供清晰、准确的回答。",
+    "reason": "turn_end",
+    "server_send_ts": 1786029179.3201935,
+    "audio": null,
+    "metrics": {
+      "backend": "llama.cpp-omni",
+      "kv_cache_length": 5,
+      "prefill_ms": 3223.33236,
+      "generate_ms": 6096.42459,
+      "wall_clock_ms": 9319.76735,
+      "cost_llm_ms": 6096.42459
+    }
+  }
+]

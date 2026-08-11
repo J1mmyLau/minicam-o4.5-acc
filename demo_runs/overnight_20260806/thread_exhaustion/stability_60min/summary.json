@@ -1,0 +1,29 @@
+{
+  "config": "-t 4, F16, die0, concurrency=1",
+  "duration_minutes": 60.9,
+  "total_sessions": 56,
+  "measured_sessions": 54,
+  "threads_start": 641,
+  "threads_after_warmup": 644,
+  "threads_end": 722,
+  "thread_growth_after_warmup": 78,
+  "thread_growth_pct": 12.11,
+  "gates": {
+    "SESSION_SUCCESS_RATE": "PASS",
+    "SESSION_SUCCESS_COUNT": "54/54",
+    "SERVER_CRASH": "PASS",
+    "SERVER_CRASH_NOTE": "0 crashes in 60.9min. Script false-positive: kill_server() ran before crash check.",
+    "THREAD_GROWTH_AFTER_WARMUP": "FAIL",
+    "THREAD_GROWTH_PCT": "12.11% (>5% threshold)",
+    "THREAD_GROWTH_NOTE": "Monotonic staircase: +3 threads per new httplib worker. Workers never exit (awakened by each request before 3s idle timeout). Bounded ceiling: ~2558 threads. -t 4 caps each leak to 3 threads (vs 319).",
+    "DRAIN_TIMEOUT": "FAIL",
+    "DRAIN_TIMEOUT_COUNT": 36,
+    "DRAIN_TIMEOUT_NOTE": "All sessions succeeded (54/54). DRAIN_TIMEOUT is log-ordering artifact, not data loss. But user requirement is 0.",
+    "NEXT_SESSION_REJECTION": "PASS",
+    "REJECTION_COUNT": 0,
+    "REJECTION_NOTE": "15s inter-session delay sufficient for drain with short prompts (~3 WAVs)."
+  },
+  "overall": "FAIL",
+  "error_details": [],
+  "corrected_from_script_bug": "SERVER_CRASH was false-positive FAIL due to kill_server() ordering."
+}

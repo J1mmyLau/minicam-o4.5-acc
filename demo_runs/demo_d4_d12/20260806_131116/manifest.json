@@ -1,0 +1,121 @@
+{
+  "run_id": "20260806_131116",
+  "started": "2026-08-06T13:11:16.179284Z",
+  "results": {
+    "D1-D3": {
+      "gate": "D1-D3",
+      "text": "北京是中国的首都，拥有悠久的历史和丰富的文化。",
+      "text_len": 23,
+      "events": 5,
+      "elapsed_s": 8.92,
+      "success": true
+    },
+    "D4": {
+      "gate": "D4",
+      "text": "这是植物大战僵尸的游戏画面。",
+      "text_len": 14,
+      "events": 4,
+      "elapsed_s": 36.58,
+      "success": true
+    },
+    "D5": {
+      "gate": "D5",
+      "text": "好的，我已复述用户的话。",
+      "text_len": 12,
+      "events": 4,
+      "elapsed_s": 17.13,
+      "success": true
+    },
+    "D6": {
+      "gate": "D6",
+      "text": "",
+      "text_len": 0,
+      "audio_chunks": 0,
+      "audio_duration_s": 0.0,
+      "events": 3,
+      "elapsed_s": 14.13,
+      "success": false
+    },
+    "D7": {
+      "gate": "D7",
+      "text": "今天天气真好，适合出去玩。",
+      "text_len": 13,
+      "audio_chunks": 4,
+      "audio_bytes": 364800,
+      "audio_duration_s": 7.6,
+      "events": 9,
+      "elapsed_s": 44.65,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_131116/D7_tts_output.wav",
+      "wav_sha256": "3e500ced4060ece3e44ca90a4d58224f78c16f2229574b83dc709cbf75020f9f",
+      "wav_size": 364800,
+      "success": true
+    },
+    "D8": {
+      "gate": "D8",
+      "text": "上海位于中国南部，紧邻江苏、浙江两省，长江三角洲中心，东临东海，西接浙江，南濒杭州湾，北界长江入海口。上海是中国的一个直辖市，由上海市人民政府管辖。上海属于亚热带季风气候，温和湿润，雨量充沛。上海是个多雨的城市，雨量季节分配不均，冬季干燥少雨，夏季多雨。上海是中华人民共和国经济、政治、文化中心，世界著名港口和外贸",
+      "text_len": 157,
+      "text_chunks": 10,
+      "events": 13,
+      "elapsed_s": 29.82,
+      "success": true
+    },
+    "D9": {
+      "gate": "D9",
+      "text": "欢迎使用语音助手。",
+      "text_len": 9,
+      "audio_chunks": 4,
+      "audio_duration_s": 7.36,
+      "events": 8,
+      "elapsed_s": 38.68,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_131116/D9_streaming_tts.wav",
+      "wav_sha256": "3077804483957ead494b0865616873d61d907d065f79def1b065abe0574c4181",
+      "success": true
+    },
+    "D10": {
+      "gate": "D10",
+      "text": "我之前看的很多电影啊，像那个，呃，什么盗梦空间，盗梦空间。对，然后还有那个，呃，那个就是叫什么？就是，呃，什么黑客帝国，黑客帝国。对对对。",
+      "text_len": 69,
+      "audio_chunks": 14,
+      "audio_duration_s": 28.48,
+      "events": 23,
+      "elapsed_s": 86.26,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_131116/D10_audio_input_tts.wav",
+      "wav_sha256": "f143fab49192d2ff25ef765dd39f70f11f475bc69d0e33c0e9a47a530f4b4a22",
+      "success": true
+    },
+    "D11": {
+      "gate": "D11",
+      "turns_total": 3,
+      "turns_completed": 3,
+      "turn_results": [
+        {
+          "turn": 1,
+          "input": "你好，今天天气怎么样？",
+          "output": "你好！我无法获取实时天气信息。你可以查看当地的天气预报或者告诉我你所在的城市，我可以帮你查找相关信息。",
+          "success": true
+        },
+        {
+          "turn": 2,
+          "input": "那适合出门吗？",
+          "output": "你好！我无法获取实时天气信息。你可以查看当地的天气预报或者告诉我你所在的城市，我可以帮你查找相关信息。适合出门。",
+          "success": true
+        },
+        {
+          "turn": 3,
+          "input": "谢谢你的建议。",
+          "output": "你好！我无法获取实时天气信息。你可以查看当地的天气预报或者告诉我你所在的城市，我可以帮你查找相关信息。适合出门。不用谢，有需要再找我。",
+          "success": true
+        }
+      ],
+      "text_total": 67,
+      "elapsed_s": 22.95,
+      "success": true
+    }
+  },
+  "finished": "2026-08-06T13:17:33.226575Z",
+  "summary": {
+    "passed": 8,
+    "total": 9,
+    "pass_rate": "8/9"
+  }
+}

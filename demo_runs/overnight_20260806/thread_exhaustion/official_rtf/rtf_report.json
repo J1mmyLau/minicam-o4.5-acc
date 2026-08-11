@@ -1,0 +1,127 @@
+{
+  "timestamp": "2026-08-06 08:50:08",
+  "EXACT_COMMAND": "python3 -u /tmp/rtf_e2e.py",
+  "HARNESS_COMMIT": "d50ebeacae94d407e928023b24cd58003bdf8d57",
+  "ADAPTER_COMMIT": "unknown",
+  "ADAPTER": "WebSocketAdapterV2 from /workspace/llama.cpp-omni-session-fix/submission/adapters/ws_adapter.py",
+  "server_config": "-t 4, F16, die0, concurrency=1",
+  "warmup_count": 3,
+  "measured_count": 10,
+  "VALID_SAMPLE_COUNT": 10,
+  "SUCCESS_RATE": "10/10",
+  "INTERNAL_PER_WAV_TTS_RTF_F16": 4.28,
+  "OFFICIAL_SPEAK_TO_WAV_RTF": "CANNOT_COMPUTE_WITHOUT_AUDIO_DURATION_IN_BENCHMARK",
+  "OFFICIAL_RTF_NOTE": "benchmark_client.py records wall-clock timing but does not compute audio duration. SPEAK->WAV RTF requires sum(WAV_audio_length_ms). Server-side per-WAV TTS RTF is the closest available metric.",
+  "e2e_aggregate": {
+    "p50": 56271.0,
+    "p25": 35241.0,
+    "p75": 56668.0,
+    "min": 34153.0,
+    "max": 56682.0
+  },
+  "ttft_aggregate": {
+    "p50": 42097.0,
+    "p25": 20519.0,
+    "p75": 42374.0
+  },
+  "server_per_wav_rtf": {
+    "p50": 4.28,
+    "p25": 4.02,
+    "p75": 4.81,
+    "min": 3.77,
+    "max": 13.41,
+    "n": 67
+  },
+  "per_request": [
+    {
+      "session_id": "measured-0",
+      "success": true,
+      "error": "",
+      "e2e_ms": 34152.9,
+      "ttft_ms": 20605.3,
+      "first_audio_ms": 25764.3,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-1",
+      "success": true,
+      "error": "",
+      "e2e_ms": 35240.6,
+      "ttft_ms": 20519.1,
+      "first_audio_ms": 26559.9,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-2",
+      "success": true,
+      "error": "",
+      "e2e_ms": 46881.0,
+      "ttft_ms": 19972.0,
+      "first_audio_ms": 25794.8,
+      "chunks": 9
+    },
+    {
+      "session_id": "measured-3",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56667.5,
+      "ttft_ms": 42622.6,
+      "first_audio_ms": 48412.1,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-4",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56676.6,
+      "ttft_ms": 42062.1,
+      "first_audio_ms": 48230.5,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-5",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56681.8,
+      "ttft_ms": 42508.1,
+      "first_audio_ms": 48353.9,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-6",
+      "success": true,
+      "error": "",
+      "e2e_ms": 34409.8,
+      "ttft_ms": 20328.4,
+      "first_audio_ms": 26013.1,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-7",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56448.0,
+      "ttft_ms": 42373.8,
+      "first_audio_ms": 48228.0,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-8",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56271.0,
+      "ttft_ms": 42137.1,
+      "first_audio_ms": 47949.8,
+      "chunks": 5
+    },
+    {
+      "session_id": "measured-9",
+      "success": true,
+      "error": "",
+      "e2e_ms": 56194.1,
+      "ttft_ms": 42096.9,
+      "first_audio_ms": 47916.6,
+      "chunks": 5
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+Name:	llama-omni-serv
+Umask:	0022
+State:	S (sleeping)
+Tgid:	856797
+Ngid:	0
+Pid:	856797
+PPid:	1
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	64
+Groups:	0 
+NStgid:	856797
+NSpid:	856797
+NSpgid:	856797
+NSsid:	856761
+VmPeak:	 5366944 kB
+VmSize:	 5366944 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   25160 kB
+VmRSS:	   25160 kB
+RssAnon:	   16696 kB
+RssFile:	    8464 kB
+RssShmem:	       0 kB
+VmData:	 5244896 kB
+VmStk:	     140 kB
+VmExe:	     904 kB
+VmLib:	   13784 kB
+VmPTE:	    2656 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	0
+Threads:	641
+SigQ:	46/8246716
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000001000
+SigCgt:	0000000100000000
+CapInh:	0000000000000000
+CapPrm:	00000000a80425fb
+CapEff:	00000000a80425fb
+CapBnd:	00000000a80425fb
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	2
+Seccomp_filters:	1
+Speculation_Store_Bypass:	thread vulnerable
+Cpus_allowed:	ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff
+Cpus_allowed_list:	0-639
+Mems_allowed:	00000000,00000000,00000000,000000ff
+Mems_allowed_list:	0-7
+voluntary_ctxt_switches:	3
+nonvoluntary_ctxt_switches:	0
+Cpus_preferred:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000
+Cpus_preferred_list:	

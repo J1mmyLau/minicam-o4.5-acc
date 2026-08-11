@@ -1,0 +1,121 @@
+{
+  "run_id": "20260806_133941",
+  "started": "2026-08-06T13:39:41.127830Z",
+  "results": {
+    "D1-D3": {
+      "gate": "D1-D3",
+      "text": "北京是中华人民共和国的首都，也是世界著名的历史文化名城和国际化大都市。",
+      "text_len": 35,
+      "events": 5,
+      "elapsed_s": 12.63,
+      "success": true
+    },
+    "D4": {
+      "gate": "D4",
+      "text": "这是植物大战僵尸的游戏画面。",
+      "text_len": 14,
+      "events": 4,
+      "elapsed_s": 36.77,
+      "success": true
+    },
+    "D5": {
+      "gate": "D5",
+      "text": "好的，没问题。",
+      "text_len": 7,
+      "events": 4,
+      "elapsed_s": 16.07,
+      "success": true
+    },
+    "D7": {
+      "gate": "D7",
+      "text": "今天天气真好，适合出去玩。",
+      "text_len": 13,
+      "audio_chunks": 6,
+      "audio_bytes": 537600,
+      "audio_duration_s": 11.2,
+      "events": 11,
+      "elapsed_s": 49.92,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_133941/D7_tts_output.wav",
+      "wav_sha256": "b62e853b9b96accc2f4ecf4c5d6c620d6703a4a247189d02f6424fd74af5a0ff",
+      "wav_size": 537600,
+      "success": true
+    },
+    "D8": {
+      "gate": "D8",
+      "text": "上海是中国东部的经济、工业、金融中心，是中国最大的城市。",
+      "text_len": 28,
+      "text_chunks": 2,
+      "events": 5,
+      "elapsed_s": 11.29,
+      "success": true
+    },
+    "D9": {
+      "gate": "D9",
+      "text": "欢迎使用语音助手。",
+      "text_len": 9,
+      "audio_chunks": 6,
+      "audio_duration_s": 10.56,
+      "events": 10,
+      "elapsed_s": 48.05,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_133941/D9_streaming_tts.wav",
+      "wav_sha256": "019d0818d047f1149711c96dae7afebb6fa3d5cc2f2e512198292ccdee41e977",
+      "success": true
+    },
+    "D10": {
+      "gate": "D10",
+      "text": "呃如果说想去看美丽的风景啊当然有啦嗯像之前电影当中的。",
+      "text_len": 27,
+      "audio_chunks": 4,
+      "audio_duration_s": 8.4,
+      "events": 10,
+      "elapsed_s": 42.08,
+      "wav_path": "/workspace/llama.cpp-omni-session-fix/demo_runs/demo_d4_d12/20260806_133941/D10_audio_input_tts.wav",
+      "wav_sha256": "998f2efe9bf8faff81b75a05ef3765b319d9ccd9e09a60e111d753b4f6ea34df",
+      "success": true
+    },
+    "D11": {
+      "gate": "D11",
+      "turns_total": 3,
+      "turns_completed": 3,
+      "turn_results": [
+        {
+          "turn": 1,
+          "input": "你好，今天天气怎么样？",
+          "output": "你好！外面天气不错呢！今天是多云转晴，气温在22℃左右，适合出门走走哦。你那边天气怎么样呀？",
+          "success": true
+        },
+        {
+          "turn": 2,
+          "input": "那适合出门吗？",
+          "output": "你好！外面天气不错呢！今天是多云转晴，气温在22℃左右，适合出门走走哦。你那边天气怎么样呀？适合出门。",
+          "success": true
+        },
+        {
+          "turn": 3,
+          "input": "谢谢你的建议。",
+          "output": "你好！外面天气不错呢！今天是多云转晴，气温在22℃左右，适合出门走走哦。你那边天气怎么样呀？适合出门。不用谢！祝你生活愉快！",
+          "success": true
+        }
+      ],
+      "text_total": 62,
+      "elapsed_s": 22.99,
+      "success": true
+    },
+    "D6": {
+      "gate": "D6",
+      "text": "=",
+      "text_len": 1,
+      "audio_chunks": 0,
+      "audio_duration_s": 0.0,
+      "events": 4,
+      "elapsed_s": 23.33,
+      "success": true
+    }
+  },
+  "finished": "2026-08-06T13:45:32.207944Z",
+  "summary": {
+    "passed": 9,
+    "total": 9,
+    "pass_rate": "9/9"
+  }
+}

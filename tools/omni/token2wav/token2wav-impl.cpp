@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <cmath>
 #include "ggml-backend.h"
@@ -18,6 +19,132 @@ typedef void (*ggml_backend_cuda_set_disable_graph_t)(ggml_backend_t backend, bo
 #include <chrono>
 #include <fstream>
 #include <random>
+
+// E2E profiling globals (defined in omni.cpp)
+extern bool g_e2e_profile_enabled;
+extern std::atomic<int64_t> g_e2e_flow_start_ns;
+extern std::atomic<int64_t> g_e2e_flow_end_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
+
+// F6 C8 N5: Thread-local Flow/Vocoder target context.
+// Set by C8ProfileScope RAII guard before feed_window(), restored on destruction.
+// e2e_record_ns() reads this to determine which per-request timestamps_ns[] slot
+// to mirror each Flow/Vocoder stage write into.
+thread_local C8FlowVocoderTargets g_c8_thread_targets;
+// T2W decomposition: encoder time from pre-built gf_enc graph (set in inference_chunk)
+thread_local double g_last_enc_ms = 0.0;
+
+// ============================================================================
+// P3: Vocoder path hit counters (default OFF, zero overhead when OFF)
+// Gate: OMNI_VOC_PATH_STATS=1
+// NB: These are GLOBAL across all sessions — one dump at process exit.
+// ============================================================================
+static std::atomic<int64_t> g_vocoder_cpu_dispatch_count{0};
+static std::atomic<int64_t> g_vocoder_cann_dispatch_count{0};
+static std::atomic<int64_t> g_vocoder_cann_success_count{0};
+static std::atomic<int64_t> g_vocoder_cann_failure_count{0};
+static std::atomic<int64_t> g_vocoder_cpu_fallback_count{0};
+
+static void vocoder_path_stats_dump();
+
+static bool vocoder_path_stats_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("OMNI_VOC_PATH_STATS");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            std::atexit(vocoder_path_stats_dump);
+        }
+    }
+    return enabled == 1;
+}
+
+#define VOC_PATH_INC(field) \
+    do { if (vocoder_path_stats_enabled()) field.fetch_add(1, std::memory_order_relaxed); } while(0)
+
+static void vocoder_path_stats_dump() {
+    if (!vocoder_path_stats_enabled()) return;
+    std::fprintf(stderr,
+        "\n[VOCODER_PATH_STATS] ========================================\n"
+        "[VOCODER_PATH_STATS] cpu_dispatch       = %ld\n"
+        "[VOCODER_PATH_STATS] cann_dispatch      = %ld\n"
+        "[VOCODER_PATH_STATS] cann_success       = %ld\n"
+        "[VOCODER_PATH_STATS] cann_failure       = %ld\n"
+        "[VOCODER_PATH_STATS] cpu_fallback       = %ld\n"
+        "[VOCODER_PATH_STATS] ========================================\n",
+        (long)g_vocoder_cpu_dispatch_count.load(),
+        (long)g_vocoder_cann_dispatch_count.load(),
+        (long)g_vocoder_cann_success_count.load(),
+        (long)g_vocoder_cann_failure_count.load(),
+        (long)g_vocoder_cpu_fallback_count.load());
+}
+
+static void e2e_record_ns(std::atomic<int64_t>& target) {
+    if (!g_e2e_profile_enabled) return;
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    int64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
+    target.store(ns, std::memory_order_relaxed);
+
+    // F6 C8 N5: mirror to request-scoped per-stage timestamps via thread-local context.
+    const C8FlowVocoderTargets& ctx = g_c8_thread_targets;
+    if (!ctx.flow_start) return;
+
+    // F6 R7: generation-guard the mirror write.
+    // Compares the C8Scope's captured generation against the live
+    // active_generation_id.  A mismatch means the request's reset() has
+    // already fired for the NEXT generation — the current write is stale
+    // and MUST be dropped to prevent cross-request contamination.
+    if (ctx.active_gen) {
+        uint32_t cur = ctx.active_gen->load(std::memory_order_acquire);
+        if (cur != ctx.generation) {
+            return;
+        }
+    }
+
+    std::atomic<int64_t>* mirror = nullptr;
+    if (&target == &g_e2e_flow_start_ns)       mirror = ctx.flow_start;
+    else if (&target == &g_e2e_flow_end_ns)     mirror = ctx.flow_end;
+    else if (&target == &g_e2e_vocoder_start_ns) mirror = ctx.vocoder_start;
+    else if (&target == &g_e2e_vocoder_end_ns)   mirror = ctx.vocoder_end;
+    if (mirror) {
+        // F6 R7: release store pairs with acquire loads in elapsed_ms() and
+        // e2e_record_ns_oneshot().  On aarch64, relaxed stores are NOT ordered
+        // against acquire loads across threads — the dump thread may read 0
+        // while the T2W worker has already written the correct timestamp.
+        mirror->store(ns, std::memory_order_release);
+    }
+}
+
+static void e2e_record_ns_oneshot(std::atomic<int64_t>& target) {
+    if (!g_e2e_profile_enabled) return;
+
+    // F6 R7: per-request once-guard — check the mirror slot first via thread_local context.
+    // This prevents cross-request contamination when the global atomic is reset between
+    // requests while the T2W worker is still processing a previous request.
+    // The per-request slot is request-scoped: reset() zeros it between requests,
+    // so a non-zero slot means THIS request's mirror has already been written.
+    const C8FlowVocoderTargets& ctx = g_c8_thread_targets;
+    bool has_per_request_slot = false;
+    if (ctx.flow_start) {
+        std::atomic<int64_t>* mirror = nullptr;
+        if (&target == &g_e2e_flow_start_ns)       mirror = ctx.flow_start;
+        else if (&target == &g_e2e_flow_end_ns)     mirror = ctx.flow_end;
+        else if (&target == &g_e2e_vocoder_start_ns) mirror = ctx.vocoder_start;
+        else if (&target == &g_e2e_vocoder_end_ns)   mirror = ctx.vocoder_end;
+        has_per_request_slot = (mirror != nullptr);
+        // Per-request once-guard: skip if already recorded for THIS request
+        if (mirror && mirror->load(std::memory_order_relaxed) != 0) return;
+    }
+
+    // Global once-guard as fallback. Skip if we have a valid per-request slot —
+    // the per-request check above is authoritative. The global atomic may be
+    // contaminated by a late worker from a previous request.
+    if (!has_per_request_slot) {
+        if (target.load(std::memory_order_relaxed) != 0) return;
+    }
+    e2e_record_ns(target);
+}
 #include <unordered_map>
 
 #if defined(ENABLE_COREML) && defined(__APPLE__)
@@ -227,6 +354,7 @@ flowSetupCacheOut flowCausalMaskedDiffWithXvec::build_setup_cache_graph(
     ggml_tensor * spk_proj_cb = flow_build_linear_cb(ctx, spk_norm_cb, spk_affine_weight_, spk_affine_bias_);
     auto enc_out = encoder_->forward_chunk(ctx, xs_ctb, false, nullptr, nullptr);
     ggml_tensor * mu_ctb = flow_build_linear_ctb(ctx, enc_out.ys_ctb, encoder_proj_weight_, encoder_proj_bias_);
+    ggml_set_name(mu_ctb, "enc_mu_ctb_boundary");  // marks encoder/FM split point
     out.mu_ctb = mu_ctb;
     flow_matching::fmCFMCache   tmp_cache;
     flow_matching::fmCFMCache * cache_out_ptr = estimator_cache_out ? estimator_cache_out : &tmp_cache;
@@ -292,6 +420,7 @@ flowInferenceChunkOut flowCausalMaskedDiffWithXvec::build_inference_chunk_graph(
     ggml_tensor * spk_proj_cb = flow_build_linear_cb(ctx, spk_norm_cb, spk_affine_weight_, spk_affine_bias_);
     auto enc_out = encoder_->forward_chunk(ctx, xs_ctb, last_chunk, conformer_cnn_cache_in, conformer_att_cache_in);
     ggml_tensor * mu_ctb = flow_build_linear_ctb(ctx, enc_out.ys_ctb, encoder_proj_weight_, encoder_proj_bias_);
+    ggml_set_name(mu_ctb, "enc_mu_ctb_boundary");  // marks encoder/FM split point for T2W decomposition
     ggml_tensor * cond_ctb = ggml_scale(ctx, mu_ctb, 0.0f);
     flow_matching::fmCFMCache   tmp_cache;
     flow_matching::fmCFMCache * cache_out_ptr = estimator_cache_out ? estimator_cache_out : &tmp_cache;
@@ -6596,8 +6725,8 @@ bool voc_hg2_model::voc_hg2_model_init_from_gguf(const std::string & gguf_path_i
     gguf_path   = gguf_path_in;
     num_threads = num_threads_in > 0 ? num_threads_in : 1;
     ggml_backend_load_all();
-    // Support "gpu", "gpu:0", "gpu:1" etc.
-    if (device.find("gpu") == 0) {
+    // Support "gpu", "gpu:0", "gpu:1", "cann", "cann:0" etc.
+    if (device.find("gpu") == 0 || device.find("cann") == 0) {
         int gpu_idx = 0;
         if (device.find("gpu:") == 0 && device.size() > 4) {
             try {
@@ -6622,6 +6751,10 @@ bool voc_hg2_model::voc_hg2_model_init_from_gguf(const std::string & gguf_path_i
         }
         if (!backend) {
             backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+            // P3: CANN/GPU was requested but we fell back to CPU
+            if (strstr(device.c_str(), "gpu") != nullptr || strstr(device.c_str(), "cann") != nullptr) {
+                VOC_PATH_INC(g_vocoder_cpu_fallback_count);
+            }
         }
         std::fprintf(stderr, "voc_hg2_model: init_backend device=%s, gpu_idx=%d, backend=%s\n",
                 device.c_str(), gpu_idx, backend ? ggml_backend_name(backend) : "null");
@@ -6709,10 +6842,36 @@ bool voc_hg2_runner::voc_hg2_runner_build_graph(ggml_context * ctx,
     *out_source_t1_b = source_t1_b;
     return true;
 }
+// ============================================================================
+// P11: Graph reuse feature (O2-A + O2-B)
+// Gate: OMNI_VOC_GRAPH_REUSE=1
+// When T_mel and Tc are unchanged between chunks, skip ggml_init, graph build,
+// and ggml_gallocr_alloc_graph. Only re-upload input tensor data and re-compute.
+// This eliminates ~60-90ms of per-chunk framework overhead.
+// ============================================================================
+bool voc_hg2_runner::graph_reuse_enabled() const {
+    static int v = [] {
+        const char * s = std::getenv("OMNI_VOC_GRAPH_REUSE");
+        if (!s || !*s) return 0;
+        return std::atoi(s) != 0 ? 1 : 0;
+    }();
+    return v != 0;
+}
+
+void voc_hg2_runner::graph_reuse_invalidate() {
+    if (cached_ctx) {
+        ggml_free(cached_ctx);
+        cached_ctx = nullptr;
+    }
+    cached_gf    = nullptr;
+    cached_T_mel = -1;
+    cached_Tc    = -1;
+}
+
 bool voc_hg2_runner::voc_hg2_runner_eval(const std::vector<float> & speech_feat_bct,
                                          int64_t                    T_mel,
                                          std::vector<float> &       out_wave_bt,
-                                         int64_t &                  out_T_audio) const {
+                                         int64_t &                  out_T_audio) {
     std::vector<float> out_source_dummy;
     int64_t            out_T_source_dummy = 0;
     std::vector<float> empty_cache;
@@ -6726,9 +6885,16 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
                                                 std::vector<float> &       out_wave_bt,
                                                 int64_t &                  out_T_audio,
                                                 std::vector<float> &       out_source_bt1,
-                                                int64_t &                  out_T_source) const {
+                                                int64_t &                  out_T_source) {
     if (!model || !model->hg2 || !model->backend || !model->galloc) {
         return false;
+    }
+    // P3: path hit counters
+    const bool is_cann_backend = (strstr(ggml_backend_name(model->backend), "CANN") != nullptr);
+    if (is_cann_backend) {
+        VOC_PATH_INC(g_vocoder_cann_dispatch_count);
+    } else {
+        VOC_PATH_INC(g_vocoder_cpu_dispatch_count);
     }
     const int64_t B = 1;
     const int64_t C = 80;
@@ -6746,30 +6912,86 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         LOG_ERROR( "voc_hg2_runner_eval_stream: invalid cache_source_bt1 size\n");
         return false;
     }
-    ggml_init_params params{};
-    params.mem_size    = 2048ull * 1024ull * 1024ull;
-    params.mem_buffer  = nullptr;
-    params.no_alloc    = true;
-    ggml_context * ctx = ggml_init(params);
-    if (!ctx) {
-        return false;
-    }
-    ggml_tensor * speech_upload_tcb   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, T_mel, C, B);
-    ggml_tensor * speech_feat_c80_t_b = ggml_cont(ctx, ggml_permute(ctx, speech_upload_tcb, 1, 0, 2, 3));
-    ggml_tensor * cache_source_t1_b = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, Tc, 1, B);
-    ggml_tensor * wave_t_b    = nullptr;
-    ggml_tensor * source_t1_b = nullptr;
-    ggml_cgraph * gf = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
-    {
-        omni::flow::profile::ScopeTimer _t("voc.build_alloc");
-        if (!voc_hg2_runner_build_graph(ctx, gf, speech_feat_c80_t_b, cache_source_t1_b, &wave_t_b, &source_t1_b)) {
-            ggml_free(ctx);
+    // P11: Try graph reuse — skip ggml_init + graph build + galloc when shape unchanged
+    const bool try_reuse = graph_reuse_enabled()
+                        && cached_ctx != nullptr
+                        && cached_gf != nullptr
+                        && cached_T_mel == T_mel
+                        && cached_Tc == Tc;
+
+    ggml_context * ctx          = nullptr;
+    ggml_cgraph *  gf           = nullptr;
+    ggml_tensor *  speech_upload_tcb   = nullptr;
+    ggml_tensor *  speech_feat_c80_t_b = nullptr;
+    ggml_tensor *  cache_source_t1_b   = nullptr;
+    ggml_tensor *  wave_t_b    = nullptr;
+    ggml_tensor *  source_t1_b = nullptr;
+    bool           is_reusing  = false;
+
+    if (try_reuse) {
+        // Fast path: reuse cached graph, skip ~60-90ms of framework overhead
+        ctx              = cached_ctx;
+        gf               = cached_gf;
+        speech_upload_tcb = cached_speech_upload;
+        cache_source_t1_b = cached_cache_source;
+        wave_t_b          = cached_wave_out;
+        source_t1_b       = cached_source_out;
+        // speech_feat_c80_t_b is not needed for upload — it's a view/permute
+        speech_feat_c80_t_b = nullptr;
+        is_reusing        = true;
+        // P11 diagnostic: confirm graph reuse hit
+        if (omni::flow::profile::verbose()) {
+            std::fprintf(stderr, "[voc-reuse] hit T_mel=%lld Tc=%lld\n",
+                         (long long)T_mel, (long long)Tc);
+        }
+    } else {
+        // Invalidate old cache when shape changes or reuse is disabled
+        if (cached_ctx) {
+            graph_reuse_invalidate();
+        }
+
+        ggml_init_params params{};
+        params.mem_size    = 2048ull * 1024ull * 1024ull;
+        params.mem_buffer  = nullptr;
+        params.no_alloc    = true;
+        ctx = ggml_init(params);
+        if (!ctx) {
             return false;
         }
-        if (!ggml_gallocr_alloc_graph(model->galloc, gf)) {
-            LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_gallocr_alloc_graph failed\n");
-            ggml_free(ctx);
-            return false;
+        speech_upload_tcb   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, T_mel, C, B);
+        speech_feat_c80_t_b = ggml_cont(ctx, ggml_permute(ctx, speech_upload_tcb, 1, 0, 2, 3));
+        cache_source_t1_b   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, Tc, 1, B);
+        wave_t_b    = nullptr;
+        source_t1_b = nullptr;
+        gf = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+        {
+            omni::flow::profile::ScopeTimer _t("voc.build_alloc");
+            if (!voc_hg2_runner_build_graph(ctx, gf, speech_feat_c80_t_b, cache_source_t1_b, &wave_t_b, &source_t1_b)) {
+                ggml_free(ctx);
+                return false;
+            }
+            if (!ggml_gallocr_alloc_graph(model->galloc, gf)) {
+                LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_gallocr_alloc_graph failed\n");
+                if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
+                ggml_free(ctx);
+                return false;
+            }
+        }
+
+        // Cache for future reuse
+        if (graph_reuse_enabled()) {
+            cached_ctx           = ctx;
+            cached_gf            = gf;
+            cached_speech_upload = speech_upload_tcb;
+            cached_cache_source  = cache_source_t1_b;
+            cached_wave_out      = wave_t_b;
+            cached_source_out    = source_t1_b;
+            cached_T_mel         = T_mel;
+            cached_Tc            = Tc;
+            if (omni::flow::profile::verbose()) {
+                std::fprintf(stderr, "[voc-reuse] build fresh T_mel=%lld Tc=%lld\n",
+                             (long long)T_mel, (long long)Tc);
+            }
         }
     }
     {
@@ -6797,21 +7019,26 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         const ggml_status st = ggml_backend_graph_compute(model->backend, gf);
         if (st != GGML_STATUS_SUCCESS) {
             LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_backend_graph_compute failed\n");
-            ggml_free(ctx);
+            if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
+            if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+            else { ggml_free(ctx); }
             return false;
         }
+        if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_success_count);  // P3
     }
     omni::flow::profile::ScopeTimer _download_timer("voc.download");
     std::vector<float> wave_tb;
     if (!hg_read_tensor_2d_tb_f32(model->backend, wave_t_b, wave_tb)) {
-        ggml_free(ctx);
+        if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+        else { ggml_free(ctx); }
         return false;
     }
     out_T_audio = wave_t_b->ne[0];
     hg_tb_to_bt(wave_tb, out_T_audio, B, out_wave_bt);
     std::vector<float> source_tcb;
     if (!hg_read_tensor_3d_tcb_f32(model->backend, source_t1_b, source_tcb)) {
-        ggml_free(ctx);
+        if (is_reusing || graph_reuse_enabled()) { graph_reuse_invalidate(); }
+        else { ggml_free(ctx); }
         return false;
     }
     out_T_source = source_t1_b->ne[0];
@@ -6820,7 +7047,11 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
         source_t1b[(size_t) t] = source_tcb[(size_t) t];
     }
     hg_t1b_to_bt1(source_t1b, out_T_source, B, out_source_bt1);
-    ggml_free(ctx);
+    // P11: When graph reuse is enabled, keep ctx alive for next chunk.
+    // Only free when reuse is disabled AND we're not reusing a cached ctx.
+    if (!is_reusing && !graph_reuse_enabled()) {
+        ggml_free(ctx);
+    }
     return true;
 }
 }  // namespace vocoder
@@ -7586,6 +7817,7 @@ struct flowGGUFModelRunner::streamSession {
     ggml_cgraph * gf_setup   = nullptr;
     ggml_cgraph * gf_nonlast = nullptr;
     ggml_cgraph * gf_last    = nullptr;
+    ggml_cgraph * gf_enc     = nullptr;  // encoder-only graph for T2W decomposition timing
     int call_id_setup   = -1;
     int call_id_nonlast = -1;
     int call_id_last    = -1;
@@ -7823,7 +8055,24 @@ bool flowGGUFModelRunner::setup_cache(const int32_t *       token_bt,
         ggml_build_forward_expand(sess_->gf_last, cpy_est_cnn_2);
         ggml_build_forward_expand(sess_->gf_last, cpy_est_att_2);
 
-        
+        // Build encoder-only graph for T2W decomposition timing.
+        // mu_ctb is named "enc_mu_ctb_boundary" in build_inference_chunk_graph.
+        ggml_tensor * mu_enc = ggml_graph_get_tensor(sess_->gf_nonlast, "enc_mu_ctb_boundary");
+        if (!mu_enc) {
+            mu_enc = ggml_graph_get_tensor(sess_->gf_last, "enc_mu_ctb_boundary");
+        }
+        if (mu_enc) {
+            std::fprintf(stderr, "[t2w-debug] gf_enc built: mu_enc found, n_nodes_nonlast=%d n_nodes_last=%d\n",
+                         ggml_graph_n_nodes(sess_->gf_nonlast), ggml_graph_n_nodes(sess_->gf_last));
+            sess_->gf_enc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+            ggml_build_forward_expand(sess_->gf_enc, mu_enc);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_att_1);
+        } else {
+            std::fprintf(stderr, "[t2w-debug] WARNING: mu_enc NOT found in gf_nonlast or gf_last\n");
+        }
+
+
         ggml_cgraph * gf_alloc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 1024, false);
         ggml_build_forward_expand(gf_alloc, cpy_conf_cnn);
         ggml_build_forward_expand(gf_alloc, cpy_conf_att);
@@ -7839,6 +8088,12 @@ bool flowGGUFModelRunner::setup_cache(const int32_t *       token_bt,
         ggml_build_forward_expand(gf_alloc, cpy_conf_att_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_cnn_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_att_2);
+        // Include encoder-only graph nodes for gallocr memory planning
+        if (mu_enc) {
+            ggml_build_forward_expand(gf_alloc, mu_enc);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_att_1);
+        }
 
         ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(loader_.backend());
         sess_->galloc = ggml_gallocr_new(buft);
@@ -7971,6 +8226,23 @@ bool flowGGUFModelRunner::inference_chunk(const int32_t *             token_bt,
             ggml_graph_print(gf);
         }
     }
+    // T2W decomposition: compute pre-built encoder-only graph to measure HG2 encoder time.
+    // gf_enc is built during setup_cache from the encoder portion of the fused graph.
+    if (sess_->gf_enc) {
+        const auto t_enc0 = std::chrono::steady_clock::now();
+        const ggml_status st = ggml_backend_graph_compute(loader_.backend(), sess_->gf_enc);
+        if (st != GGML_STATUS_SUCCESS) {
+            return false;
+        }
+        if (runner_backend_is_device(loader_.backend())) {
+            ggml_backend_synchronize(loader_.backend());
+        }
+        const auto t_enc1 = std::chrono::steady_clock::now();
+        g_last_enc_ms = std::chrono::duration<double, std::milli>(t_enc1 - t_enc0).count();
+        omni::flow::profile::record_ms("t2m.encoder", g_last_enc_ms, false);
+    }
+    // Compute full fused graph (encoder + flow matching).
+    // FM time = t2m.compute - t2m.encoder (recorded by Profiler).
     {
         omni::flow::profile::ScopeTimer _t("t2m.compute");
         // [PR25-GF_LAST-EAGER] 默认对 last_chunk 走 eager path：
@@ -8465,6 +8737,23 @@ bool flowGGUFModelRunner::init_from_host_caches(const flowStreamCacheHost & cach
         ggml_build_forward_expand(sess_->gf_last, cpy_est_cnn_2);
         ggml_build_forward_expand(sess_->gf_last, cpy_est_att_2);
 
+        // Build encoder-only graph for T2W decomposition timing.
+        // mu_ctb is named "enc_mu_ctb_boundary" in build_inference_chunk_graph.
+        ggml_tensor * mu_enc = ggml_graph_get_tensor(sess_->gf_nonlast, "enc_mu_ctb_boundary");
+        if (!mu_enc) {
+            mu_enc = ggml_graph_get_tensor(sess_->gf_last, "enc_mu_ctb_boundary");
+        }
+        if (mu_enc) {
+            std::fprintf(stderr, "[t2w-debug] gf_enc built (init_from_host_caches): mu_enc found, n_nodes_nonlast=%d n_nodes_last=%d\n",
+                         ggml_graph_n_nodes(sess_->gf_nonlast), ggml_graph_n_nodes(sess_->gf_last));
+            sess_->gf_enc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 256, false);
+            ggml_build_forward_expand(sess_->gf_enc, mu_enc);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(sess_->gf_enc, cpy_conf_att_1);
+        } else {
+            std::fprintf(stderr, "[t2w-debug] WARNING (init_from_host_caches): mu_enc NOT found in gf_nonlast or gf_last\n");
+        }
+
         ggml_cgraph * gf_alloc = ggml_new_graph_custom(sess_->ctx, GGML_DEFAULT_GRAPH_SIZE * 1024, false);
         ggml_build_forward_expand(gf_alloc, sess_->out_feat_nonlast_ctb);
         ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
@@ -8476,6 +8765,12 @@ bool flowGGUFModelRunner::init_from_host_caches(const flowStreamCacheHost & cach
         ggml_build_forward_expand(gf_alloc, cpy_conf_att_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_cnn_2);
         ggml_build_forward_expand(gf_alloc, cpy_est_att_2);
+        // Include encoder-only graph nodes for gallocr memory planning
+        if (mu_enc) {
+            ggml_build_forward_expand(gf_alloc, mu_enc);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_cnn_1);
+            ggml_build_forward_expand(gf_alloc, cpy_conf_att_1);
+        }
 
         ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(loader_.backend());
         sess_->galloc = ggml_gallocr_new(buft);
@@ -9678,20 +9973,7 @@ bool Token2Wav::load_models(const std::string & encoder_gguf,
                             const std::string & coreml_model_path) {
     reset_stream();
 
-    // CPU thread count for token2mel / vocoder. Overridable via env
-    // OMNI_T2W_THREADS: on many-core servers the vocoder-on-CPU path
-    // benefits from far more than 8 threads. Only affects CPU backends.
-    int kDefaultThreads = 8;
-    {
-        const char * th = getenv("OMNI_T2W_THREADS");
-        if (th && th[0]) {
-            int v = atoi(th);
-            if (v > 0) {
-                kDefaultThreads = v;
-            }
-        }
-    }
-    std::fprintf(stderr, "Token2Wav.load_models: using %d CPU threads (token2mel+vocoder)\n", kDefaultThreads);
+    constexpr int kDefaultThreads = 8;
     if (!t2m_.load_model(encoder_gguf, flow_matching_gguf, flow_extra_gguf, device_token2mel, kDefaultThreads,
                          coreml_model_path)) {
         LOG_ERROR( "Token2Wav.load_models: Token2Mel.load_model failed\n");
@@ -9777,11 +10059,13 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
 
     std::vector<float> mel_bct;
     const auto         t_t2m0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_start_ns);
     if (!t2m_.push_tokens(tokens, n_tokens, is_final, mel_bct)) {
         LOG_ERROR("Token2Wav.push_tokens_window: Token2Mel.push_tokens failed\n");
         return false;
     }
     const auto   t_t2m1  = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_end_ns);
     const double t2m_ms  = std::chrono::duration<double, std::milli>(t_t2m1 - t_t2m0).count();
 
     if (mel_bct.empty()) {
@@ -9790,10 +10074,11 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
         omni::flow::profile::record_ms("vocoder", 0.0, is_first);
         omni::flow::profile::record_ms("total", total_ms, is_first);
         if (omni::flow::profile::verbose()) {
+            const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
             std::fprintf(stderr,
-                         "[timing] call=%lld%s tokens=%lld final=%d token2mel=%.3fms vocoder=%.3fms total=%.3fms\n",
-                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final, t2m_ms,
-                         0.0, total_ms);
+                         "[timing] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms vocoder=%.3fms total=%.3fms\n",
+                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                         g_last_enc_ms, fm_ms, t2m_ms, 0.0, total_ms);
         }
         return true;
     }
@@ -9810,12 +10095,14 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     std::vector<float> out_source_bt1;
     int64_t            out_T_source = 0;
     const auto t_voc0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_start_ns);
     if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_, wave_bt_out,
                                                 out_T_audio, out_source_bt1, out_T_source)) {
         LOG_ERROR( "Token2Wav.push_tokens_window: voc_hg2_runner_eval_stream failed\n");
         return false;
     }
     const auto t_voc1 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_end_ns);
 
     if (!voc_speech_cache_bt_.empty()) {
         token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
@@ -9856,11 +10143,181 @@ bool Token2Wav::push_tokens_window(const int32_t *      tokens,
     omni::flow::profile::record_audio_samples((int64_t) out_T_audio, (int32_t) Token2Wav::kSampleRate);
 
     if (omni::flow::profile::verbose()) {
+        const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
         std::fprintf(
             stderr,
-            "[timing] call=%lld%s tokens=%lld final=%d token2mel=%.3fms vocoder=%.3fms total=%.3fms audio=%lld\n",
-            (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final, t2m_ms, voc_ms, total_ms,
+            "[timing] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms vocoder=%.3fms total=%.3fms audio=%lld\n",
+            (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+            g_last_enc_ms, fm_ms, t2m_ms, voc_ms, total_ms,
             (long long) out_T_audio);
+    }
+
+    return true;
+}
+
+// ========================================================================
+// F6 Phase 4: Flow-only (token→mel) — extracted from push_tokens_window.
+// Runs only Token2Mel.  Does NOT touch vocoder state.
+// ========================================================================
+bool Token2Wav::push_tokens_mel_only(const int32_t * tokens,
+                                      int64_t         n_tokens,
+                                      bool            is_final,
+                                      std::vector<float> & mel_bct_out) {
+    mel_bct_out.clear();
+
+    if (!models_loaded_) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: models not loaded\n");
+        return false;
+    }
+
+    if (n_tokens < 0 || n_tokens > Token2Mel::kDt) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: expected 0 <= n_tokens <= %d, got %lld\n",
+                     (int) Token2Mel::kDt, (long long) n_tokens);
+        return false;
+    }
+
+    using clock = std::chrono::steady_clock;
+    const auto                  t_total0 = clock::now();
+    static thread_local int64_t call_id  = 0;
+    const int64_t               cid      = call_id++;
+    const bool                  is_first = (cid == 0);
+
+    const auto t_t2m0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_start_ns);
+    if (!t2m_.push_tokens(tokens, n_tokens, is_final, mel_bct_out)) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: Token2Mel.push_tokens failed\n");
+        return false;
+    }
+    const auto   t_t2m1  = clock::now();
+    e2e_record_ns_oneshot(g_e2e_flow_end_ns);
+    const double t2m_ms  = std::chrono::duration<double, std::milli>(t_t2m1 - t_t2m0).count();
+
+    // Empty mel is valid (final window with no new mel frames)
+    if (mel_bct_out.empty()) {
+        const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+        omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+        omni::flow::profile::record_ms("vocoder", 0.0, is_first);
+        omni::flow::profile::record_ms("total", total_ms, is_first);
+        if (omni::flow::profile::verbose()) {
+            const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
+            std::fprintf(stderr,
+                         "[timing_flow] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms total=%.3fms\n",
+                         (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                         g_last_enc_ms, fm_ms, t2m_ms, total_ms);
+        }
+        return true;
+    }
+    if (mel_bct_out.size() % (size_t) Token2Mel::kMelChannels != 0) {
+        LOG_ERROR("Token2Wav.push_tokens_mel_only: invalid mel size (not divisible by 80)\n");
+        return false;
+    }
+
+    omni::flow::profile::record_ms("token2mel", t2m_ms, is_first);
+
+    // Print Flow timing for non-empty mel (empty case printed above in early return)
+    if (omni::flow::profile::verbose()) {
+        const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+        const double fm_ms = (g_last_enc_ms > 0.0 && t2m_ms > g_last_enc_ms) ? (t2m_ms - g_last_enc_ms) : 0.0;
+        std::fprintf(stderr,
+                     "[timing_flow] call=%lld%s tokens=%lld final=%d encoder=%.3fms flow_match=%.3fms token2mel=%.3fms total=%.3fms\n",
+                     (long long) cid, is_first ? "(first)" : "", (long long) n_tokens, (int) is_final,
+                     g_last_enc_ms, fm_ms, t2m_ms, total_ms);
+    }
+    return true;
+}
+
+// ========================================================================
+// F6 Phase 4: Vocoder-only (mel→wave) — extracted from push_tokens_window.
+// Runs only Vocoder Hg2 + crossfade + cache management.
+// Takes ownership of mel_bct by value.  MUST be single-threaded.
+// ========================================================================
+bool Token2Wav::push_mel_to_wave(std::vector<float>   mel_bct,
+                                  bool                 is_final,
+                                  std::vector<float> & wave_bt_out,
+                                  int64_t &            out_T_audio) {
+    wave_bt_out.clear();
+    out_T_audio = 0;
+
+    if (!models_loaded_) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: models not loaded\n");
+        return false;
+    }
+
+    if (mel_bct.empty()) {
+        // No mel to process — legitimate for final-window flush
+        return true;
+    }
+    if (mel_bct.size() % (size_t) Token2Mel::kMelChannels != 0) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: invalid mel size (not divisible by 80)\n");
+        return false;
+    }
+
+    using clock = std::chrono::steady_clock;
+    const auto                  t_total0 = clock::now();
+    static thread_local int64_t call_id  = 0;
+    const int64_t               cid      = call_id++;
+    const bool                  is_first = (cid == 0);
+
+    std::vector<float> mel_in_bct = voc_mel_cache_bct_;
+    Token2Mel::append_bct_along_time(mel_bct, 1, Token2Mel::kMelChannels, mel_in_bct);
+
+    const int64_t T_mel = (int64_t) mel_in_bct.size() / (int64_t) Token2Mel::kMelChannels;
+
+    std::vector<float> out_source_bt1;
+    int64_t            out_T_source = 0;
+    const auto t_voc0 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_start_ns);
+    if (!voc_runner_.voc_hg2_runner_eval_stream(mel_in_bct, T_mel, voc_cache_source_bt1_, voc_Tc_, wave_bt_out,
+                                                out_T_audio, out_source_bt1, out_T_source)) {
+        LOG_ERROR("Token2Wav.push_mel_to_wave: voc_hg2_runner_eval_stream failed\n");
+        return false;
+    }
+    const auto t_voc1 = clock::now();
+    e2e_record_ns_oneshot(g_e2e_vocoder_end_ns);
+
+    if (!voc_speech_cache_bt_.empty()) {
+        token2wav_utils::fade_in_out_b1(wave_bt_out, voc_speech_cache_bt_, voc_speech_window_, (int64_t) kSourceCacheLen);
+    }
+
+    {
+        const int64_t      C       = Token2Mel::kMelChannels;
+        const int64_t      T_total = (int64_t) mel_in_bct.size() / C;
+        std::vector<float> next_mel_cache;
+        token2wav_utils::crop_bct_tail_b1(mel_in_bct, C, T_total, (int64_t) kMelCacheLen, next_mel_cache);
+        voc_mel_cache_bct_.swap(next_mel_cache);
+    }
+
+    {
+        std::vector<float> next_source_cache;
+        token2wav_utils::crop_t_tail_b1(out_source_bt1, (int64_t) kSourceCacheLen, next_source_cache);
+        voc_cache_source_bt1_.swap(next_source_cache);
+        voc_Tc_ = (int64_t) voc_cache_source_bt1_.size();
+    }
+
+    {
+        std::vector<float> next_speech_cache;
+        token2wav_utils::crop_t_tail_b1(wave_bt_out, (int64_t) kSourceCacheLen, next_speech_cache);
+        voc_speech_cache_bt_.swap(next_speech_cache);
+    }
+
+    if (!is_final && (int64_t) wave_bt_out.size() > (int64_t) kSourceCacheLen) {
+        wave_bt_out.resize(wave_bt_out.size() - (size_t) kSourceCacheLen);
+        out_T_audio = (int64_t) wave_bt_out.size();
+    }
+
+    const double voc_ms   = std::chrono::duration<double, std::milli>(t_voc1 - t_voc0).count();
+    const double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_total0).count();
+
+    omni::flow::profile::record_ms("vocoder", voc_ms, is_first);
+    omni::flow::profile::record_ms("total", total_ms, is_first);
+    omni::flow::profile::record_audio_samples((int64_t) out_T_audio, (int32_t) Token2Wav::kSampleRate);
+
+    if (omni::flow::profile::verbose()) {
+        std::fprintf(
+            stderr,
+            "[timing_voc] call=%lld%s final=%d vocoder=%.3fms total=%.3fms audio=%lld\n",
+            (long long) cid, is_first ? "(first)" : "", (int) is_final,
+            voc_ms, total_ms, (long long) out_T_audio);
     }
 
     return true;

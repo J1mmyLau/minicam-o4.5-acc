@@ -1,0 +1,9 @@
+SERVER_PID=88622
+SERVER_CMDLINE=ASCEND_RT_VISIBLE_DEVICES=0 ./build/bin/llama-omni-server
+SERVER_CWD=/workspace/llama.cpp-omni-session-fix
+SERVER_BINARY_SHA256=2bfb2e5028c4f0cf5b8a9e17b22c2cd071505db9e0baa9afc456c00bae84ceb4
+VISIBLE_DAVINCI_DEVICES=/dev/davinci0
+ASCEND_RT_VISIBLE_DEVICES=0
+OUR_SERVER_ON_DIE0=YES
+OUR_SERVER_ON_DIE1=NO
+PID_FILE=/tmp/llama-omni-session-fix.pid

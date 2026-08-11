@@ -574,6 +574,8 @@ void ggml_cann_set_rows(ggml_backend_cann_context & ctx, ggml_tensor * dst);
  */
 void ggml_cann_mul_mat(ggml_backend_cann_context & ctx, ggml_tensor * dst);
 
+bool cannd_w8a8_enabled();
+
 /**
  * @brief Applies Rotary Positional Embedding (RoPE) to the input tensor.
  *
@@ -974,6 +976,10 @@ void ggml_cann_mul_mat_id(ggml_backend_cann_context & ctx, ggml_tensor * dst);
 void ggml_cann_op_add_rms_norm_fused(ggml_backend_cann_context & ctx,
                                      ggml_tensor *               add_node,
                                      ggml_tensor *               rms_norm_node);
+
+void ggml_cann_op_add_norm_fused(ggml_backend_cann_context & ctx,
+                                  ggml_tensor *               add_node,
+                                  ggml_tensor *               norm_node);
 
 /**
  * @brief   Check whether a tensor is a weight tensor for matrix multiplication.

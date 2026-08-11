@@ -1,0 +1,148 @@
+0.00.685.544 I Omni HTTP server starting...
+F6_EVENT|13678600503411510|OMNI_INIT_HANDLER_ENTER|req=-1|ctx=0x0|tid=0xbeec98ad9ef07f4f
+F6_EVENT|13678600503509430|OMNI_INIT_BEGIN|req=-1|ctx=0x0|tid=0xbeec98ad9ef07f4f
+3.17.000.017 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+3.20.310.060 W llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+vision_model_loader: model name:   
+vision_model_loader: description:  image encoder for MiniCPM-V
+vision_model_loader: GGUF version: 3
+vision_model_loader: alignment:    32
+vision_model_loader: n_tensors:    455
+vision_model_loader: n_kv:         20
+
+vision_ctx: vision using CANN0 backend
+load_hparams: model_type:         0
+load_hparams: n_embd:             1152
+load_hparams: n_head:             16
+load_hparams: n_ff:               4304
+load_hparams: n_layer:            27
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- vision hparams ---
+load_hparams: image_size:         448
+load_hparams: patch_size:         14
+load_hparams: minicpmv_version:   100045
+load_hparams: proj_scale_factor:  0
+load_hparams: n_wa_pattern:       0
+load_hparams: insert_layer_id:     0
+
+load_hparams: model size:         1044.36 MiB
+load_hparams: metadata size:      0.16 MiB
+load_tensors: ffn up/down are swapped
+alloc_compute_meta:      CANN0 compute buffer size =   100.30 MiB
+alloc_compute_meta:        CPU compute buffer size =    18.30 MiB
+vision_set_batch_encode: vision batch encode disabled
+F6_EVENT|13678604958694840|OMNI_INIT_END|req=-1|ctx=0xfffdfc0039e0|tid=0xbeec98ad9ef07f4f
+F6_EVENT|13678609477943350|OMNI_INIT_HANDLER_ENTER|req=-1|ctx=0xfffdfc0039e0|tid=0xc06f71ad51a0cd88
+F6_EVENT|13678609478024300|OMNI_FREE_BEGIN|req=-1|ctx=0xfffdfc0039e0|tid=0xc06f71ad51a0cd88
+audition_whisper_free_kv_cache: KV cache freed
+F6_EVENT|13678609638852470|OMNI_FREE_END|req=-1|ctx=0x0|tid=0xc06f71ad51a0cd88
+F6_EVENT|13678609638880560|OMNI_INIT_BEGIN|req=-1|ctx=0x0|tid=0xc06f71ad51a0cd88
+3.26.927.272 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+3.29.639.990 W llama_context: n_ctx_seq (4096) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+audition_init: initializing audition model from '/workspace/models/MiniCPM-o-4_5-gguf/audio/MiniCPM-o-4_5-audio-F16.gguf'
+audition_init: creating model loader...
+audition_model_loader: model name:   
+audition_model_loader: description:  audio encoder for MiniCPM-omni
+audition_model_loader: GGUF version: 3
+audition_model_loader: alignment:    32
+audition_model_loader: n_tensors:    371
+audition_model_loader: n_kv:         13
+
+audition_model_loader: has audio encoder
+audition_init: creating audition context...
+audition_ctx: CLIP using CANN0 backend
+audition_init: loading hyperparameters...
+load_hparams: Loading custom whisper encoder parameters
+load_hparams: Custom whisper encoder - n_embd=1024, n_head=16, n_layer=24, n_mel_bins=80, n_fft=201, n_ctx=1500, patch_size=1
+load_hparams: projector:          
+load_hparams: n_embd:             1024
+load_hparams: n_head:             16
+load_hparams: n_ff:               4096
+load_hparams: n_layer:            24
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- audio hparams ---
+load_hparams: n_mel_bins:         80
+load_hparams: proj_stack_factor:  0
+
+load_hparams: model size:         629.50 MiB
+load_hparams: metadata size:      0.13 MiB
+audition_init: loading tensors...
+load_tensors: Custom whisper encoder detected, increasing memory pool size to 547584 bytes
+load_tensors: Skipping standard layers loading for CUSTOM_WHISPER
+load_tensors: Loading custom whisper encoder tensors
+load_tensors: Loaded mel filters: 80 mel bins x 201 fft bins = 16080 elements
+load_tensors: Successfully loaded 24 whisper encoder layers, projector and mel filters
+audition_whisper_init_kv_cache: KV cache initialized - n_layer=24, n_state=1024, n_audio_ctx=1500, buffer_size=140.62 MB
+audition_init: allocating compute metadata...
+build_whisper: Whisper encoder graph built (projector output, pre-pooling)
+alloc_compute_meta:      CANN0 compute buffer size =   188.89 MiB
+alloc_compute_meta:        CPU compute buffer size =    28.12 MiB
+audition_init: audition model initialized successfully
+init vision....vision_model_loader: model name:   
+vision_model_loader: description:  image encoder for MiniCPM-V
+vision_model_loader: GGUF version: 3
+vision_model_loader: alignment:    32
+vision_model_loader: n_tensors:    455
+vision_model_loader: n_kv:         20
+
+vision_ctx: vision using CANN0 backend
+load_hparams: model_type:         0
+load_hparams: n_embd:             1152
+load_hparams: n_head:             16
+load_hparams: n_ff:               4304
+load_hparams: n_layer:            27
+load_hparams: ffn_op:             gelu
+load_hparams: projection_dim:     0
+
+--- vision hparams ---
+load_hparams: image_size:         448
+load_hparams: patch_size:         14
+load_hparams: minicpmv_version:   100045
+load_hparams: proj_scale_factor:  0
+load_hparams: n_wa_pattern:       0
+load_hparams: insert_layer_id:     0
+
+load_hparams: model size:         1044.36 MiB
+load_hparams: metadata size:      0.16 MiB
+load_tensors: ffn up/down are swapped
+alloc_compute_meta:      CANN0 compute buffer size =   100.30 MiB
+alloc_compute_meta:        CPU compute buffer size =    18.30 MiB
+vision_set_batch_encode: vision batch encode disabled
+F6_EVENT|13678614244949960|OMNI_INIT_END|req=-1|ctx=0xfffddc0028f0|tid=0xc06f71ad51a0cd88
+audition_audio_preprocess: Decoded audio - sample_rate=16000, n_samples=96256
+audition_audio_preprocess: Audio not aligned to 100ms (96256 samples = 6016.0ms), padded with silence to 97600 samples (6100ms)
+audition_get_mel_filters: Retrieved mel filters from model: 80 mel bins x 201 fft bins
+audition_audio_preprocess: Using mel filters - n_mel=80, n_fft=201
+audition_audio_preprocess: Generated 1 mel spectrogram chunk(s)
+audition_audio_preprocess: Mel spectrogram ready - n_len=610, n_mel=80, total_size=48800
+build_whisper: Whisper encoder graph built (projector output, pre-pooling)
+audition_audio_batch_encode: Audio input data - n_step=610, n_mel=80, total_elements=48800
+audition_audio_batch_encode: Before incrementing iter: input_frames=610, n_tokens=305, current_iter=0, current_total=0, new_total=305, max_tokens=1500
+audition_audio_batch_encode: KV cache iter incremented to 1 (total_tokens=305, max_tokens=1500)
+audition_audio_batch_encode: Final output shape: [4096, 61]
+audition_audio_batch_encode: Final output: 61 tokens x 4096 dims
+F6_EVENT|13678614718002070|HANDLER_ENTER|req=-1|ctx=0xfffddc0028f0|tid=0x2c9698371970c0a9
+F6_REQSTATE|13678614718020610|req=-1|IDLE→VALIDATING|label=handler_enter|OK
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(+0x180a4)[0xffff82c580a4]
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(ggml_print_backtrace+0x21c)[0xffff82c5857c]
+/workspace/llama.cpp-omni-f6/build/bin/libggml-base.so.0(+0x2ae5c)[0xffff82c6ae5c]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2b4c)[0xffff83162b4c]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2bb0)[0xffff83162bb0]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa2e94)[0xffff83162e94]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xa3488)[0xffff83163488]
+build/bin/llama-omni-server(+0x347e4)[0xaaaab94747e4]
+build/bin/llama-omni-server(+0x3a044)[0xaaaab947a044]
+build/bin/llama-omni-server(+0x44454)[0xaaaab9484454]
+build/bin/llama-omni-server(_ZN7httplib6Server19write_response_coreERNS_6StreamEbRKNS_7RequestERNS_8ResponseEb+0x11fc)[0xaaaab94aea4c]
+build/bin/llama-omni-server(_ZN7httplib6Server15process_requestERNS_6StreamERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiSA_ibRbRKSt8functionIFvRNS_7RequestEEEPb+0x12e0)[0xaaaab94d0c30]
+build/bin/llama-omni-server(_ZN7httplib6Server24process_and_close_socketEi+0x37c)[0xaaaab94d222c]
+build/bin/llama-omni-server(+0x47d64)[0xaaaab9487d64]
+/lib/aarch64-linux-gnu/libstdc++.so.6(+0xd29cc)[0xffff831929cc]
+/lib/aarch64-linux-gnu/libc.so.6(+0x80398)[0xffff82f60398]
+/lib/aarch64-linux-gnu/libc.so.6(+0xe9e9c)[0xffff82fc9e9c]
+terminate called after throwing an instance of 'std::bad_alloc'
+  what():  std::bad_alloc

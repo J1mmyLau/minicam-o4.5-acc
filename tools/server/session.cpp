@@ -97,6 +97,41 @@ void SessionManager::request_transport_close(const std::string & session_id) {
     }
 }
 
+std::function<void()> SessionManager::take_close_callback(const std::string & session_id) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!active_ || active_->session_id != session_id) {
+        return {};
+    }
+    return std::move(active_->close_ws);
+}
+
+std::function<void()> SessionManager::close_and_take_callback(const std::string & session_id) {
+    std::unique_ptr<OmniSession> to_free;
+    std::function<void()> close_ws;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+
+        if (!active_ || active_->session_id != session_id) {
+            return {};
+        }
+
+        if (active_->state == SessionState::ACTIVE) {
+            active_->state = SessionState::CLOSED;
+        }
+
+        close_ws = std::move(active_->close_ws);
+        to_free = std::move(active_);
+    }
+
+    // Release omni_context outside lock.
+    if (to_free && to_free->owns_octx && to_free->octx) {
+        omni_free(to_free->octx);
+        to_free->octx = nullptr;
+    }
+
+    return close_ws;
+}
+
 void SessionManager::close(const std::string & session_id) {
     std::unique_ptr<OmniSession> to_free;
     {

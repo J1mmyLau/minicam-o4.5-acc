@@ -1,0 +1,157 @@
+{
+  "label": "S2W-1",
+  "session_id": "5a5c64e16a15abab7a340754562d3394",
+  "total_text_tokens": 3,
+  "total_audio_chunks": 7,
+  "text_events": [
+    {
+      "ts_rel": 15.496,
+      "text": "今天天气还不错，太阳"
+    },
+    {
+      "ts_rel": 24.6405,
+      "text": "挺晒的。不过也有些云，应该"
+    },
+    {
+      "ts_rel": 33.8881,
+      "text": "不会太热。适合出门走走！"
+    }
+  ],
+  "audio_events": [
+    {
+      "ts_rel": 34.1493,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 32,
+      "kv_cache_length": 160,
+      "text_still_flowing": true
+    },
+    {
+      "ts_rel": 46.7487,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 58,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 59.6576,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 83,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 72.5058,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 108,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 84.5127,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 134,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 96.2442,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 157,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 107.5174,
+      "chunk_duration_s": 2.16,
+      "pcm_bytes": 103680,
+      "n_tts_tokens": 0,
+      "kv_cache_length": 5,
+      "text_still_flowing": false
+    }
+  ],
+  "speak_phase_chunks": [
+    {
+      "ts_rel": 34.1493,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 32,
+      "kv_cache_length": 160,
+      "text_still_flowing": true
+    }
+  ],
+  "tail_chunks": [
+    {
+      "ts_rel": 46.7487,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 58,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 59.6576,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 83,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 72.5058,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 108,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 84.5127,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 134,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 96.2442,
+      "chunk_duration_s": 2.0,
+      "pcm_bytes": 96000,
+      "n_tts_tokens": 157,
+      "kv_cache_length": 160,
+      "text_still_flowing": false
+    },
+    {
+      "ts_rel": 107.5174,
+      "chunk_duration_s": 2.16,
+      "pcm_bytes": 103680,
+      "n_tts_tokens": 0,
+      "kv_cache_length": 5,
+      "text_still_flowing": false
+    }
+  ],
+  "error": null,
+  "done_ts_rel": 107.5179,
+  "done_metrics": {
+    "total_wall_clock_ms": 107517.20751,
+    "prefill_ms": 8892.91919,
+    "generate_ms": 95137.16875,
+    "cost_tts_ms": 3487.1195699999953
+  },
+  "wall_clock_s": 107.613,
+  "speak_phase_rtf_avg": 17.0746,
+  "speak_phase_rtf_per_chunk": [
+    {
+      "chunk": 0,
+      "latency_s": 34.1493,
+      "rtf": 17.0746
+    }
+  ],
+  "speak_phase_latency_avg_ms": 34149.3,
+  "tail_chunk_count": 6
+}

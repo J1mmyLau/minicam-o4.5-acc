@@ -1,0 +1,1786 @@
+{
+  "generated": "2026-07-28T07:32:29.555808Z",
+  "source_commit": "8a5abcb",
+  "files": [
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/msprof_20260728064956.db",
+      "size_bytes": 61579264,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sample.json",
+      "size_bytes": 3269,
+      "sha256_16": "3e76f43274d894f2"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "98f2f20a7eb767f4"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/start_info",
+      "size_bytes": 179,
+      "sha256_16": "e763153a9883f57f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/start_info.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/host_start.log",
+      "size_bytes": 86,
+      "sha256_16": "40fcee637e75a0dc"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/host_start.log.done",
+      "size_bytes": 12,
+      "sha256_16": "a2c6ea488ce93cb1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/info.json",
+      "size_bytes": 576,
+      "sha256_16": "09cee8d6f8d595e1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/info.json.done",
+      "size_bytes": 13,
+      "sha256_16": "24d2eccf54c01944"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/end_info",
+      "size_bytes": 179,
+      "sha256_16": "191127f39b9001d1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/end_info.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_0",
+      "size_bytes": 2097408,
+      "sha256_16": "7eebac67e681eb5d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.compact.expand_stream_spec.slice_0",
+      "size_bytes": 128,
+      "sha256_16": "027f179b7dc92538"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_0",
+      "size_bytes": 2098360,
+      "sha256_16": "5d3a7055a26c5aca"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.additional.type_info_dic.slice_0",
+      "size_bytes": 19235,
+      "sha256_16": "90a320dd14962ae0"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_0",
+      "size_bytes": 2097216,
+      "sha256_16": "cae4ae8b9615d246"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_0",
+      "size_bytes": 2100992,
+      "sha256_16": "f6987bdd15f50e02"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.additional.hash_dic.slice_0",
+      "size_bytes": 6879,
+      "sha256_16": "9b560034555c8010"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.context_id_info.slice_0",
+      "size_bytes": 2042368,
+      "sha256_16": "da85c1248fa52361"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "b51557eee9571361"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_1",
+      "size_bytes": 2099200,
+      "sha256_16": "bd5ddffc5ddf2a49"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "48fb599aa1a90da6"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_1",
+      "size_bytes": 2098760,
+      "sha256_16": "1ca741522ecdd6e3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_2",
+      "size_bytes": 2097152,
+      "sha256_16": "b9621ea4bfbe6815"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_3",
+      "size_bytes": 2099200,
+      "sha256_16": "35246e64a2349298"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "f0e937e88b144a83"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_2",
+      "size_bytes": 2098280,
+      "sha256_16": "7969cfbe3c8d8ee5"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_4",
+      "size_bytes": 2097152,
+      "sha256_16": "00162335e4857bfb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_4.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_5",
+      "size_bytes": 2099200,
+      "sha256_16": "2776dd7a9bdd112c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "ced09a181571427f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_3",
+      "size_bytes": 2099040,
+      "sha256_16": "0aabf89c9012149c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_5.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_6",
+      "size_bytes": 2099200,
+      "sha256_16": "b32fc93b6a862b4d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "722bc9fe0a78fda4"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_4",
+      "size_bytes": 2098640,
+      "sha256_16": "0624d804565c5ea2"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_6.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_7",
+      "size_bytes": 2097152,
+      "sha256_16": "fabd5dfc090e7464"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "c026c8a20d3b57cb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_1",
+      "size_bytes": 2097408,
+      "sha256_16": "ae3c59766a7f32b0"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "d9c59ca03f22b26e"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_1",
+      "size_bytes": 2097152,
+      "sha256_16": "6ba82c8975232ad4"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_7.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_8",
+      "size_bytes": 2099200,
+      "sha256_16": "91a231517d9d6cbb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_4.done",
+      "size_bytes": 41,
+      "sha256_16": "8708123cd88b45d9"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_5",
+      "size_bytes": 2098960,
+      "sha256_16": "ceffec2803f6747a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_8.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_9",
+      "size_bytes": 2099200,
+      "sha256_16": "7f57c670c6a94da1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_9.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_10",
+      "size_bytes": 2099200,
+      "sha256_16": "b234168ffcbddaaa"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_5.done",
+      "size_bytes": 41,
+      "sha256_16": "6f011b14a217f8ab"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_6",
+      "size_bytes": 2098880,
+      "sha256_16": "7e6fb83e5376b842"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_10.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_11",
+      "size_bytes": 2099200,
+      "sha256_16": "a697f8aa78f82eab"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_6.done",
+      "size_bytes": 41,
+      "sha256_16": "688b64baf92448bd"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_7",
+      "size_bytes": 2097640,
+      "sha256_16": "16628e8f4d9ce173"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_11.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_12",
+      "size_bytes": 2097152,
+      "sha256_16": "a63a5db724c5a5e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_12.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_13",
+      "size_bytes": 2099200,
+      "sha256_16": "ef2af309da771849"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_7.done",
+      "size_bytes": 41,
+      "sha256_16": "339cf36152fff38f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_8",
+      "size_bytes": 2098280,
+      "sha256_16": "ee0cfba9d9ab31eb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_13.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_14",
+      "size_bytes": 2097152,
+      "sha256_16": "1a1390ee5401ea49"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_14.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_15",
+      "size_bytes": 2097152,
+      "sha256_16": "3c0501a01ff68842"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_8.done",
+      "size_bytes": 41,
+      "sha256_16": "ced09a181571427f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_9",
+      "size_bytes": 1338400,
+      "sha256_16": "6d8e85a6ff819a6c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "c026c8a20d3b57cb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_2",
+      "size_bytes": 25856,
+      "sha256_16": "c7937f0c001c753d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_2",
+      "size_bytes": 20992,
+      "sha256_16": "b3ca2f2dede230d9"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_15.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_16",
+      "size_bytes": 124928,
+      "sha256_16": "72983d9c2957af10"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.context_id_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "5c8e721458c0582a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.additional.tensor_info.slice_16.done",
+      "size_bytes": 40,
+      "sha256_16": "8440e1cbcee40ba0"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.api_event.data.slice_9.done",
+      "size_bytes": 41,
+      "sha256_16": "644d5f52e0b34aa9"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.node_basic_info.slice_2.done",
+      "size_bytes": 39,
+      "sha256_16": "c74347eb4a297d4a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_2.done",
+      "size_bytes": 39,
+      "sha256_16": "766fcbc6255a9205"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.additional.hash_dic.slice_0.done",
+      "size_bytes": 38,
+      "sha256_16": "bddc4d06134ba262"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.additional.type_info_dic.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "7a1642cb8d451188"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.compact.expand_stream_spec.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "4b6b154cc5b77dce"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_3",
+      "size_bytes": 64,
+      "sha256_16": "e062effd44b00edb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/aging.compact.task_track.slice_3.done",
+      "size_bytes": 36,
+      "sha256_16": "229b95a565f9710d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/unaging.compact.expand_stream_spec.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "02b262a61335f00e"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/stream_expand_spec.db",
+      "size_bytes": 8192,
+      "sha256_16": "7b84b1ddf1bd6892"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/ge_hash.db",
+      "size_bytes": 45056,
+      "sha256_16": "2825a657817fe2ae"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/rts_track.db",
+      "size_bytes": 8192,
+      "sha256_16": "9d04df3731b33d19"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/api_event.db",
+      "size_bytes": 36712448,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/ge_info.db",
+      "size_bytes": 11276288,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/host/sqlite/runtime.db",
+      "size_bytes": 9732096,
+      "sha256_16": "0fc950ae3932a138"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sample.json",
+      "size_bytes": 3272,
+      "sha256_16": "9e522828a70ea0b8"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "40083857e1f97f66"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/start_info.0",
+      "size_bytes": 179,
+      "sha256_16": "a3ba43708de4dbf5"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/start_info.0.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/dev_start.log.0",
+      "size_bytes": 63,
+      "sha256_16": "7233e66d04bd1b5f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/dev_start.log.0.done",
+      "size_bytes": 12,
+      "sha256_16": "8a9b2352e58f5cd8"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/host_start.log.0",
+      "size_bytes": 89,
+      "sha256_16": "742b35e134624467"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/host_start.log.0.done",
+      "size_bytes": 12,
+      "sha256_16": "6538522cafb0a133"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/info.json.0",
+      "size_bytes": 921,
+      "sha256_16": "ca1d91db0a03e9e0"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/info.json.0.done",
+      "size_bytes": 13,
+      "sha256_16": "03ece9620f4d9d93"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/end_info.0",
+      "size_bytes": 179,
+      "sha256_16": "e74f8d25002c24d4"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/end_info.0.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_0",
+      "size_bytes": 2099712,
+      "sha256_16": "966174f04eda1f21"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "8e50954d80485f25"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_0",
+      "size_bytes": 2097152,
+      "sha256_16": "d32eb9db532f6f49"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_1",
+      "size_bytes": 2098688,
+      "sha256_16": "21ec9cfc68eecc4e"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "6272b5c2a81390ec"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_1",
+      "size_bytes": 2097152,
+      "sha256_16": "d09e78110dc969d1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_2",
+      "size_bytes": 2099200,
+      "sha256_16": "9b8cd0f5a3aff509"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_2",
+      "size_bytes": 2097280,
+      "sha256_16": "d05707b44faa11f9"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "4b6a772725444d34"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_3",
+      "size_bytes": 2097536,
+      "sha256_16": "e5ec53583f06ae8c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "05a38cff34c6f752"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_3",
+      "size_bytes": 2097152,
+      "sha256_16": "5c2c147140093b7a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/lpmInfoConv.data.0.slice_0",
+      "size_bytes": 82584,
+      "sha256_16": "e027d4c42d72bd34"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ts_track.data.0.slice_0",
+      "size_bytes": 480,
+      "sha256_16": "1741076587813deb"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_4",
+      "size_bytes": 1065984,
+      "sha256_16": "163934377f527b08"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_4",
+      "size_bytes": 41984,
+      "sha256_16": "f2a15c7f76bad369"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ffts_profile.data.0.slice_4.done",
+      "size_bytes": 39,
+      "sha256_16": "322beb2cc3226711"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/lpmInfoConv.data.0.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "b252d176e18b7164"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/stars_soc.data.0.slice_4.done",
+      "size_bytes": 41,
+      "sha256_16": "9acfe94de4aafd50"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ts_track.data.0.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "ce04ee452cc64187"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/lpmInfoConv.data.0.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/ts_track.data.0.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "e66f160b4e79c66f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/freq.db",
+      "size_bytes": 8192,
+      "sha256_16": "772fb72009336cad"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/voltage.db",
+      "size_bytes": 12288,
+      "sha256_16": "730e381587a888f8"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/step_trace.db",
+      "size_bytes": 8192,
+      "sha256_16": "9aa6287ad1d3f56c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/metric_summary.db",
+      "size_bytes": 8732672,
+      "sha256_16": "d2da33e41cb6295d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/ascend_task.db",
+      "size_bytes": 4927488,
+      "sha256_16": "e08f9e1d78c1cc2f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/biu_perf.db",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/ai_core_op_summary.db",
+      "size_bytes": 23617536,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_0/sqlite/op_counter.db",
+      "size_bytes": 8933376,
+      "sha256_16": "afeaccb800f8a7f6"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sample.json",
+      "size_bytes": 3272,
+      "sha256_16": "b12ef4302389c1ab"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "40083857e1f97f66"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/start_info.1",
+      "size_bytes": 179,
+      "sha256_16": "8e8d4f01fa26347f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/start_info.1.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/dev_start.log.1",
+      "size_bytes": 63,
+      "sha256_16": "1090def0f049a96a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/dev_start.log.1.done",
+      "size_bytes": 12,
+      "sha256_16": "8a9b2352e58f5cd8"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/host_start.log.1",
+      "size_bytes": 89,
+      "sha256_16": "cc89525406c8eff6"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/host_start.log.1.done",
+      "size_bytes": 12,
+      "sha256_16": "6538522cafb0a133"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/info.json.1",
+      "size_bytes": 921,
+      "sha256_16": "cd0cdebb724b81dd"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/info.json.1.done",
+      "size_bytes": 13,
+      "sha256_16": "03ece9620f4d9d93"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/end_info.1",
+      "size_bytes": 179,
+      "sha256_16": "e5f3935b1a2872ea"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/end_info.1.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/lpmInfoConv.data.1.slice_0",
+      "size_bytes": 18648,
+      "sha256_16": "61f7cd1db55eccec"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/ts_track.data.1.slice_0",
+      "size_bytes": 240,
+      "sha256_16": "24bcc5f4bef6b28f"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/stars_soc.data.1.slice_0",
+      "size_bytes": 256,
+      "sha256_16": "60e21502b07d80fe"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/lpmInfoConv.data.1.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "4008a6e2c6c8c2aa"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/stars_soc.data.1.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "c2caa68e5399fb6d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/ts_track.data.1.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "25304db4b2194c56"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/lpmInfoConv.data.1.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/ts_track.data.1.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "659dd2fcd0f821a4"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/freq.db",
+      "size_bytes": 8192,
+      "sha256_16": "cc5b1b4551ee7504"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/voltage.db",
+      "size_bytes": 12288,
+      "sha256_16": "d7357644a657ea5e"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/step_trace.db",
+      "size_bytes": 8192,
+      "sha256_16": "290ef4d4121ea286"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/ascend_task.db",
+      "size_bytes": 8192,
+      "sha256_16": "a4ff4f93be78946c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/biu_perf.db",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/ai_core_op_summary.db",
+      "size_bytes": 8192,
+      "sha256_16": "f723106664bb9ee9"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/device_1/sqlite/op_counter.db",
+      "size_bytes": 16384,
+      "sha256_16": "73b6d829fb969522"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/collection_host.log",
+      "size_bytes": 4200,
+      "sha256_16": "e079f45050e5a04c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/msprof_analysis_2895523.log",
+      "size_bytes": 16983,
+      "sha256_16": "2b2a36055254761a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/collection_device_1.log",
+      "size_bytes": 9542,
+      "sha256_16": "00428b28dcaaeea1"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/collection_device_0.log",
+      "size_bytes": 11010,
+      "sha256_16": "bdabb7085019083c"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/msprof_analysis_2895663.log",
+      "size_bytes": 30911,
+      "sha256_16": "f3f3b4ffb3147bfa"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/msprof_analysis_2895769.log",
+      "size_bytes": 95594,
+      "sha256_16": "a0523cac816d664d"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_log/msprof_analysis_2895960.log",
+      "size_bytes": 73632,
+      "sha256_16": "18e39d18b6ff84bf"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/msprof_20260728064956.json",
+      "size_bytes": 177629858,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/op_statistic_20260728065005.csv",
+      "size_bytes": 1576,
+      "sha256_16": "caf534c8f49b4f10"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/api_statistic_20260728065005.csv",
+      "size_bytes": 6905,
+      "sha256_16": "f61e2ecbbd6f4c6a"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/task_time_20260728065005.csv",
+      "size_bytes": 9159674,
+      "sha256_16": "0caf611378cbcd6b"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/op_summary_20260728065005.csv",
+      "size_bytes": 20609832,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/PROF_000001_20260728064555800_02891647BFGBMJEL/mindstudio_profiler_output/README.txt",
+      "size_bytes": 3439,
+      "sha256_16": "786ce318427c006a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/msprof_20260728071039.db",
+      "size_bytes": 52076544,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sample.json",
+      "size_bytes": 3281,
+      "sha256_16": "86b8b8193cee4fab"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "9feee334b96f7aba"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/start_info",
+      "size_bytes": 179,
+      "sha256_16": "31b425556636d14f"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/start_info.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/host_start.log",
+      "size_bytes": 86,
+      "sha256_16": "a149a05270551a24"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/host_start.log.done",
+      "size_bytes": 12,
+      "sha256_16": "a2c6ea488ce93cb1"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/info.json",
+      "size_bytes": 576,
+      "sha256_16": "d2841dfd560cbce5"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/info.json.done",
+      "size_bytes": 13,
+      "sha256_16": "24d2eccf54c01944"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/end_info",
+      "size_bytes": 179,
+      "sha256_16": "ab40c2f00cc52edf"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/end_info.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_0",
+      "size_bytes": 2097408,
+      "sha256_16": "e32e65c6594568ee"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.compact.expand_stream_spec.slice_0",
+      "size_bytes": 128,
+      "sha256_16": "4c9547cc92569c83"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_0",
+      "size_bytes": 2098040,
+      "sha256_16": "62326dd3f01d2950"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.additional.type_info_dic.slice_0",
+      "size_bytes": 19235,
+      "sha256_16": "90a320dd14962ae0"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.node_basic_info.slice_0",
+      "size_bytes": 2097216,
+      "sha256_16": "4cc73384363427c2"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_0",
+      "size_bytes": 2100992,
+      "sha256_16": "67857f859a9269f1"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.additional.hash_dic.slice_0",
+      "size_bytes": 6879,
+      "sha256_16": "9b560034555c8010"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.context_id_info.slice_0",
+      "size_bytes": 1737472,
+      "sha256_16": "5604bce2f4100b29"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "b51557eee9571361"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_1",
+      "size_bytes": 2099200,
+      "sha256_16": "28fa93f31fa9964a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "c7722a4d5c9ec815"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_1",
+      "size_bytes": 2097280,
+      "sha256_16": "be9445024e93a077"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_2",
+      "size_bytes": 2097152,
+      "sha256_16": "b828d98c33f6daf2"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_3",
+      "size_bytes": 2099200,
+      "sha256_16": "0cdbb059ea37b78f"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "4b6a772725444d34"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_2",
+      "size_bytes": 2099360,
+      "sha256_16": "3d60e5459dfb1c18"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_4",
+      "size_bytes": 2097152,
+      "sha256_16": "088c50653a5e3907"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_4.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_5",
+      "size_bytes": 2099200,
+      "sha256_16": "aa43ebcb45910561"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "1faa62e336a00046"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_3",
+      "size_bytes": 2097440,
+      "sha256_16": "059fe61e71964042"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_5.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_6",
+      "size_bytes": 2099200,
+      "sha256_16": "0f08ce20c89817d3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "8eea3cc3e69e2783"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_4",
+      "size_bytes": 2098560,
+      "sha256_16": "abb9c36f92d4b4aa"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_6.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_7",
+      "size_bytes": 2097152,
+      "sha256_16": "d9be22a230f42261"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "c026c8a20d3b57cb"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_1",
+      "size_bytes": 1510784,
+      "sha256_16": "8685522c2c091609"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.node_basic_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "d9c59ca03f22b26e"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.node_basic_info.slice_1",
+      "size_bytes": 1506048,
+      "sha256_16": "2f30e21daa33c93e"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_7.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_8",
+      "size_bytes": 2099200,
+      "sha256_16": "1e32a25881840bfe"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_4.done",
+      "size_bytes": 41,
+      "sha256_16": "68c08d5cce3890f9"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_5",
+      "size_bytes": 2098000,
+      "sha256_16": "10ced17e51f7cc34"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_8.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_9",
+      "size_bytes": 2099200,
+      "sha256_16": "3dc33f3a7417d2d7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_9.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_10",
+      "size_bytes": 2099200,
+      "sha256_16": "179e8a4e1ff40b74"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_5.done",
+      "size_bytes": 41,
+      "sha256_16": "f827c0521b1408f9"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_6",
+      "size_bytes": 2098240,
+      "sha256_16": "89a2e290725a6f58"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_10.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_11",
+      "size_bytes": 2099200,
+      "sha256_16": "6ae629ca1ff4b87b"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_6.done",
+      "size_bytes": 41,
+      "sha256_16": "738c32d9c54b8821"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_7",
+      "size_bytes": 2097360,
+      "sha256_16": "940a826141300949"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_11.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_12",
+      "size_bytes": 2097152,
+      "sha256_16": "ea6584f5e6d34b35"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_12.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_13",
+      "size_bytes": 1521664,
+      "sha256_16": "2508c8d1be7b1ecf"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_7.done",
+      "size_bytes": 41,
+      "sha256_16": "28542973a1a78939"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_8",
+      "size_bytes": 524080,
+      "sha256_16": "82e9e0447967655b"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.context_id_info.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "cf4cdc222123ca12"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.additional.tensor_info.slice_13.done",
+      "size_bytes": 41,
+      "sha256_16": "d4daba667f33e12a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.api_event.data.slice_8.done",
+      "size_bytes": 40,
+      "sha256_16": "698ae54683c2057f"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.node_basic_info.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "276917284b058e18"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "c689be57ca95631d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.additional.hash_dic.slice_0.done",
+      "size_bytes": 38,
+      "sha256_16": "bddc4d06134ba262"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.additional.type_info_dic.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "7a1642cb8d451188"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.compact.expand_stream_spec.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "4b6b154cc5b77dce"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_2",
+      "size_bytes": 64,
+      "sha256_16": "8fd890ac6fa22733"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/aging.compact.task_track.slice_2.done",
+      "size_bytes": 36,
+      "sha256_16": "229b95a565f9710d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/unaging.compact.expand_stream_spec.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "02b262a61335f00e"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/stream_expand_spec.db",
+      "size_bytes": 8192,
+      "sha256_16": "7b84b1ddf1bd6892"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/ge_hash.db",
+      "size_bytes": 45056,
+      "sha256_16": "2825a657817fe2ae"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/rts_track.db",
+      "size_bytes": 8192,
+      "sha256_16": "c6a0ff5f43752cf6"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/api_event.db",
+      "size_bytes": 31412224,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/runtime.db",
+      "size_bytes": 8306688,
+      "sha256_16": "5c01f06880f05b03"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/host/sqlite/ge_info.db",
+      "size_bytes": 9641984,
+      "sha256_16": "c8d8cf39a3b2c848"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sample.json",
+      "size_bytes": 3284,
+      "sha256_16": "1748a4055810b5dc"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "ffeada76d63feb0d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/start_info.0",
+      "size_bytes": 179,
+      "sha256_16": "7e4a3ca68e88075d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/start_info.0.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/dev_start.log.0",
+      "size_bytes": 63,
+      "sha256_16": "0847ca8983f199f7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/dev_start.log.0.done",
+      "size_bytes": 12,
+      "sha256_16": "8a9b2352e58f5cd8"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/host_start.log.0",
+      "size_bytes": 89,
+      "sha256_16": "fa2749a7b8e5b046"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/host_start.log.0.done",
+      "size_bytes": 12,
+      "sha256_16": "6538522cafb0a133"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/info.json.0",
+      "size_bytes": 921,
+      "sha256_16": "3ee0c71edb2dce6a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/info.json.0.done",
+      "size_bytes": 13,
+      "sha256_16": "03ece9620f4d9d93"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/end_info.0",
+      "size_bytes": 179,
+      "sha256_16": "9fa82fa62e0328b2"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/end_info.0.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_0",
+      "size_bytes": 2098560,
+      "sha256_16": "a1b7d9ffec9daaef"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "68c08d5cce3890f9"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_0",
+      "size_bytes": 2097152,
+      "sha256_16": "7f1575ffea3f6c49"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_0.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_1",
+      "size_bytes": 2097536,
+      "sha256_16": "56097ba853ce9ded"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "05a38cff34c6f752"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_1",
+      "size_bytes": 2097152,
+      "sha256_16": "e16a7e3c88d6f0e4"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_1.done",
+      "size_bytes": 41,
+      "sha256_16": "cae4345893af07f3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_2",
+      "size_bytes": 2099200,
+      "sha256_16": "b95f331d67d103b0"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "7d4e4846884ae6e7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_2",
+      "size_bytes": 2097664,
+      "sha256_16": "f6940a569306ea5c"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_2.done",
+      "size_bytes": 41,
+      "sha256_16": "8779c236dd3e786f"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/lpmInfoConv.data.0.slice_0",
+      "size_bytes": 93240,
+      "sha256_16": "2a1dec9108444c95"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ts_track.data.0.slice_0",
+      "size_bytes": 480,
+      "sha256_16": "6ce728e244daa798"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_3",
+      "size_bytes": 1788416,
+      "sha256_16": "48d4e2aeb7e2a6c5"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_3",
+      "size_bytes": 914560,
+      "sha256_16": "5dd5a94fd4bf37a2"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ffts_profile.data.0.slice_3.done",
+      "size_bytes": 40,
+      "sha256_16": "54fd52f23e146f95"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/lpmInfoConv.data.0.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "50b928eec81d1ed7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/stars_soc.data.0.slice_3.done",
+      "size_bytes": 41,
+      "sha256_16": "7eccb21bd35ffb73"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ts_track.data.0.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "ce04ee452cc64187"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/lpmInfoConv.data.0.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/ts_track.data.0.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "a3941daffd4c866a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/freq.db",
+      "size_bytes": 8192,
+      "sha256_16": "d61cce0a292f3fc3"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/voltage.db",
+      "size_bytes": 12288,
+      "sha256_16": "a305c194ffaefc9c"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/step_trace.db",
+      "size_bytes": 8192,
+      "sha256_16": "9c523026cdac352a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/metric_summary.db",
+      "size_bytes": 7462912,
+      "sha256_16": "f8c327cf80080add"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/ascend_task.db",
+      "size_bytes": 4206592,
+      "sha256_16": "e95221008ff2a531"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/biu_perf.db",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/ai_core_op_summary.db",
+      "size_bytes": 20172800,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_0/sqlite/op_counter.db",
+      "size_bytes": 7626752,
+      "sha256_16": "ef8b28083820b454"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sample.json",
+      "size_bytes": 3284,
+      "sha256_16": "5b9151baac87a449"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sample.json.done",
+      "size_bytes": 14,
+      "sha256_16": "ffeada76d63feb0d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/start_info.1",
+      "size_bytes": 179,
+      "sha256_16": "7eac97dc750c9f8c"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/start_info.1.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/dev_start.log.1",
+      "size_bytes": 63,
+      "sha256_16": "50f898c2d4531193"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/dev_start.log.1.done",
+      "size_bytes": 12,
+      "sha256_16": "8a9b2352e58f5cd8"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/host_start.log.1",
+      "size_bytes": 89,
+      "sha256_16": "b85f6b04a65a14da"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/host_start.log.1.done",
+      "size_bytes": 12,
+      "sha256_16": "6538522cafb0a133"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/info.json.1",
+      "size_bytes": 921,
+      "sha256_16": "d25dd2509c0930eb"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/info.json.1.done",
+      "size_bytes": 13,
+      "sha256_16": "03ece9620f4d9d93"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/end_info.1",
+      "size_bytes": 179,
+      "sha256_16": "2a30c141bc8d49c0"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/end_info.1.done",
+      "size_bytes": 13,
+      "sha256_16": "4d6000fcd461cf36"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/lpmInfoConv.data.1.slice_0",
+      "size_bytes": 18648,
+      "sha256_16": "1b12751aae16df72"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/ts_track.data.1.slice_0",
+      "size_bytes": 240,
+      "sha256_16": "2ab24d9fb827df10"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/stars_soc.data.1.slice_0",
+      "size_bytes": 256,
+      "sha256_16": "14bf35de644cf0f7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/lpmInfoConv.data.1.slice_0.done",
+      "size_bytes": 39,
+      "sha256_16": "4008a6e2c6c8c2aa"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/stars_soc.data.1.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "c2caa68e5399fb6d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/ts_track.data.1.slice_0.done",
+      "size_bytes": 37,
+      "sha256_16": "25304db4b2194c56"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/lpmInfoConv.data.1.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/ts_track.data.1.slice_0.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/data/all_file.complete",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/time.db",
+      "size_bytes": 8192,
+      "sha256_16": "68f1ab4ba13e6516"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/freq.db",
+      "size_bytes": 8192,
+      "sha256_16": "c745e484acc1a40a"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/voltage.db",
+      "size_bytes": 12288,
+      "sha256_16": "ced03dcdcb7e1c38"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/step_trace.db",
+      "size_bytes": 8192,
+      "sha256_16": "dd39b4e7939a1df7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/ascend_task.db",
+      "size_bytes": 8192,
+      "sha256_16": "f1f655cded104e83"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/biu_perf.db",
+      "size_bytes": 0,
+      "sha256_16": "e3b0c44298fc1c14"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/ai_core_op_summary.db",
+      "size_bytes": 8192,
+      "sha256_16": "7ca3626d1c8e764d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/device_1/sqlite/op_counter.db",
+      "size_bytes": 16384,
+      "sha256_16": "3fbb463cbb15d6ad"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/collection_host.log",
+      "size_bytes": 4220,
+      "sha256_16": "c28f232111c64d4d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/msprof_analysis_2926018.log",
+      "size_bytes": 17003,
+      "sha256_16": "6739dfeed473cd72"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/collection_device_1.log",
+      "size_bytes": 9562,
+      "sha256_16": "e8c6e149b00bbd8d"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/collection_device_0.log",
+      "size_bytes": 11030,
+      "sha256_16": "6caf61226dabe413"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/msprof_analysis_2926182.log",
+      "size_bytes": 30696,
+      "sha256_16": "91658b39470aedc9"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/msprof_analysis_2926272.log",
+      "size_bytes": 97224,
+      "sha256_16": "c8f26672ab08b577"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_log/msprof_analysis_2926442.log",
+      "size_bytes": 75302,
+      "sha256_16": "71e861711e5645bd"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/msprof_20260728071039.json",
+      "size_bytes": 151941141,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/op_statistic_20260728071047.csv",
+      "size_bytes": 1577,
+      "sha256_16": "c4f3813a164397a7"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/api_statistic_20260728071047.csv",
+      "size_bytes": 6918,
+      "sha256_16": "e439d7a760bf5c4e"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/task_time_20260728071047.csv",
+      "size_bytes": 7827727,
+      "sha256_16": "b896f90cf5e23fac"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/op_summary_20260728071047.csv",
+      "size_bytes": 17620801,
+      "sha256_16": "SKIPPED (>10MB)"
+    },
+    {
+      "path": "profiles/decode-speak/rope_fp16/PROF_000001_20260728070559546_02922049RJOMBRHN/mindstudio_profiler_output/README.txt",
+      "size_bytes": 3439,
+      "sha256_16": "b4afa95c8904b9b5"
+    }
+  ]
+}

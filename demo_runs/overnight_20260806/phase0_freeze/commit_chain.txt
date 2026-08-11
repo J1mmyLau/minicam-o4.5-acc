@@ -1,0 +1,4 @@
+0021584 fix(ws_handler): unified session finalizer for WebSocket /backend path
+17d9542 fix(ws_handler): remove use_tts guard from ws_finalize_context_reusable
+7fbf19a fix(ws_handler): KV cache isolation + T2W drain fast-path for text-only
+b0400d8 fix(server): expose session cleanup helpers for HTTP close endpoint

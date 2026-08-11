@@ -1,0 +1,25 @@
+{"label": "S01", "prompt_preview": "说：你好，今天天气真不错。", "text_chars": 14, "audio_chunks": 3, "error": null, "wall_s": 37.2, "threads_before": 644, "threads_after": 647}
+{"label": "S02", "prompt_preview": "请简单说一句话。", "text_chars": 14, "audio_chunks": 3, "error": null, "wall_s": 36.7, "threads_before": 647, "threads_after": 650}
+{"label": "S03", "prompt_preview": "说：欢迎使用语音助手。", "text_chars": 19, "audio_chunks": 3, "error": null, "wall_s": 37.6, "threads_before": 650, "threads_after": 653}
+{"label": "S04", "prompt_preview": "请用中文简单打招呼。", "text_chars": 12, "audio_chunks": 3, "error": null, "wall_s": 58.6, "threads_before": 653, "threads_after": 653}
+{"label": "S05", "prompt_preview": "说：早上好，新的一天开始了。", "text_chars": 12, "audio_chunks": 3, "error": null, "wall_s": 56.3, "threads_before": 653, "threads_after": 653}
+{"label": "S06", "prompt_preview": "请用一句话介绍北京。", "text_chars": 21, "audio_chunks": 4, "error": null, "wall_s": 60.4, "threads_before": 653, "threads_after": 653}
+{"label": "S07", "prompt_preview": "说：谢谢你的帮助。", "text_chars": 16, "audio_chunks": 4, "error": null, "wall_s": 59.8, "threads_before": 653, "threads_after": 653}
+{"label": "S08", "prompt_preview": "请用简短的话告别。", "text_chars": 9, "audio_chunks": 3, "error": null, "wall_s": 55.8, "threads_before": 653, "threads_after": 653}
+{"label": "S09", "prompt_preview": "说：今天心情很好。", "text_chars": 7, "audio_chunks": 2, "error": null, "wall_s": 51.6, "threads_before": 653, "threads_after": 653}
+{"label": "S10", "prompt_preview": "请说一句鼓励的话。", "text_chars": 36, "audio_chunks": 7, "error": null, "wall_s": 74.0, "threads_before": 653, "threads_after": 653}
+{"label": "M01", "prompt_preview": "请用中文介绍一下人工智能的基本概念，不要太长。", "text_chars": 83, "audio_chunks": 15, "error": null, "wall_s": 114.7, "threads_before": 653, "threads_after": 653}
+{"label": "M02", "prompt_preview": "请简单介绍一下中国的四大发明。", "text_chars": 210, "audio_chunks": 39, "error": null, "wall_s": 188.6, "threads_before": 653, "threads_after": 656}
+{"label": "M03", "prompt_preview": "请介绍一下机器学习的基本原理，简明扼要。", "text_chars": 136, "audio_chunks": 27, "error": null, "wall_s": 170.3, "threads_before": 656, "threads_after": 656}
+{"label": "M04", "prompt_preview": "请简单说说5G技术的特点和应用。", "text_chars": 97, "audio_chunks": 19, "error": null, "wall_s": 117.4, "threads_before": 656, "threads_after": 659}
+{"label": "M05", "prompt_preview": "请介绍一下量子计算的基本概念。", "text_chars": 373, "audio_chunks": 68, "error": null, "wall_s": 327.6, "threads_before": 659, "threads_after": 659}
+{"label": "M06", "prompt_preview": "请简单介绍自动驾驶技术的现状。", "text_chars": 186, "audio_chunks": 35, "error": null, "wall_s": 166.8, "threads_before": 659, "threads_after": 662}
+{"label": "M07", "prompt_preview": "请说说云计算的基本概念和优势。", "text_chars": 198, "audio_chunks": 34, "error": null, "wall_s": 181.6, "threads_before": 662, "threads_after": 662}
+{"label": "M08", "prompt_preview": "请介绍一下物联网的基本应用场景。", "text_chars": 321, "audio_chunks": 56, "error": null, "wall_s": 260.1, "threads_before": 662, "threads_after": 665}
+{"label": "M09", "prompt_preview": "请简单说说区块链技术的原理。", "text_chars": 198, "audio_chunks": 35, "error": null, "wall_s": 177.1, "threads_before": 665, "threads_after": 668}
+{"label": "M10", "prompt_preview": "请介绍一下深度学习的基本框架。", "text_chars": 324, "audio_chunks": 63, "error": null, "wall_s": 302.6, "threads_before": 668, "threads_after": 668}
+{"label": "L01", "prompt_preview": "请详细介绍一下人工智能的发展历程，从早期的符号主义到现代的深度学习，包括关键的里程碑和突破。", "text_chars": 771, "audio_chunks": 72, "error": null, "wall_s": 341.3, "threads_before": 668, "threads_after": 668}
+{"label": "L02", "prompt_preview": "请详细解释一下自然语言处理技术的发展，包括词向量、注意力机制、变换器架构等关键技术。", "text_chars": 725, "audio_chunks": 53, "error": null, "wall_s": 255.2, "threads_before": 668, "threads_after": 680}
+{"label": "L03", "prompt_preview": "请详细介绍一下计算机视觉的发展和应用，从图像分类到目标检测再到图像生成。", "text_chars": 0, "audio_chunks": 0, "error": "ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK)", "wall_s": 0.0, "threads_before": 680, "threads_after": 680}
+{"label": "L04", "prompt_preview": "请详细说说语音识别和语音合成技术的发展历程和当前技术水平。", "text_chars": 0, "audio_chunks": 0, "error": "ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK)", "wall_s": 0.0, "threads_before": 679, "threads_after": 679}
+{"label": "L05", "prompt_preview": "请详细介绍一下强化学习的基本原理和在游戏、机器人等领域的应用。", "text_chars": 706, "audio_chunks": 72, "error": null, "wall_s": 340.4, "threads_before": 679, "threads_after": 671}
