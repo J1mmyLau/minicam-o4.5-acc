@@ -15276,6 +15276,17 @@ bool stream_decode(struct omni_context * ctx_omni, std::string debug_dir, int ro
     // F005 retry statistics: print at end of each request
     f005_print_retry_stats();
     kv_cache_print_stats();
+
+    // F6 lifecycle: For non-async non-TTS paths (CLI/eval), mark the
+    // generation as fully drained and reset context state immediately.
+    // The async+TTS path (server/ws_handler) relies on
+    // omni_duplex_drain_tts_audio() to manage both transitions after T2W drain.
+    if (!ctx_omni->async || !ctx_omni->use_tts) {
+        uint32_t my_gen = ctx_omni->request_generation.load(std::memory_order_relaxed);
+        ctx_omni->drain_complete_generation.store(my_gen);
+        ctx_omni->context_state.store(CTX_STATE_REUSABLE);
+    }
+
     return true;
 }
 
