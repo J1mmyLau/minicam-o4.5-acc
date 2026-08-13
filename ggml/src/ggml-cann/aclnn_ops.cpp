@@ -25,6 +25,7 @@
 #include "ggml-impl.h"
 #include "ggml.h"
 
+#include <chrono>
 
 #include <aclnnop/aclnn_add.h>
 #include <aclnnop/aclnn_add_layer_norm.h>
@@ -57,6 +58,7 @@
 #include <aclnnop/aclnn_index_select.h>
 #include <aclnnop/aclnn_layer_norm.h>
 #include <aclnnop/aclnn_log.h>
+#include <aclnnop/aclnn_lt_scalar.h>
 #include <aclnnop/aclnn_matmul.h>
 #include <aclnnop/aclnn_max_pool.h>
 #include <aclnnop/aclnn_mean.h>
@@ -4214,6 +4216,13 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
     ggml_tensor * src2 = dst->src[2];  // v, fp16 | B, N, S, D (uncont) -> B, S, N, D (cont)
     ggml_tensor * src3 = dst->src[3];  // mask, fp16
 
+    // OMNI_CANN_FA_TIME: accumulate FA kernel wall time (DEFAULT OFF)
+    // Enabling this adds aclrtSynchronizeStream per FA call → kills async overlap.
+    // Use ONLY for micro-benchmarking, never in production.
+    static int64_t fa_time_total_ns = 0;
+    static int fa_time_calls = 0;
+    const bool fa_time_enabled = (getenv("OMNI_CANN_FA_TIME") != nullptr);
+
     // OMNI_CANN_FA_EVERY: log EVERY FA call for LLM prefill shape diagnosis
     // DEFAULT OFF — enable with OMNI_CANN_FA_EVERY=1
     if (getenv("OMNI_CANN_FA_EVERY")) {
@@ -4347,15 +4356,50 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             src2_bsnd_ne[0] = D_padded;
         }
 
+        // OMNI_CANN_FA_MAX_Q: extract base data pointers for Q/K/V
+        // (needed for zero-copy Q-chunk views; pool allocators are stable across loop)
+        void * q_data_ptr = nullptr;
+        size_t q_S_byte_stride = 0;  // byte stride per S increment in bsnd layout
+        {
+            const int64_t Q_D = src0_bsnd_ne[0];
+            const int64_t Q_N = src0_bsnd_ne[1];
+            if (needs_padding) {
+                q_data_ptr = q_pad_allocator.get();
+                q_S_byte_stride = Q_D * Q_N * faElemSize;
+            } else if (ggml_cann_type_mapping(src0->type) != faDataType) {
+                q_data_ptr = src0_f16_buffer;
+                q_S_byte_stride = Q_D * Q_N * faElemSize;
+            } else {
+                q_data_ptr = src0->data;
+                q_S_byte_stride = src0_bsnd_nb[2];
+            }
+        }
+        void * k_data_ptr = needs_padding ? k_pad_allocator.get() : src1->data;
+        void * v_data_ptr = needs_padding ? v_pad_allocator.get() : src2->data;
+
         // Step 3: create the PSEShift tensor if needed
         //         this tensor is considered as mask (f16) in the llama.cpp
         acl_tensor_ptr       bcast_pse_tensor;
+        acl_tensor_ptr       atten_mask_tensor;  // BOOL hard mask (True = do not attend)
+        ggml_cann_pool_alloc atten_mask_allocator(ctx.pool());
         ggml_cann_pool_alloc bcast_pse_allocator(ctx.pool());
+        // OMNI_CANN_FA_MAX_Q: PSE/mask base pointers for per-chunk slicing (set inside if-src3)
+        void *   pse_data_ptr      = nullptr;
+        size_t   pse_S_byte_stride = 0;
+        int64_t  pse_full_ne[GGML_MAX_DIMS] = {0};
+        size_t   pse_full_nb[GGML_MAX_DIMS] = {0};
+        void *   mask_data_ptr      = nullptr;
+        size_t   mask_S_byte_stride = 0;
+        int64_t  mask_full_ne[GGML_MAX_DIMS] = {0};
+        size_t   mask_full_nb[GGML_MAX_DIMS] = {0};
         if (src3 != nullptr) {
-            // Construct the truncated pse tensor (common for prefill/decode)
+            // Construct the truncated mask tensor (common for prefill/decode).
+            // llama.cpp src3 is an additive F16 mask that may mix -Inf (hard mask) with
+            // finite biases (ALiBi / test masks). Split: -Inf -> BOOL attenMask;
+            // finite values -> pseShift. Never pass -Inf through pseShift.
             int64_t trunc_pse_ne[GGML_MAX_DIMS] = {
-                src3->ne[0],  // D
-                src0->ne[1],  // S (number of Q tokens)
+                src3->ne[0],  // KV_S
+                src0->ne[1],  // Q_S (number of Q tokens)
                 src3->ne[2],  // mask N
                 src3->ne[3]   // B
             };
@@ -4364,38 +4408,53 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             acl_tensor_ptr acl_mask_f16_trunc_tensor = ggml_cann_create_tensor(
                 src3->data, ACL_FLOAT16, sizeof(uint16_t), trunc_pse_ne, trunc_pse_nb, GGML_MAX_DIMS);
 
+            // Contiguous BOOL attenMask: True where additive mask is -Inf / large negative.
+            size_t mask_bool_nb[GGML_MAX_DIMS];
+            mask_bool_nb[0] = sizeof(uint8_t);
+            for (int i = 1; i < GGML_MAX_DIMS; ++i) {
+                mask_bool_nb[i] = mask_bool_nb[i - 1] * (size_t) trunc_pse_ne[i - 1];
+            }
+            const int64_t mask_nelems = trunc_pse_ne[0] * trunc_pse_ne[1] * trunc_pse_ne[2] * trunc_pse_ne[3];
+            void *        atten_buf   = atten_mask_allocator.alloc((size_t) mask_nelems * sizeof(uint8_t));
+            atten_mask_tensor =
+                ggml_cann_create_tensor(atten_buf, ACL_BOOL, sizeof(uint8_t), trunc_pse_ne, mask_bool_nb, GGML_MAX_DIMS);
+
+            float          thresh   = -1.0e4f;
+            acl_scalar_ptr thresh_s = ggml_cann_create_scalar(&thresh, ACL_FLOAT);
+            GGML_CANN_CALL_ACLNN_OP(ctx, LtScalar, acl_mask_f16_trunc_tensor.get(), thresh_s.get(),
+                                    atten_mask_tensor.get());
+
+            // pse: broadcast the finite additive bias over heads, then clamp to a finite
+            // range so -Inf never leaks into the additive term (handled by atten_mask above).
             int64_t bcast_pse_ne[GGML_MAX_DIMS];
             size_t  bcast_pse_nb[GGML_MAX_DIMS];
-            bcast_pse_ne[0] = src3->ne[0];  // D
-            bcast_pse_ne[1] = src0->ne[1];  // S
+            bcast_pse_ne[0] = src3->ne[0];  // KV_S
+            bcast_pse_ne[1] = src0->ne[1];  // Q_S
             bcast_pse_ne[2] = src0->ne[2];  // N (num_heads)
             bcast_pse_ne[3] = src3->ne[3];  // B
-            if (maxBias == 0.0f) {
-                // When maxBias == 0.0f, use nb = 0 reduce once repeat (Qwen2)
-                // Construct the bcast tensor (simulate repeat on the head dimension using stride=0)
-                bcast_pse_nb[0] = sizeof(uint16_t);
-                bcast_pse_nb[1] = bcast_pse_nb[0] * bcast_pse_ne[0];
-                bcast_pse_nb[2] = 0;  // <---- the head dimension shares the same data
-                bcast_pse_nb[3] = src3->nb[3];
+            bcast_pse_nb[0] = sizeof(uint16_t);
+            for (int i = 1; i < GGML_MAX_DIMS; i++) {
+                bcast_pse_nb[i] = bcast_pse_nb[i - 1] * bcast_pse_ne[i - 1];
+            }
 
-                bcast_pse_tensor = ggml_cann_create_tensor(src3->data, ACL_FLOAT16, sizeof(uint16_t), bcast_pse_ne,
-                                                           bcast_pse_nb, GGML_MAX_DIMS);
+            void * bcast_pse_buffer =
+                bcast_pse_allocator.alloc((size_t) (bcast_pse_ne[0] * bcast_pse_ne[1] * bcast_pse_ne[2] * bcast_pse_ne[3]) *
+                                          sizeof(uint16_t));
 
-            } else {
-                bcast_pse_nb[0] = sizeof(uint16_t);
-                for (int i = 1; i < GGML_MAX_DIMS; i++) {
-                    bcast_pse_nb[i] = bcast_pse_nb[i - 1] * bcast_pse_ne[i - 1];
-                }
+            bcast_pse_tensor = ggml_cann_create_tensor(bcast_pse_buffer, ACL_FLOAT16, sizeof(uint16_t),
+                                                       bcast_pse_ne, bcast_pse_nb, GGML_MAX_DIMS);
 
-                void * bcast_pse_buffer =
-                    bcast_pse_allocator.alloc(ggml_nelements(src3) * src0->ne[2] * sizeof(uint16_t));
+            int64_t repeats[] = { 1, src0->ne[2], 1, 1 };
+            aclnn_repeat(ctx, acl_mask_f16_trunc_tensor.get(), bcast_pse_tensor.get(), repeats);
 
-                bcast_pse_tensor = ggml_cann_create_tensor(bcast_pse_buffer, ACL_FLOAT16, sizeof(uint16_t),
-                                                           bcast_pse_ne, bcast_pse_nb, GGML_MAX_DIMS);
+            float          lo    = -1.0e4f;
+            float          hi    = 1.0e4f;
+            acl_scalar_ptr min_s = ggml_cann_create_scalar(&lo, ACL_FLOAT);
+            acl_scalar_ptr max_s = ggml_cann_create_scalar(&hi, ACL_FLOAT);
+            GGML_CANN_CALL_ACLNN_OP(ctx, Clamp, bcast_pse_tensor.get(), min_s.get(), max_s.get(),
+                                    bcast_pse_tensor.get());
 
-                int64_t repeats[] = { 1, src0->ne[2], 1, 1 };
-                aclnn_repeat(ctx, acl_mask_f16_trunc_tensor.get(), bcast_pse_tensor.get(), repeats);
-
+            if (maxBias != 0.0f) {
                 // alibi
                 // Compute the slope if needed. Derived from ggml_cann_softmax().
                 const int64_t        n_heads = src0->ne[2];
@@ -4414,12 +4473,28 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
                                                                       slope_ne, slope_nb, GGML_MAX_DIMS);
                 GGML_CANN_CALL_ACLNN_OP(ctx, InplaceMul, bcast_pse_tensor.get(), slope_tensor.get());
             }
+
+            // OMNI_CANN_FA_MAX_Q: save PSE + mask base pointers for per-chunk slicing
+            {
+                memcpy(pse_full_ne, bcast_pse_ne, sizeof(bcast_pse_ne));
+                pse_data_ptr = bcast_pse_allocator.get();
+                pse_full_nb[0] = sizeof(uint16_t);
+                for (int i = 1; i < GGML_MAX_DIMS; i++) {
+                    pse_full_nb[i] = pse_full_nb[i - 1] * pse_full_ne[i - 1];
+                }
+                pse_S_byte_stride = pse_full_nb[1];
+
+                memcpy(mask_full_ne, trunc_pse_ne, sizeof(trunc_pse_ne));
+                mask_data_ptr = atten_mask_allocator.get();
+                mask_full_nb[0] = sizeof(uint8_t);
+                for (int i = 1; i < GGML_MAX_DIMS; i++) {
+                    mask_full_nb[i] = mask_full_nb[i - 1] * mask_full_ne[i - 1];
+                }
+                mask_S_byte_stride = mask_full_nb[1];
+            }
         }
 
-        // Step 4: set the inputs for FusedInferAttention.
-        acl_tensor_list_ptr acl_k_tensor_list = ggml_cann_create_tensor_list(acl_k_tensor);
-        acl_tensor_list_ptr acl_v_tensor_list = ggml_cann_create_tensor_list(acl_v_tensor);
-
+        // Step 4: FA parameters (computed once, reused for all chunks)
         int64_t numHeads           = src0->ne[2];  // N
         int64_t numKeyValueHeads   = src1->ne[2];
         // double  scaleValue = 1 / sqrt(src0->ne[0]); // 1/sqrt(d)
@@ -4442,27 +4517,54 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             }
         }
 
+        // OMNI_CANN_FA_MAX_Q: FA-local Q split (DEFAULT 16)
+        // Split Q into chunks of at most max_q_per_chunk along the S dimension
+        // to avoid CANN FusedInferAttentionScoreV2 NaN when Q>=17 at KV>=768.
+        // 0 = no split (backward-compatible bypass).
+        // Independent of OMNI_CANN_FA_MAX_UBATCH (which caps global n_ubatch).
+        const char * env_max_q = getenv("OMNI_CANN_FA_MAX_Q");
+        const int64_t max_q_per_chunk = (env_max_q && atoi(env_max_q) >= 0) ? atoi(env_max_q) : 16;
+        const int64_t total_S = src0_bsnd_ne[2];  // seq_len in bsnd layout (after transpose12)
+        const bool split_q = (max_q_per_chunk > 0 && total_S > max_q_per_chunk);
+        const int64_t num_chunks = split_q ? (total_S + max_q_per_chunk - 1) / max_q_per_chunk : 1;
+
+        // OMNI_CANN_FA_MAX_Q: release full tensors before chunking loop
+        // to prevent CANN ViewShape overlap detection between full tensor descriptors
+        // and per-chunk views (which point to the same underlying data buffers).
+        // Data buffers (pool allocators / original tensor data) remain valid.
+        acl_q_tensor.reset();
+        acl_k_tensor.reset();
+        acl_v_tensor.reset();
+        if (bcast_pse_tensor) bcast_pse_tensor.reset();
+        if (atten_mask_tensor) atten_mask_tensor.reset();
+
         GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
-        acl_tensor_ptr       fa_dst_tensor;
+        // fa_dst_tensor is created AFTER the chunking loop to avoid overlap with chunk views.
+        // Raw buffer + shape metadata are saved here for per-chunk offset writes.
         ggml_cann_pool_alloc out_f16_allocator(ctx.pool());
         void * fa_out_dev_ptr = nullptr;  // for OMNI_CANN_FA_NAN_CHECK
+        int64_t out_full_ne[GGML_MAX_DIMS] = {0};
+        size_t  out_full_nb[GGML_MAX_DIMS] = {0};
         if (dst->type == GGML_TYPE_F32 || needs_padding) {
-            int64_t * out_f16_ne = src0_bsnd_ne;
-            size_t    out_f16_nb[GGML_MAX_DIMS];
-            out_f16_nb[0] = faElemSize;
+            memcpy(out_full_ne, src0_bsnd_ne, sizeof(out_full_ne));
+            out_full_nb[0] = faElemSize;
             for (int i = 1; i < GGML_MAX_DIMS; ++i) {
-                out_f16_nb[i] = out_f16_nb[i - 1] * out_f16_ne[i - 1];
+                out_full_nb[i] = out_full_nb[i - 1] * out_full_ne[i - 1];
             }
-            int64_t out_nelements = out_f16_ne[0] * out_f16_ne[1] * out_f16_ne[2] * out_f16_ne[3];
+            int64_t out_nelements = out_full_ne[0] * out_full_ne[1] * out_full_ne[2] * out_full_ne[3];
             void *  out_f16_buffer = out_f16_allocator.alloc(out_nelements * faElemSize);
             fa_out_dev_ptr = out_f16_buffer;
-
-            fa_dst_tensor =
-                ggml_cann_create_tensor(out_f16_buffer, faDataType, faElemSize, out_f16_ne, out_f16_nb, GGML_MAX_DIMS);
         } else {
-            fa_dst_tensor = ggml_cann_create_tensor(dst);
             fa_out_dev_ptr = dst->data;
+            // save ne/nb from dst for post-loop tensor creation
+            memcpy(out_full_ne, dst->ne, sizeof(out_full_ne));
+            for (int i = 0; i < GGML_MAX_DIMS; ++i) out_full_nb[i] = dst->nb[i];
         }
+
+        // OMNI_CANN_FA_MAX_Q: save output buffer info for per-chunk offset writes
+        void * out_data_ptr = fa_out_dev_ptr;
+        size_t out_S_byte_stride = (size_t)src0_bsnd_ne[0] * (size_t)src0_bsnd_ne[1] * faElemSize;
+        // D_padded * N * elsize  — byte stride per S increment in output bsnd layout
 
         // OMNI_CANN_FA_SHAPE_DIAG: record attention shapes before kernel call
         if (getenv("OMNI_CANN_FA_SHAPE_DIAG")) {
@@ -4504,61 +4606,190 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             } else {
                 fprintf(stderr, "[cann_fa_shape] mask=nullptr\n");
             }
+            if (split_q) {
+                fprintf(stderr,
+                    "[cann_fa_shape] Q-split: max_q_per_chunk=%ld num_chunks=%ld total_S=%ld\n",
+                    max_q_per_chunk, num_chunks, total_S);
+            }
         }
 
-        GGML_CANN_CALL_ACLNN_OP(ctx, FusedInferAttentionScoreV2, acl_q_tensor.get(), acl_k_tensor_list.get(),
-                                acl_v_tensor_list.get(),               // q, k, v
-                                bcast_pse_tensor.get(), nullptr,       // pse, mask
-                                nullptr, nullptr,                      // actSeqLen, actSeqLenkv
-                                nullptr, nullptr,                      // deqScale1, quantScale1
-                                nullptr, nullptr, nullptr,             // deqScale2, quantScale2, quantOffset2
-                                nullptr, nullptr,                      // antiquantScale, antiquantOffset
-                                nullptr,                               // blockTable
-                                nullptr, nullptr,                      // qPadSize, kvPadSize
-                                nullptr, nullptr,                      // kAntiquantScale, kAntiQuantOffset
-                                nullptr, nullptr,                      // vAntiquantScale, vAntiQuantOffset
-                                nullptr, nullptr, nullptr,             // kSharedPrefix, vSharedPrefix, actSharedLen
-                                numHeads, scaleValue,                  // heads, scaleValue
-                                preTokens, nextTokens,                 // preTokens, nextTokens
-                                layout,                                // inputLayout
-                                numKeyValueHeads,                      // numKVHeads
-                                sparseMode, innerPrecise,              // sparseMode, innerPrecise
-                                blockSize, antiquantMode,              // blockSize, antiquantMode
-                                softmaxLseFlag,                        // softmaxLseFlag
-                                keyAntiquantMode, valueAntiquantMode,  // keyAntiqMode, valueAntiqMode
-                                fa_dst_tensor.get(),                   // attentionOut
-                                nullptr                                // softmaxLse
-        );
+        // OMNI_CANN_FA_TIME: start timing (wraps entire chunking loop)
+        auto fa_t0 = fa_time_enabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
-        // OMNI_CANN_FA_NAN_CHECK: check attention output for NaN after kernel
-        if (getenv("OMNI_CANN_FA_NAN_CHECK")) {
-            ACL_CHECK(aclrtSynchronizeStream(ctx.stream()));
-            // Copy first batch×seq×1×1 elements to host for check
-            // After transpose12: layout is [D, N, S, B] — ne[2]=seq_len, ne[3]=batch
-            int64_t n_check = src0_bsnd_ne[2] * src0_bsnd_ne[3];  // q_seq * batch
-            if (n_check > 256) n_check = 256;  // cap at 256 elements
-            std::vector<uint16_t> host_buf(n_check);
-            void * dev_ptr = fa_out_dev_ptr;
-            if (dev_ptr) {
-                ACL_CHECK(aclrtMemcpy(host_buf.data(), n_check * sizeof(uint16_t),
-                                      dev_ptr, n_check * sizeof(uint16_t),
-                                      ACL_MEMCPY_DEVICE_TO_HOST));
-                int nan_count = 0, inf_count = 0;
-                for (int64_t i = 0; i < n_check; i++) {
-                    // Check f16: exponent all-1s (0x7C00..0x7FFF or 0xFC00..0xFFFF)
-                    uint16_t v = host_buf[i];
-                    int exp = (v >> 10) & 0x1F;
-                    int mant = v & 0x3FF;
-                    if (exp == 0x1F) {
-                        if (mant == 0) inf_count++;
-                        else nan_count++;
-                    }
-                }
-                fprintf(stderr,
-                    "[cann_fa_output] q_seq=%ld kv_seq=%ld checked=%ld nan=%d inf=%d\n",
-                    (long)src0_bsnd_ne[2], (long)src1_bsnd_ne[2],
-                    (long)n_check, nan_count, inf_count);
+        // Step 5: FA kernel call — Q-chunking loop
+        // When split_q is true, Q is partitioned into chunks of ≤max_q_per_chunk
+        // along the S dimension. Each chunk writes into a different S-offset of
+        // the shared output buffer. K/V stay whole for every chunk.
+        // When split_q is false (decode or Q≤max_q_per_chunk), the loop runs once.
+        const int64_t Q_D_padded = src0_bsnd_ne[0];
+        const int64_t Q_N        = src0_bsnd_ne[1];
+        const int64_t Q_B        = src0_bsnd_ne[3];
+        const bool     nan_check_enabled = (getenv("OMNI_CANN_FA_NAN_CHECK") != nullptr);
+
+        for (int64_t chunk = 0; chunk < num_chunks; chunk++) {
+            const int64_t chunk_start = chunk * max_q_per_chunk;
+            const int64_t chunk_S = split_q
+                ? ((chunk_start + max_q_per_chunk > total_S)
+                       ? (total_S - chunk_start)
+                       : max_q_per_chunk)
+                : total_S;
+
+            // 5a: Create Q chunk tensor (contiguous sub-tensor at computed pointer)
+            //     Use contiguous strides within the chunk + physical base pointer
+            //     (not offset) to avoid CANN ViewShape overlap between chunks.
+            int64_t q_chunk_ne[GGML_MAX_DIMS] = { Q_D_padded, Q_N, chunk_S, Q_B };
+            size_t  q_chunk_nb[GGML_MAX_DIMS];
+            q_chunk_nb[0] = faElemSize;
+            q_chunk_nb[1] = q_chunk_nb[0] * q_chunk_ne[0];
+            q_chunk_nb[2] = q_chunk_nb[1] * q_chunk_ne[1];   // contiguous S stride
+            q_chunk_nb[3] = q_chunk_nb[2] * q_chunk_ne[2];   // contiguous B stride
+            void * q_chunk_ptr = static_cast<char *>(q_data_ptr) + chunk_start * q_S_byte_stride;
+            acl_tensor_ptr acl_q_chunk = ggml_cann_create_tensor(
+                q_chunk_ptr, faDataType, faElemSize,
+                q_chunk_ne, q_chunk_nb, GGML_MAX_DIMS);
+
+            // 5b: Create K/V tensor descriptors (recreated per iteration;
+            //     tensor list takes ownership via .release())
+            int64_t kv_ne[GGML_MAX_DIMS];
+            memcpy(kv_ne, src1_bsnd_ne, sizeof(kv_ne));
+            size_t kv_nb[GGML_MAX_DIMS];
+            kv_nb[0] = faElemSize;
+            for (int i = 1; i < GGML_MAX_DIMS; ++i) {
+                kv_nb[i] = kv_nb[i - 1] * kv_ne[i - 1];
             }
+            acl_tensor_ptr acl_k_chunk = ggml_cann_create_tensor(
+                k_data_ptr, faDataType, faElemSize, kv_ne, kv_nb, GGML_MAX_DIMS);
+            acl_tensor_ptr acl_v_chunk = ggml_cann_create_tensor(
+                v_data_ptr, faDataType, faElemSize, kv_ne, kv_nb, GGML_MAX_DIMS);
+
+            acl_tensor_list_ptr acl_k_list = ggml_cann_create_tensor_list(acl_k_chunk);
+            acl_tensor_list_ptr acl_v_list = ggml_cann_create_tensor_list(acl_v_chunk);
+
+            // 5c: Create PSE + atten mask chunk tensors (if src3) — contiguous sub-tensors
+            acl_tensor_ptr bcast_pse_chunk;
+            acl_tensor_ptr atten_mask_chunk;
+            if (src3 != nullptr) {
+                int64_t pse_chunk_ne[GGML_MAX_DIMS];
+                memcpy(pse_chunk_ne, pse_full_ne, sizeof(pse_chunk_ne));
+                pse_chunk_ne[1] = chunk_S;  // reduce S dim
+                // Contiguous strides for the chunk
+                size_t pse_chunk_nb[GGML_MAX_DIMS];
+                pse_chunk_nb[0] = sizeof(uint16_t);
+                for (int i = 1; i < GGML_MAX_DIMS; i++) {
+                    pse_chunk_nb[i] = pse_chunk_nb[i - 1] * pse_chunk_ne[i - 1];
+                }
+                void * pse_chunk_ptr = static_cast<char *>(pse_data_ptr) + chunk_start * pse_S_byte_stride;
+                bcast_pse_chunk = ggml_cann_create_tensor(
+                    pse_chunk_ptr, ACL_FLOAT16, sizeof(uint16_t),
+                    pse_chunk_ne, pse_chunk_nb, GGML_MAX_DIMS);
+
+                // BOOL atten mask chunk (hard mask), sliced along Q_S like the PSE
+                int64_t mask_chunk_ne[GGML_MAX_DIMS];
+                memcpy(mask_chunk_ne, mask_full_ne, sizeof(mask_chunk_ne));
+                mask_chunk_ne[1] = chunk_S;  // reduce S dim
+                size_t mask_chunk_nb[GGML_MAX_DIMS];
+                mask_chunk_nb[0] = sizeof(uint8_t);
+                for (int i = 1; i < GGML_MAX_DIMS; i++) {
+                    mask_chunk_nb[i] = mask_chunk_nb[i - 1] * mask_chunk_ne[i - 1];
+                }
+                void * mask_chunk_ptr = static_cast<char *>(mask_data_ptr) + chunk_start * mask_S_byte_stride;
+                atten_mask_chunk = ggml_cann_create_tensor(
+                    mask_chunk_ptr, ACL_BOOL, sizeof(uint8_t),
+                    mask_chunk_ne, mask_chunk_nb, GGML_MAX_DIMS);
+            }
+
+            // 5d: Create output chunk tensor (contiguous sub-tensor at computed pointer)
+            int64_t out_chunk_ne[GGML_MAX_DIMS] = { Q_D_padded, Q_N, chunk_S, Q_B };
+            size_t  out_chunk_nb[GGML_MAX_DIMS];
+            out_chunk_nb[0] = faElemSize;
+            out_chunk_nb[1] = out_chunk_nb[0] * out_chunk_ne[0];
+            out_chunk_nb[2] = out_chunk_nb[1] * out_chunk_ne[1];   // contiguous S stride
+            out_chunk_nb[3] = out_chunk_nb[2] * out_chunk_ne[2];   // contiguous B stride
+            void * out_chunk_ptr = static_cast<char *>(out_data_ptr) + chunk_start * out_S_byte_stride;
+            acl_tensor_ptr fa_dst_chunk = ggml_cann_create_tensor(
+                out_chunk_ptr, faDataType, faElemSize,
+                out_chunk_ne, out_chunk_nb, GGML_MAX_DIMS);
+
+            // 5e: FA kernel call (same params, chunked tensors)
+            GGML_CANN_CALL_ACLNN_OP(ctx, FusedInferAttentionScoreV2,
+                acl_q_chunk.get(), acl_k_list.get(), acl_v_list.get(),
+                (src3 != nullptr) ? bcast_pse_chunk.get() : nullptr,
+                (src3 != nullptr) ? atten_mask_chunk.get() : nullptr,  // BOOL hard mask
+                nullptr, nullptr,                // actSeqLen, actSeqLenkv
+                nullptr, nullptr,                // deqScale1, quantScale1
+                nullptr, nullptr, nullptr,       // deqScale2, quantScale2, quantOffset2
+                nullptr, nullptr,                // antiquantScale, antiquantOffset
+                nullptr,                         // blockTable
+                nullptr, nullptr,                // qPadSize, kvPadSize
+                nullptr, nullptr,                // kAntiquantScale, kAntiQuantOffset
+                nullptr, nullptr,                // vAntiquantScale, vAntiQuantOffset
+                nullptr, nullptr, nullptr,       // kSharedPrefix, vSharedPrefix, actSharedLen
+                numHeads, scaleValue,
+                preTokens, nextTokens,
+                layout,
+                numKeyValueHeads,
+                sparseMode, innerPrecise,
+                blockSize, antiquantMode,
+                softmaxLseFlag,
+                keyAntiquantMode, valueAntiquantMode,
+                fa_dst_chunk.get(),
+                nullptr                          // softmaxLse
+            );
+
+            // 5f: Per-chunk NaN check (checks this chunk's output region)
+            if (nan_check_enabled) {
+                ACL_CHECK(aclrtSynchronizeStream(ctx.stream()));
+                int64_t n_check = chunk_S * Q_B;
+                if (n_check > 256) n_check = 256;
+                std::vector<uint16_t> host_buf(n_check);
+                // Check from this chunk's output pointer
+                char * chunk_dev_ptr = static_cast<char *>(out_chunk_ptr);
+                if (chunk_dev_ptr) {
+                    ACL_CHECK(aclrtMemcpy(host_buf.data(), n_check * sizeof(uint16_t),
+                                          chunk_dev_ptr, n_check * sizeof(uint16_t),
+                                          ACL_MEMCPY_DEVICE_TO_HOST));
+                    int nan_count = 0, inf_count = 0;
+                    for (int64_t i = 0; i < n_check; i++) {
+                        uint16_t v = host_buf[i];
+                        int exp = (v >> 10) & 0x1F;
+                        int mant = v & 0x3FF;
+                        if (exp == 0x1F) {
+                            if (mant == 0) inf_count++;
+                            else nan_count++;
+                        }
+                    }
+                    fprintf(stderr,
+                        "[cann_fa_output] chunk=%ld/%ld q_seq=%ld kv_seq=%ld checked=%ld nan=%d inf=%d\n",
+                        chunk, num_chunks, chunk_S, (long)src1_bsnd_ne[2],
+                        (long)n_check, nan_count, inf_count);
+                }
+            }
+        }  // end chunking loop
+
+        // OMNI_CANN_FA_TIME: accumulate total kernel wall time across all chunks
+        if (fa_time_enabled) {
+            if (!getenv("OMNI_CANN_FA_NAN_CHECK")) {
+                ACL_CHECK(aclrtSynchronizeStream(ctx.stream()));
+            }
+            auto fa_elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - fa_t0).count();
+            fa_time_total_ns += fa_elapsed_ns;
+            fa_time_calls++;
+            if (fa_time_calls % 100 == 0) {
+                fprintf(stderr, "[cann_fa_TIME] calls=%d total_ms=%.3f avg_us=%.1f\n",
+                    fa_time_calls, fa_time_total_ns / 1e6, fa_time_total_ns / (double)fa_time_calls / 1e3);
+            }
+        }
+
+        // Reconstruct fa_dst_tensor from saved metadata (deferred to avoid CANN
+        // ViewShape overlap with per-chunk output views during the chunking loop)
+        acl_tensor_ptr fa_dst_tensor;
+        if (dst->type == GGML_TYPE_F32 || needs_padding) {
+            fa_dst_tensor = ggml_cann_create_tensor(
+                out_data_ptr, faDataType, faElemSize,
+                out_full_ne, out_full_nb, GGML_MAX_DIMS);
+        } else {
+            fa_dst_tensor = ggml_cann_create_tensor(dst);
         }
 
         // Step 6: post-processing — slice padded output and/or cast to f32

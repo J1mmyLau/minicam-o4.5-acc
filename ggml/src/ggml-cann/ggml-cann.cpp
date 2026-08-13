@@ -2413,15 +2413,90 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                 continue;
             }
 
+            // OMNI_CANN_NAN_TRACE: static state (declared before op for input checks)
+            static bool nan_trace_enabled = (getenv("OMNI_CANN_NAN_TRACE") != nullptr);
+            static int64_t nan_trace_ops_checked = 0;
+
+            // OMNI_CANN_NAN_TRACE: check INPUTS before op execution
+            if (nan_trace_enabled) {
+                for (int si = 0; si < GGML_MAX_SRC && node->src[si] != nullptr; si++) {
+                    ggml_tensor * src = node->src[si];
+                    if (src->buffer == nullptr ||
+                        !ggml_backend_buft_is_cann(src->buffer->buft)) continue;
+                    if (src->data == nullptr) continue;
+
+                    size_t src_el_size = ggml_type_size(src->type);
+                    int64_t src_n_sample = 64;
+                    int64_t src_n_total = ggml_nelements(src);
+                    if (src_n_total < src_n_sample) src_n_sample = src_n_total;
+                    if (src_n_sample <= 0) continue;
+
+                    ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+
+                    bool src_has_nan = false;
+                    float src_min = INFINITY, src_max = -INFINITY;
+                    if (src_el_size == 2) {
+                        std::vector<uint16_t> buf(src_n_sample);
+                        ACL_CHECK(aclrtMemcpy(buf.data(), src_n_sample * src_el_size,
+                                              src->data, src_n_sample * src_el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        for (int64_t k = 0; k < src_n_sample; k++) {
+                            uint16_t v = buf[k];
+                            int exp = (v >> 10) & 0x1F;
+                            int mant = v & 0x3FF;
+                            if (exp == 0x1F && mant != 0) { src_has_nan = true; break; }
+                            // Convert to float for min/max (approximate)
+                            if (exp == 0x1F && mant == 0) continue; // skip inf
+                            float fv;
+                            if (exp == 0) { fv = (mant == 0) ? 0.0f : ldexpf((float)mant, -14); }
+                            else { fv = ldexpf((float)(mant | 0x400), (int)exp - 15 - 10); }
+                            if (v & 0x8000) fv = -fv;
+                            if (fv < src_min) src_min = fv;
+                            if (fv > src_max) src_max = fv;
+                        }
+                    } else if (src_el_size == 4) {
+                        std::vector<float> buf(src_n_sample);
+                        ACL_CHECK(aclrtMemcpy(buf.data(), src_n_sample * src_el_size,
+                                              src->data, src_n_sample * src_el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        for (int64_t k = 0; k < src_n_sample; k++) {
+                            float v = buf[k];
+                            if (isnan(v)) { src_has_nan = true; break; }
+                            if (isinf(v)) continue;
+                            if (v < src_min) src_min = v;
+                            if (v > src_max) src_max = v;
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    if (src_has_nan || src_min <= src_max) {
+                        fprintf(stderr,
+                            "[cann_nan_trace_input] op=%s name=%s src=%d src_name=%s "
+                            "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld "
+                            "nan=%d min=%.6e max=%.6e\n",
+                            ggml_op_name(node->op), node->name, si, src->name,
+                            src->ne[0], src->ne[1], src->ne[2], src->ne[3],
+                            src->type, (long)src_n_sample,
+                            src_has_nan ? 1 : 0, src_min, src_max);
+                    }
+                    if (src_has_nan) {
+                        fprintf(stderr,
+                            "[cann_nan_trace_input] *** INPUT_%d_ALREADY_NONFINITE for op=%s name=%s ***\n",
+                            si, ggml_op_name(node->op), node->name);
+                        nan_trace_enabled = false;
+                        break;
+                    }
+                }
+            }
+
             bool ok = ggml_cann_compute_forward(*cann_ctx, node);
             if (!ok) {
                 GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
             }
             GGML_ASSERT(ok);
 
-            // OMNI_CANN_NAN_TRACE: check output of each CANN op for NaN/Inf
-            static bool nan_trace_enabled = (getenv("OMNI_CANN_NAN_TRACE") != nullptr);
-            static int64_t nan_trace_ops_checked = 0;
+            // OMNI_CANN_NAN_TRACE: check OUTPUT of each CANN op for NaN/Inf
             if (nan_trace_enabled && node->data != nullptr &&
                 node->buffer != nullptr &&
                 ggml_backend_buft_is_cann(node->buffer->buft)) {
