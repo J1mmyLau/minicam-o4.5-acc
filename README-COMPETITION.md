@@ -56,6 +56,37 @@ FINAL_BRANCH             = competition/final-ascend-track-a
 > `fd3dd36` 是真正跑出当前数据的 runtime SHA，**固定不变**；`16ec3500d` 只是在它之上追加提交文档，
 > 二进制仍对应 `fd3dd36`（构成 = `a77d6a8` + `trackA_fixes.patch` + LISTEN-wedge 生命周期修复 + stage_timing 发射）。
 
+## 代码项目结构（评审速览）
+
+> 根 `README.md` = 组织方 llama.cpp-omni 原始 README，**保持不动**（可 diff 对比）。本分支入口 = 本文件。
+> 原始 llama.cpp README 另存于 `README_llama.cpp.md`（只读备份）。
+
+```
+llama.cpp-omni-bench-huawei/
+├── src/                          # llama.cpp 推理引擎核心（context / graph / kv-cache / arch）
+├── tools/omni/                   # ★ Omni 多模态服务与评测
+│   ├── omni.cpp / omni.h         #   全双工流式引擎（VPM/APM/LLM/TTS/Token2Wav 接线）
+│   ├── omni-cli.cpp              #   CLI 推理入口
+│   ├── omni-eval-cli.cpp         #   官方统一评测 CLI（evaluation/ 的入口）
+│   ├── omni-eval-daily-cli.cpp   #   Daily-Omni 评测
+│   ├── omni-tts-eval.cpp         #   TTS-Seed 评测
+│   └── token2wav/                #   Flow Matching vocoder
+├── ggml/src/ggml-cann/           # ★ 昇腾 CANN 后端（aclnn_ops.cpp / ggml-cann.cpp）
+├── evaluation/                   # 官方评测脚本（run_all.sh + daily-omni/tts_seed/videomme/judge-final）
+├── submission/                   # ★ 提交包（config / scripts / docs / benchmark_results / performance / demo）
+├── docs/competition-submission/  # ★ 比赛提交文档（权威，见下方导航）
+├── docs/F6_*.md                  # 内部证据链（性能/精度/稳定性追踪，非提交物）
+├── docs/vllm-migration/          # vLLM-Omni 迁移文档集（子赛道 B 参考）
+├── config_d_official.env         # ★ Config D 运行时（6 个环境变量，见 OPTIMIZATIONS.md）
+├── examples/ common/ include/ ggml/   # llama.cpp 生态公共代码
+└── experiments/ demo_runs/       # 实验/演示产物（transient，不进提交包）
+```
+
+**关键改动点（相对组织方 baseline，均在 freeze runtime `fd3dd36` 内）**：
+- `tools/omni/omni.cpp` — LISTEN-wedge 生命周期修复 + `stage_timing.jsonl`/SSE `metrics` 发射（RTF 由 BLOCKED→AVAILABLE）
+- `ggml/src/ggml-cann/aclnn_ops.cpp` — FA-local Q split + `OMNI_CANN_FA_MAX_UBATCH=16`（FA NaN 修复）
+- `tools/omni/token2wav/` — Flow∥Vocoder 并行 pipeline（Config D 的 `OMNI_T2W_PIPELINE_OVERLAP=1`）
+
 ## 复现最短路径
 
 ```bash
@@ -67,21 +98,55 @@ bash submission/environment/env_check.sh
 bash submission/scripts/build.sh                    # 期望 server=4694cb58… libomni=3f3e1e63…
 ```
 
-## 权威文档索引
+## 完整文档导航（从本文件跳转）
 
-| 主题 | 权威文档 |
+> 所有链接相对本文件；`docs/competition-submission/` 简称 **cs**。
+
+### 一、官方规范与身份（先读）
+| 文档 | 内容 |
 |---|---|
-| 官方评测规范 | [`OFFICIAL_EVALUATION_SPEC.md`](docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md) |
-| 需求矩阵 | [`COMPETITION_REQUIREMENTS_MATRIX.md`](docs/competition-submission/COMPETITION_REQUIREMENTS_MATRIX.md) |
-| 结果（准确率 + RTF） | [`RESULTS.md`](docs/competition-submission/RESULTS.md) |
-| 复现 | [`REPRODUCTION.md`](docs/competition-submission/REPRODUCTION.md) |
-| 优化说明 | [`OPTIMIZATIONS.md`](docs/competition-submission/OPTIMIZATIONS.md) |
-| 二进制溯源（SHA256） | [`BINARY_PROVENANCE.md`](docs/competition-submission/BINARY_PROVENANCE.md) |
-| 已知限制 | [`KNOWN_LIMITATIONS.md`](docs/competition-submission/KNOWN_LIMITATIONS.md) |
-| Demo 复现 | [`DEMO_REPRODUCTION.md`](docs/competition-submission/DEMO_REPRODUCTION.md) |
-| 提交检查清单 | [`FINAL_SUBMISSION_CHECKLIST.md`](docs/competition-submission/FINAL_SUBMISSION_CHECKLIST.md) |
-| 版本溯源（唯一权威） | [`submission/VERSION_MANIFEST.md`](submission/VERSION_MANIFEST.md) |
-| 提交包入口 | [`submission/README.md`](submission/README.md) |
+| [`cs/OFFICIAL_EVALUATION_SPEC.md`](docs/competition-submission/OFFICIAL_EVALUATION_SPEC.md) | 官方评测规范 G1→G8（权威，只读） |
+| [`cs/COMPETITION_REQUIREMENTS_MATRIX.md`](docs/competition-submission/COMPETITION_REQUIREMENTS_MATRIX.md) | 需求矩阵（官方要求 → 状态 → 产物） |
+| [`submission/VERSION_MANIFEST.md`](submission/VERSION_MANIFEST.md) | 版本溯源（commit/SHA 唯一权威） |
+| [`cs/BINARY_PROVENANCE.md`](docs/competition-submission/BINARY_PROVENANCE.md) | 二进制 SHA256 溯源表 |
+
+### 二、结果与优化（评审核心）
+| 文档 | 内容 |
+|---|---|
+| [`cs/RESULTS.md`](docs/competition-submission/RESULTS.md) | 四项精度指标 + 官方 RTF |
+| [`cs/OPTIMIZATIONS.md`](docs/competition-submission/OPTIMIZATIONS.md) | 优化方法 + 每项 A/B 证据 |
+| [`cs/REPRODUCTION.md`](docs/competition-submission/REPRODUCTION.md) | 复现步骤 |
+| [`cs/KNOWN_LIMITATIONS.md`](docs/competition-submission/KNOWN_LIMITATIONS.md) | 已知限制（诚实标注） |
+
+### 三、Demo 与提交包
+| 文档 | 内容 |
+|---|---|
+| [`cs/DEMO_REPRODUCTION.md`](docs/competition-submission/DEMO_REPRODUCTION.md) | Demo 复现 |
+| [`cs/DEMO_USER_GUIDE.md`](docs/competition-submission/DEMO_USER_GUIDE.md) | Demo 使用说明 |
+| [`cs/DEMO_VALIDATION_PLAN.md`](docs/competition-submission/DEMO_VALIDATION_PLAN.md) · [`DEMO_VIDEO_SCRIPT.md`](docs/competition-submission/DEMO_VIDEO_SCRIPT.md) | 验证计划 · 录像脚本 |
+| [`cs/FINAL_SUBMISSION_CHECKLIST.md`](docs/competition-submission/FINAL_SUBMISSION_CHECKLIST.md) | 提交检查清单（A–F） |
+| [`submission/README.md`](submission/README.md) | 提交包入口 |
+
+### 四、Gate 状态与工具链
+| 文档 | 内容 |
+|---|---|
+| [`cs/OFFICIAL_GATE_STATUS.md`](docs/competition-submission/OFFICIAL_GATE_STATUS.md) | Gate 状态 Dashboard（唯一权威） |
+| [`cs/OFFICIAL_GATE_MATRIX.md`](docs/competition-submission/OFFICIAL_GATE_MATRIX.md) · [`OFFICIAL_GATE_READINESS_REPORT.md`](docs/competition-submission/OFFICIAL_GATE_READINESS_REPORT.md) | Gate 矩阵 · 就绪度核查 |
+| [`cs/OFFICIAL_GATE_TOOLING_SELFTEST.md`](docs/competition-submission/OFFICIAL_GATE_TOOLING_SELFTEST.md) | 工具链自检 |
+
+### 五、性能测量规范
+| 文档 | 内容 |
+|---|---|
+| [`cs/CHUNK_RTF_MEASUREMENT_SPEC.md`](docs/competition-submission/CHUNK_RTF_MEASUREMENT_SPEC.md) | chunk RTF 测量规范 |
+| [`cs/PERFORMANCE_REPORT_TEMPLATE.md`](docs/competition-submission/PERFORMANCE_REPORT_TEMPLATE.md) | 性能报告模板 |
+| [`cs/BENCHMARK_EXECUTION_PLAN.md`](docs/competition-submission/BENCHMARK_EXECUTION_PLAN.md) · [`RTF_PARSER_AUDIT.md`](docs/competition-submission/RTF_PARSER_AUDIT.md) | Benchmark 执行计划 · RTF 解析审计 |
+
+### 六、内部证据链（追踪用，非提交物）
+| 文档 | 内容 |
+|---|---|
+| [`docs/F6_OFFICIAL_RTF_RESOLVED.md`](docs/F6_OFFICIAL_RTF_RESOLVED.md) | RTF 阻塞解除根因（LISTEN-wedge） |
+| [`docs/F6_FINAL_REPORT.md`](docs/F6_FINAL_REPORT.md) | 最终报告 |
+| `docs/F6_*.md`（其余 15+ 份） | 性能/精度/稳定性追踪（Phase A–D / Track A–F / Gate 0–4） |
 
 ## 状态速览
 
