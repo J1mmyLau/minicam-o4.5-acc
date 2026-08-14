@@ -151,6 +151,8 @@ Phase 7: Accuracy 收口 (8/8–至今)                │  │                 
 ## 推进全记录
 
 > 按时间推进顺序记录每一步的关键发现和累积进展。"攒"起来的过程。
+>
+> **📚 完整版**（含 08-08 之后 + 踩坑总表 + 官方发资料节点 + vLLM 迁移）→ [docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md)。本节是其中的 ①~⑥ 阶段摘要。
 
 ### 第一阶段：基线校准（7月23日–7月28日）
 
@@ -335,7 +337,8 @@ build/bin/llama-omni-server \
 | 文档 | 内容 |
 |------|------|
 | [STATUS.md](STATUS.md) | 实时项目状态（更新最频繁） |
-| [docs/branch-map.md](docs/branch-map.md) | 26 分支完整地图（HEAD、依赖链） |
+| [docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md) | **完整项目脉络**（7月→至今：优化/实验/踩坑/官方节点/vLLM迁移） |
+| [docs/branch-map.md](docs/branch-map.md) | 42 分支完整地图（HEAD、依赖链） |
 | [docs/ws-nan-investigation.md](docs/ws-nan-investigation.md) | WS 多模态 NaN 调查报告 |
 | [docs/w8a8-cann-quant-matmul.md](docs/w8a8-cann-quant-matmul.md) | W8A8 量化 MatMul (Phase C) |
 | [docs/F6_S13_FINAL_GATE_CLOSURE.md](docs/F6_S13_FINAL_GATE_CLOSURE.md) | 最终 Gate 收口 |
