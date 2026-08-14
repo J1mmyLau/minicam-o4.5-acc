@@ -15,7 +15,7 @@ submission/
 ├── benchmark_results/
 │   ├── baseline/             ← 官方基线原始结果
 │   └── candidate/            ← 优化候选原始结果
-├── performance/              ← chunk_rtf_raw.csv + chunk_rtf_summary.json + PERFORMANCE_REPORT.md
+├── performance/              ← chunk_rtf_raw.csv + chunk_rtf_summary.json + PERFORMANCE_REPORT.md + make_charts.py + charts/*.png
 ├── demo/                     ← DEMO_GUIDE.md + video_manifest.md + 视频
 └── docs/                     ← OPTIMIZATION_REPORT / REPRODUCTION_GUIDE / KNOWN_LIMITATIONS / CHANGELOG
 ```

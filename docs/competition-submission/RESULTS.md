@@ -42,3 +42,14 @@
 - 准确率对比是 baseline/candidate **同脚本、同子集、同分母**（统一评测分支）。
 - 内部 pilot / 内部 profiler / 冻结 T6 数字**不作为**官方结果。
 - 完整 gate 状态见 `docs/competition-submission/OFFICIAL_GATE_STATUS.md`。
+
+## 5. 数据可视化
+
+四项精度 + T2W 优化迭代 + W0 Amdahl 占比 + 官方 RTF parity 四张图，
+由 `submission/performance/make_charts.py` 离线生成（`python3 make_charts.py`）到
+`submission/performance/charts/`：
+
+- `accuracy.png` — 四项精度指标 vs 验收线（全部 PASS）
+- `t2w_iteration.png` — T2W 延迟演进（本地 A/B，非 official RTF）
+- `w0_breakdown.png` — W0 时间占比（Amdahl）
+- `rtf_parity.png` — 官方 SPEAK→WAV RTF（parity，无已证实加速）
