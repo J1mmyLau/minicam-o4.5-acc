@@ -749,16 +749,26 @@ int main(int argc, char ** argv) {
                             state.octx->text_streaming = false;
                             state.octx->text_cv.notify_all();
                         }
-                        // F6 T9: non-TTS decode leaves context_state=ACTIVE and never
-                        // advances drain_complete_generation (both only happen in
-                        // omni_duplex_drain_tts_audio, which is use_tts only).  Advance
-                        // both so a persistent text-only session can issue repeated SSE
-                        // decodes; holding octx_mutex means the next request observes
-                        // the updated state before we release the lock.
-                        if (dec_ok && !state.octx->use_tts) {
-                            state.octx->drain_complete_generation.store(
-                                state.octx->request_generation.load(std::memory_order_relaxed));
-                            state.octx->context_state.store(CTX_STATE_REUSABLE);
+                        // F6 lifecycle: reset context_state after decode so the next
+                        // request is not rejected. Two cases:
+                        //  - non-TTS: stream_decode leaves context_state=ACTIVE and never
+                        //    advances drain_complete_generation. Advance both directly.
+                        //  - TTS (duplex): mirror the non-streaming path — drain T2W audio
+                        //    via omni_duplex_drain_tts_audio(), which advances
+                        //    drain_complete_generation AND context_state→REUSABLE when the
+                        //    generation's T2W work (if any) is done. Without this the SSE
+                        //    duplex path leaves context_state=ACTIVE forever, so every
+                        //    subsequent decode is rejected (RTS SPEAK=0 root cause).
+                        // Holding octx_mutex is safe here: the drain waits on drain_mtx
+                        // (not octx_mutex), identical to the non-streaming handler.
+                        if (dec_ok) {
+                            if (state.octx->use_tts) {
+                                (void) omni_duplex_drain_tts_audio(state.octx);
+                            } else {
+                                state.octx->drain_complete_generation.store(
+                                    state.octx->request_generation.load(std::memory_order_relaxed));
+                                state.octx->context_state.store(CTX_STATE_REUSABLE);
+                            }
                         }
                     });
                 }
@@ -803,6 +813,39 @@ int main(int argc, char ** argv) {
                     }
 
                     if (state.octx->text_done_flag) break;
+                }
+
+                // F6 RTF: emit the `metrics` event carrying this chunk's encode/prefill/decode
+                // timings. duplex.py reads event=="metrics" and forwards
+                // vpm_ms/apm_ms/llm_prefill_ms/cost_llm_ms into the e2e chunk event, which
+                // the judge joins against stage_timing.jsonl tts/t2w by src_cnt.
+                // last_chunk_timings is set by duplex_llm_thread_func before
+                // decode_req->done (guaranteed here because text_done_flag is only set
+                // after stream_decode → duplex_decode returns on done=true).
+                {
+                    int    cnt = 0;
+                    double vpm = 0.0, apm = 0.0, prefill = 0.0, decode = 0.0;
+                    bool   have = false;
+                    {
+                        std::lock_guard<std::mutex> lk(state.octx->stage_timings_mtx);
+                        have    = state.octx->last_chunk_timings.valid;
+                        cnt     = state.octx->last_chunk_timings.index;
+                        vpm     = state.octx->last_chunk_timings.vpm_ms;
+                        apm     = state.octx->last_chunk_timings.apm_ms;
+                        prefill = state.octx->last_chunk_timings.llm_prefill_ms;
+                        decode  = state.octx->last_chunk_timings.llm_decode_ms;
+                    }
+                    if (have) {
+                        json metrics_ev = {
+                            {"event", "metrics"},
+                            {"cnt", cnt},
+                            {"vpm_ms", vpm},
+                            {"apm_ms", apm},
+                            {"llm_prefill_ms", prefill},
+                            {"cost_llm_ms", decode},
+                        };
+                        server_sent_event(sink, metrics_ev);
+                    }
                 }
 
                 // send done

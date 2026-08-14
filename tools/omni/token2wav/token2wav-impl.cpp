@@ -8228,7 +8228,11 @@ bool flowGGUFModelRunner::inference_chunk(const int32_t *             token_bt,
     }
     // T2W decomposition: compute pre-built encoder-only graph to measure HG2 encoder time.
     // gf_enc is built during setup_cache from the encoder portion of the fused graph.
-    if (sess_->gf_enc) {
+    // TRACK-A TEST: gf_enc shares tensors (mu_enc, cpy_conf_*) with the fused graph but
+    // is computed via a SEPARATE ggml_backend_graph_compute on an unallocated graph —
+    // this double-compute/allocation is a suspected flow/voco corruption source.
+    // Gate behind OMNI_T2W_ENC_TIMING (default OFF = no double-compute).
+    if (sess_->gf_enc && std::getenv("OMNI_T2W_ENC_TIMING")) {
         const auto t_enc0 = std::chrono::steady_clock::now();
         const ggml_status st = ggml_backend_graph_compute(loader_.backend(), sess_->gf_enc);
         if (st != GGML_STATUS_SUCCESS) {

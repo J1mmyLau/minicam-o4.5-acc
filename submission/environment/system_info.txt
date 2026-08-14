@@ -1,0 +1,2 @@
+# system_info.txt — 由 environment/env_check.sh 采集生成（提交前运行一次并保留）
+# 期望内容：npu-smi 完整输出 / OS / kernel / CANN 版本 / CPU 核数 / 内存

@@ -4574,22 +4574,21 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
         // - 单工模式：只有整个生成过程的第一个 token 跳过
         if (!skip_processors && !decoded_tokens_relative.empty()) {
             // Apply repetition penalty (matching Python's CustomRepetitionPenaltyLogitsProcessorRepeat)
-            apply_repetition_penalty_tts(audio_logits.data(), num_audio_tokens, 
+            apply_repetition_penalty_tts(audio_logits.data(), num_audio_tokens,
                                         decoded_tokens_relative, repetition_penalty, win_size);
         }
-        
+
         // 🔧 [差异1修复] 在采样前阻止 EOS token 被采样
         // Python generate_chunk: if force_no_stop or t < min_new_tokens: logits[:, eos_token] = -torch.inf
         // 这样可以确保在达到 min_new_tokens 之前不会生成 EOS
         if (ctx_omni->duplex_mode && force_no_eos) {
-            int eos_relative_idx = num_audio_tokens - 1;  // EOS token relative index: 6561
             audio_logits[eos_relative_idx] = -std::numeric_limits<float>::infinity();
         }
-        
+
         // Step 4: Nucleus sampling with min_tokens_to_keep (matching Python's warpers)
         selected_relative_idx = nucleus_sampling_with_min_keep_tts(
-            audio_logits.data(), 
-            num_audio_tokens, 
+            audio_logits.data(),
+            num_audio_tokens,
             top_p,
             top_k,
             min_tokens_to_keep,
@@ -5239,10 +5238,20 @@ struct DuplexEncodeReq {
     int         max_slice_nums;  // -1 = 使用全局
 };
 
+// Per-chunk stage timings (filled along duplex pipeline, exposed via SSE metrics).
+struct DuplexChunkTimings {
+    int    index = 0;
+    double vpm_ms = 0.0;
+    double apm_ms = 0.0;
+    double llm_prefill_ms = 0.0;
+    double llm_decode_ms = 0.0;
+};
+
 struct DuplexPrefillPacket {
     std::vector<std::vector<float>> vision_embed;  // [0]=overview, [1..]=slices
     std::vector<float>              audio_embed;
     int                             index = 0;
+    DuplexChunkTimings              timings;  // F6 RTF: encode/prefill timings carried to llm_thread
 };
 
 struct DuplexDecodeReq {
@@ -5332,6 +5341,48 @@ void print_with_timestamp(const char* format, ...)
     va_end(args);
 }
 
+// F6 RTF: append one JSON line to <base_output_dir>/stage_timing.jsonl.
+// Written by the TTS thread (event=tts) and T2W thread (event=t2w); the official
+// judge reads these to compute the tts/token2wav stage RTF per frame (src_cnt).
+static void append_stage_timing_jsonl(struct omni_context * ctx_omni, const char * line) {
+    if (!ctx_omni || ctx_omni->base_output_dir.empty() || line == nullptr) {
+        return;
+    }
+    const std::string path = ctx_omni->base_output_dir + "/stage_timing.jsonl";
+    FILE * f = fopen(path.c_str(), "a");
+    if (!f) {
+        return;
+    }
+    fputs(line, f);
+    fputc('\n', f);
+    fclose(f);
+}
+
+// F6 RTF: RAII timer for one generate_audio_tokens_local call.
+// Emits a `tts` stage_timing event keyed by src_cnt (= llm_chunk_seq_max, the
+// frame number) so the judge can sum tts_ms per frame.
+struct OmniTtsStageTimer {
+    struct omni_context * ctx_omni = nullptr;
+    int src_cnt = -1;
+    std::chrono::high_resolution_clock::time_point t0;
+
+    OmniTtsStageTimer(struct omni_context * ctx, int cnt)
+        : ctx_omni(ctx), src_cnt(cnt), t0(std::chrono::high_resolution_clock::now()) {}
+
+    ~OmniTtsStageTimer() {
+        if (!ctx_omni || src_cnt < 0) {
+            return;
+        }
+        const double ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - t0).count();
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "{\"event\":\"tts\",\"src_cnt\":%d,\"tts_ms\":%.3f}",
+                 src_cnt, ms);
+        append_stage_timing_jsonl(ctx_omni, buf);
+    }
+};
+
 static struct llama_model * llama_init(common_params * params, std::string model_path) {
     llama_backend_init();
     llama_numa_init(params->numa);
@@ -5353,6 +5404,12 @@ static struct llama_model * llama_init_tts(common_params * params, std::string m
     
     llama_model_params model_params = common_model_params_to_llama(*params);
     model_params.partial_load = true;  // TTS GGUF contains extra tensors (emb_code, head_code, projector_*) beyond standard llama
+
+    // Diagnostic override: OMNI_TTS_NGL to force TTS LLM onto CPU (isolation test)
+    const char * tts_ngl_env = getenv("OMNI_TTS_NGL");
+    if (tts_ngl_env && tts_ngl_env[0]) {
+        n_gpu_layers_override = atoi(tts_ngl_env);
+    }
 
     // 如果指定了override值(>=0)，使用它；否则保持与LLM相同的设置
     if (n_gpu_layers_override >= 0) {
@@ -5715,12 +5772,20 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             // 格式: "gpu", "gpu:0", "gpu:1", "cpu", "cann-flow-only"
 #ifdef GGML_USE_CANN
             const char * t2w_dev_env = getenv("OMNI_T2W_DEVICE");
-            std::string device_token2mel = "cpu";
-            if (t2w_dev_env && std::string(t2w_dev_env) == "cann-flow-only") {
-                // P1 FAIL-FAST: Verify CANN registry is available before accepting
-                // the cann-flow-only configuration. If aclInit failed during startup,
-                // we must NOT silently fall back to CPU — the canonical candidate
-                // requires CANN for its RTF target.
+            std::string device_token2mel = token2wav_device;  // NPU (pristine behavior)
+            if (!ctx_omni->duplex_mode) {
+                // Simplex (Seed-TTS eval via llama-omni-tts-eval, single-threaded):
+                // CANN flow-matching on NPU works cleanly (pristine c9785cc, WER 1.7%).
+                // The cross-thread stream-ownership issue only affects the duplex worker
+                // path; the synchronous path has no such problem.
+                print_with_timestamp("Token2Wav: CANN detected, flow_matching using NPU (%s)\n",
+                                     device_token2mel.c_str());
+            } else if (t2w_dev_env && std::string(t2w_dev_env) == "cann-flow-only") {
+                // Duplex server (RTS): CANN flow-matching is validated for the worker
+                // thread path. FAIL-FAST if the registry is unavailable, then defer
+                // session init to t2w_thread_func_cpp (worker owns its CANN backend,
+                // avoiding the cross-thread ctx=NULL / device=-1 failure —
+                // ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP).
                 ctx_omni->cann_registry_available = ggml_backend_cann_is_available();
                 if (!ctx_omni->cann_registry_available) {
                     ctx_omni->cann_requested_but_unavailable = true;
@@ -5729,14 +5794,13 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                     print_with_timestamp("Token2Wav: FAIL-FAST — refusing to silently fall back to CPU. "
                                          "The canonical CANN candidate requires a working CANN runtime.\n");
                 } else {
-                    // Worker-thread CANN backend: defer session init to t2w_thread_func_cpp.
-                    // The worker will create its own CANN backend, avoiding the cross-thread
-                    // ctx=NULL / device=-1 failure (ROOT_CAUSE_CONFIRMED_THREAD_OWNERSHIP).
-                    device_token2mel = "gpu";  // Will be used inside worker
+                    device_token2mel = "gpu";  // CANN flow-matching on GPU
                     ctx_omni->token2wav_defer_worker_init = true;
                     print_with_timestamp("Token2Wav: CANN flow-only mode — deferring init to worker thread\n");
                 }
             } else {
+                // Duplex default (no cann-flow-only): CANN stream can't be shared
+                // across threads without operator adaptation — keep CPU flow.
                 print_with_timestamp("Token2Wav: CANN流跨线程需算子适配，flow_matching暂用CPU\n");
             }
 #else
@@ -5750,7 +5814,12 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
             //   可通过 OMNI_VOC_DEVICE 环境变量覆盖
             const char * voc_dev_env = getenv("OMNI_VOC_DEVICE");
             std::string device_vocoder;
-            if (voc_dev_env) {
+            if (!ctx_omni->duplex_mode) {
+                // Simplex (Seed-TTS eval): CANN vocoder on NPU works cleanly
+                // (pristine c9785cc, WER 1.7%). Same rationale as flow above.
+                device_vocoder = token2wav_device;
+                print_with_timestamp("Token2Wav: CANN detected, vocoder using NPU (%s)\n", device_vocoder.c_str());
+            } else if (voc_dev_env) {
                 device_vocoder = voc_dev_env;
                 print_with_timestamp("Token2Wav: vocoder device overridden by OMNI_VOC_DEVICE=%s\n", voc_dev_env);
             } else {
@@ -6269,6 +6338,18 @@ static inline void tts_mark_producer_done(struct omni_context * ctx_omni) {
                 if (gen > fp_prev) {
                     ctx_omni->t2w_thread_info->final_processed_generation.store(gen, std::memory_order_release);
                     ctx_omni->t2w_thread_info->drain_cv.notify_one();
+                }
+                // F6 pipeline-overlap: when a generation produces no T2W tasks
+                // (LISTEN / force_listen), there is nothing for the vocoder worker
+                // to process either, so advance final_vocoder_processed_generation
+                // too. Otherwise the pipeline drain predicate's vocoder-side check
+                // (final_vocoder_processed_generation >= gen) never satisfies and
+                // every LISTEN chunk burns the full drain timeout (5s+).
+                if (ctx_omni->vocoder_thread_info) {
+                    uint32_t vp_prev = ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.load(std::memory_order_relaxed);
+                    if (gen > vp_prev) {
+                        ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.store(gen, std::memory_order_release);
+                    }
                 }
             }
         }
@@ -8020,7 +8101,11 @@ static bool generate_audio_tokens_local(
                 merged_embeddings.size(), n_tokens, tts_n_embd);
         return false;
     }
-    
+
+    // F6 RTF: emit a `tts` stage_timing event keyed by src_cnt (= llm_chunk_seq_max,
+    // the frame number) when this TTS generation completes.
+    OmniTtsStageTimer tts_stage_timer(ctx_omni, llm_chunk_seq_max);
+
     // 🔧 [修复] 在 prefill 之前动态添加 text_eos_embed（如果是轮次结束）和 audio_bos embedding
     // Python TTSStreamingGenerator.generate_with_buffer 逻辑：
     //   if text_finished: condition = torch.cat([condition, self.text_eos_embed], dim=1)
@@ -11501,8 +11586,11 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
         // === Vocoder inference ===
         std::vector<float> chunk_wav;
         int64_t out_T_audio = 0;
+        auto voc_start = std::chrono::high_resolution_clock::now();
         bool ok = ctx_omni->token2wav_session->feed_mel_to_wave(
             std::move(task->mel_bct), task->is_final, chunk_wav, out_T_audio);
+        double vocoder_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - voc_start).count();
 
         if (!ok) {
             LOG_ERR("[pipeline] Vocoder: feed_mel_to_wave failed\n");
@@ -11515,8 +11603,13 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
             }
 
             // WAV write (same format as serial path)
+            // F6 RTF: duplex 模式下 wav 文件名编码 src_cnt（= task->chunk_seq_max*1000 + wav_idx），
+            // 供官方 judge 经 wav_(\d+)//1000 还原帧号；simplex 保持 wav_turn_base 不变。
+            int wav_num = ctx_omni->duplex_mode
+                ? task->chunk_seq_max * 1000 + wav_idx
+                : ctx_omni->wav_turn_base + wav_idx;
             std::string wav_path = tts_wav_output_dir + "/wav_"
-                + std::to_string(ctx_omni->wav_turn_base + wav_idx) + ".wav";
+                + std::to_string(wav_num) + ".wav";
 
             const int16_t num_channels = 1;
             const int16_t bits_per_sample = 16;
@@ -11559,6 +11652,19 @@ static void t2w_vocoder_thread_func(struct omni_context * ctx_omni, common_param
             }
 
             wav_idx++;
+
+            // F6 RTF: emit t2w stage_timing event keyed by src_cnt for the judge.
+            // token2wav_ms = Flow (carried on task) + Vocoder (measured here).
+            {
+                float audio_duration = chunk_wav.size() / (float)sample_rate;
+                char t2w_buf[256];
+                snprintf(t2w_buf, sizeof(t2w_buf),
+                         "{\"event\":\"t2w\",\"src_cnt\":%d,\"duration_ms\":%.3f,\"token2wav_ms\":%.3f,\"wav\":\"wav_%d.wav\",\"is_final\":%s}",
+                         task->chunk_seq_max, audio_duration * 1000.0f,
+                         task->flow_ms + vocoder_ms, wav_num,
+                         task->is_final ? "true" : "false");
+                append_stage_timing_jsonl(ctx_omni, t2w_buf);
+            }
 
             // Bench
             if (profile_verbose) {
@@ -11887,7 +11993,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         //
         // F6 R13: Set per-generation active to the max gen in this batch.
         // Legacy global counter kept for diagnostics and timeout calculation.
-        if (!new_tokens.empty() || is_final || is_chunk_end) {
+        // F6 RTF: an empty duplex LISTEN chunk_end (no tokens, no final) does no
+        // work in the worker (need_flush is is_final-only in duplex mode), so it
+        // must not mark the worker active — doing so would leave active_gen stuck
+        // at my_gen and wedge the outer drain check (context_state -> NOT_REUSABLE).
+        bool empty_listen_chunk_end = ctx_omni->duplex_mode && new_tokens.empty() && is_chunk_end && !is_final;
+        if ((!new_tokens.empty() || is_final || is_chunk_end) && !empty_listen_chunk_end) {
             uint32_t active_gen = max_dequeued_gen > 0
                 ? max_dequeued_gen
                 : ctx_omni->request_generation.load(std::memory_order_acquire);
@@ -11975,6 +12086,35 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
         if (new_tokens.empty() && !is_chunk_end && !is_final) {
             ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
             ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
+            continue;
+        }
+
+        // F6 RTF: empty duplex LISTEN chunk_end — no audio tokens, no final.
+        // In duplex mode is_chunk_end does NOT trigger a flush (need_flush is
+        // is_final-only below), so an empty chunk_end task is a pure no-op in
+        // the T2W worker.  It MUST NOT mark the worker active: active_t2w_generation
+        // is only reset by the is_final and EOS-empty paths, and a LISTEN
+        // generation has neither, so the empty task would otherwise leave
+        // active_gen == my_gen and wedge the outer drain check in
+        // omni_duplex_drain_tts_audio (context_state -> NOT_REUSABLE, rejecting
+        // every subsequent decode request).  Complete the generation bookkeeping
+        // here instead (idempotent: only advances, never regresses).
+        if (ctx_omni->duplex_mode && new_tokens.empty() && is_chunk_end && !is_final) {
+            uint32_t cur_gen = ctx_omni->request_generation.load(std::memory_order_acquire);
+            uint32_t fp_prev = ctx_omni->t2w_thread_info->final_processed_generation.load(std::memory_order_relaxed);
+            if (cur_gen > fp_prev) {
+                ctx_omni->t2w_thread_info->final_processed_generation.store(cur_gen, std::memory_order_release);
+            }
+            if (ctx_omni->vocoder_thread_info) {
+                uint32_t vp_prev = ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.load(std::memory_order_relaxed);
+                if (cur_gen > vp_prev) {
+                    ctx_omni->vocoder_thread_info->final_vocoder_processed_generation.store(cur_gen, std::memory_order_release);
+                }
+            }
+            ctx_omni->t2w_thread_info->active_t2w_task_count.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->active_t2w_generation.store(0, std::memory_order_relaxed);
+            ctx_omni->t2w_thread_info->drain_cv.notify_one();
+            print_with_timestamp("T2W(C++): empty LISTEN chunk_end — no flush, completing gen %u\n", cur_gen);
             continue;
         }
 
@@ -12128,6 +12268,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     task->is_last_window  = is_last_window;
                     task->round_idx       = effective_round_idx;
                     task->wav_idx         = wav_idx;
+                    task->chunk_seq_max   = effective_chunk_seq_max;  // F6 RTF: src_cnt for wav naming + t2w event
                     task->generation_id   = ctx_omni->e2e_stage.t2w_thread_generation;
                     task->profile_handle  = captured_profile_handle;
 
@@ -12146,6 +12287,9 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     vi->cv.notify_one();
 
                     auto t2w_end = std::chrono::high_resolution_clock::now();
+                    double flow_ms = std::chrono::duration<double, std::milli>(
+                        t2w_end - t2w_start).count();
+                    task->flow_ms = flow_ms;  // F6 RTF: carried to Vocoder thread for t2w event
                     batch_total_feed_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
                         t2w_end - t2w_start).count();
                     batch_window_count++;
@@ -12182,7 +12326,12 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                     }
 
                     // Write WAV file
-                    std::string wav_path = tts_wav_output_dir + "/wav_" + std::to_string(ctx_omni->wav_turn_base + wav_idx) + ".wav";
+                    // F6 RTF: duplex 模式下 wav 文件名编码 src_cnt（= effective_chunk_seq_max*1000 + wav_idx），
+                    // 供官方 judge 经 wav_(\d+)//1000 还原帧号；simplex 保持 wav_turn_base（=round_idx*1000）不变。
+                    int wav_num = ctx_omni->duplex_mode
+                        ? effective_chunk_seq_max * 1000 + wav_idx
+                        : ctx_omni->wav_turn_base + wav_idx;
+                    std::string wav_path = tts_wav_output_dir + "/wav_" + std::to_string(wav_num) + ".wav";
                     
                     const int16_t num_channels = 1;
                     const int16_t bits_per_sample = 16;
@@ -12266,7 +12415,7 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                                 effective_round_idx, ctx_omni->e2e_stage.t2w_thread_generation);
                         }
                         print_with_timestamp("T2W线程: wav_%d.wav | %.2fs audio | %.1fms inference | RTF=%.2f | t=%lldms | queue_wait=%.1fms | req=%d gen=%u\n",
-                                            ctx_omni->wav_turn_base + wav_idx, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms,
+                                            wav_num, audio_duration, t2w_ms, rtf, (long long)elapsed_ms, queue_wait_ms,
                                             effective_round_idx, ctx_omni->e2e_stage.t2w_thread_generation);
                         // F6 formal: bench_wav at per-chunk WAV completion
                         {
@@ -12299,9 +12448,19 @@ void t2w_thread_func_cpp(struct omni_context * ctx_omni, common_params *params) 
                                 "[bench_wav] wav_complete_ns=%lld gen=%u wav_count=%d wav_idx=%d audio_dur=%.3f req=%d "
                                 "context_chunk_min=%d context_chunk_max=%d emit_chunk_min=%d emit_chunk_max=%d\n",
                                 (long long)wav_complete_ns, wav_gen, wav_cnt,
-                                ctx_omni->wav_turn_base + wav_idx, audio_duration,
+                                wav_num, audio_duration,
                                 effective_round_idx,
                                 ctx_min, ctx_max, emit_min, emit_max);
+                        }
+                        // F6 RTF: emit t2w stage_timing event keyed by src_cnt for the judge.
+                        // duration_ms = produced audio length; token2wav_ms = Flow+Vocoder inference.
+                        {
+                            char t2w_buf[256];
+                            snprintf(t2w_buf, sizeof(t2w_buf),
+                                     "{\"event\":\"t2w\",\"src_cnt\":%d,\"duration_ms\":%.3f,\"token2wav_ms\":%.3f,\"wav\":\"wav_%d.wav\",\"is_final\":%s}",
+                                     effective_chunk_seq_max, audio_duration * 1000.0f, t2w_ms, wav_num,
+                                     is_final ? "true" : "false");
+                            append_stage_timing_jsonl(ctx_omni, t2w_buf);
                         }
                         wav_idx++;
                         // P7.3: track WAV count for drain verification
@@ -12822,6 +12981,10 @@ static void duplex_encoder_thread_func(omni_context * ctx_omni, common_params * 
             req->index, vpm_ms, apm_ms, enc_wall_ms,
             (vpm_ms + apm_ms) - enc_wall_ms);
 
+        packet->timings.index  = req->index;
+        packet->timings.vpm_ms = vpm_ms;
+        packet->timings.apm_ms = apm_ms;
+
         delete req;
 
         // ---- push to llm prefill_queue ----
@@ -13088,6 +13251,7 @@ static bool duplex_do_prefill_one_fused(omni_context * ctx_omni, common_params *
         "[prof] llm prefill (fused) n_past=%d->%d tokens=%d ms=%.1f\n",
         n_past_0, ctx_omni->n_past,
         ctx_omni->n_past - n_past_0, ms);
+    packet->timings.llm_prefill_ms = ms;
     return true;
 }
 
@@ -13237,6 +13401,7 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
         "[prof] llm prefill n_past=%d->%d tokens=%d ms=%.1f\n",
         n_past_0, ctx_omni->n_past,
         ctx_omni->n_past - n_past_0, ms);
+    packet->timings.llm_prefill_ms = ms;
 }
 
 // ---------------------------------------------------------------------------
@@ -13247,7 +13412,9 @@ static void duplex_do_prefill_one(omni_context * ctx_omni, common_params * param
 // 返回 false 表示内部异常或被 break 打断。
 // ---------------------------------------------------------------------------
 static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
-                             const std::string & debug_dir, int round_idx) {
+                             const std::string & debug_dir, int round_idx,
+                             int cnt = -1,
+                             double * out_decode_ms = nullptr) {
     // ---- 轮次同步（与老 stream_decode 对齐） ----
     if (round_idx >= 0) {
         if (ctx_omni->simplex_round_idx != round_idx) {
@@ -13481,7 +13648,7 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
             llm_out->hidden_states   = chunk_hidden_states;
             llm_out->n_embd          = llm_n_embd;
             llm_out->is_end_of_turn  = local_is_end_of_turn;
-            llm_out->chunk_seq       = ctx_omni->simplex_round_idx;  // F6 causal: capture chunk_seq at LLMOut creation
+            llm_out->chunk_seq       = (cnt >= 0) ? cnt : ctx_omni->simplex_round_idx;  // F6 RTF: src_cnt = prefill cnt (frame number) in duplex
 
             {
                 std::unique_lock<std::mutex> lock(ctx_omni->tts_thread_info->mtx);
@@ -13544,6 +13711,9 @@ static bool duplex_do_decode(omni_context * ctx_omni, common_params * params,
         "[prof] llm decode n_past=%d->%d tokens=%d ms=%.1f listen=%d\n",
         n_past_dec_0, ctx_omni->n_past, ctx_omni->n_past - n_past_dec_0,
         dec_ms, (int)ctx_omni->ended_with_listen.load());
+    if (out_decode_ms) {
+        *out_decode_ms = dec_ms;
+    }
     return true;
 }
 
@@ -13619,6 +13789,9 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
         //   - chunk 0（老路径 prefill）：in_flight=0，直接 decode
         //   - chunk N (N≥1)：in_flight ≥ 1，必有 packet 在途；
         //     wait prefill_queue 非空，消费队头（encoder 是单线程 FIFO 顺序）
+        DuplexChunkTimings chunk_timings{};
+        bool have_packet_timings = false;
+        int  chunk_cnt = 0;  // F6 RTF: src_cnt for this decode (packet->index; 0 for chunk 0)
         if (dup->in_flight_prefill.load() > 0) {
             DuplexPrefillPacket * packet = nullptr;
             {
@@ -13641,6 +13814,9 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
                 if (!duplex_do_prefill_one_fused(ctx_omni, params, packet, hidden_size)) {
                     duplex_do_prefill_one(ctx_omni, params, packet, hidden_size);
                 }
+                chunk_timings = packet->timings;
+                have_packet_timings = true;
+                chunk_cnt = packet->index;
                 delete packet;
                 dup->in_flight_prefill.fetch_sub(1);
                 dup->in_flight_cv.notify_all();
@@ -13648,12 +13824,33 @@ static void duplex_llm_thread_func(omni_context * ctx_omni, common_params * para
         }
 
         // ---- Phase 2: decode ----
+        double decode_ms = 0.0;
         if (!ctx_omni->break_event.load()) {
             bool ok = duplex_do_decode(ctx_omni, params,
-                                       decode_req->debug_dir, decode_req->round_idx);
+                                       decode_req->debug_dir, decode_req->round_idx,
+                                       chunk_cnt, &decode_ms);
             decode_req->ok.store(ok);
         } else {
             decode_req->ok.store(false);
+        }
+        // F6 RTF: publish this chunk's encode/prefill/decode timings for the SSE
+        // metrics event. Must be set before decode_req->done so the HTTP handler
+        // (which reads it after duplex_decode returns) sees a consistent value.
+        {
+            std::lock_guard<std::mutex> lk(ctx_omni->stage_timings_mtx);
+            if (have_packet_timings) {
+                ctx_omni->last_chunk_timings.index           = chunk_timings.index;
+                ctx_omni->last_chunk_timings.vpm_ms          = chunk_timings.vpm_ms;
+                ctx_omni->last_chunk_timings.apm_ms          = chunk_timings.apm_ms;
+                ctx_omni->last_chunk_timings.llm_prefill_ms  = chunk_timings.llm_prefill_ms;
+            } else {
+                ctx_omni->last_chunk_timings.index           = 0;
+                ctx_omni->last_chunk_timings.vpm_ms          = 0.0;
+                ctx_omni->last_chunk_timings.apm_ms          = 0.0;
+                ctx_omni->last_chunk_timings.llm_prefill_ms  = 0.0;
+            }
+            ctx_omni->last_chunk_timings.llm_decode_ms = decode_ms;
+            ctx_omni->last_chunk_timings.valid = true;
         }
         decode_req->done.store(true);
         dup->decode_done_cv.notify_all();

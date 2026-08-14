@@ -180,6 +180,8 @@ struct MelTask {
     bool               is_last_window = false;
     int                round_idx      = -1;
     int                wav_idx        = 0;
+    int                chunk_seq_max  = -1;  // F6 RTF: src_cnt (frame number) for wav naming + t2w event
+    double             flow_ms        = 0.0; // F6 RTF: Flow-only inference time (set by T2W thread, summed with vocoder ms)
     uint32_t           generation_id  = 0;
     E2EStageTiming *   profile_handle = nullptr;
 };
@@ -1171,7 +1173,29 @@ struct omni_context {
     
     // 🔧 [单工模式] 当前轮次索引（用于创建 round_000、round_001 等子目录）
     int simplex_round_idx = 0;
-    
+
+    // ========================================================================
+    // F6 RTF: stage_timing.jsonl + SSE metrics emission.
+    // The official judge (eval_duplex_e2e_latency.py) reads two server-side
+    // artifacts to compute per-frame RTF:
+    //   1. SSE `metrics` event (encode/llm_prefill/llm_decode) — set by
+    //      duplex_llm_thread_func after decode, read by the HTTP SSE handler.
+    //   2. stage_timing.jsonl `tts`/`t2w` events — written by the TTS/T2W
+    //      threads asynchronously (via append_stage_timing_jsonl).
+    // last_chunk_timings.index = packet->index = the prefill cnt (frame number),
+    // which the client echoes back as `cnt`; it must equal the t2w/tts src_cnt
+    // (which is llm_out->chunk_seq = cnt propagated through the TTS/T2W chain).
+    // ========================================================================
+    std::mutex stage_timings_mtx;
+    struct {
+        int    index = 0;
+        double vpm_ms = 0.0;
+        double apm_ms = 0.0;
+        double llm_prefill_ms = 0.0;
+        double llm_decode_ms = 0.0;
+        bool   valid = false;
+    } last_chunk_timings;
+
     // ==================== 特殊 Token ID ====================
     // 在 omni_init 时从词表查找并缓存
     llama_token special_token_speak = -1;        // <|speak|>: 模型开始说话

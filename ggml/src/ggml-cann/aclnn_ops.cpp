@@ -3124,57 +3124,29 @@ static void aclnn_rope_cache_init(ggml_backend_cann_context & ctx,
         sin_reshape_nb[i] = sin_reshape_nb[i - 1] * sin_reshape_ne[i - 1];
     }
 
-    // Step 6: repeat sin/cos from cache_ne={tsl,1,pos,1} to final layout.
-    // neox:   adjacent-duplicate via repeat CANN dim=3 (GGML dim=0) ×2
-    //         {tsl,1,pos,1} → {rope_dims,1,pos,1}
-    //         values: [sin0,sin0,sin1,sin1,...]
-    // non-neox: whole-array-repeat via repeat CANN dim=0 (GGML dim=3) ×2
-    //         {tsl,1,pos,1} → {tsl,1,pos,2}
-    //         values: [sin0,sin1,...,sin0,sin1,...] (at each position)
+    acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
+                                                                   sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
+    acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
+                                                                   sin_reshape_ne, sin_reshape_nb, GGML_MAX_DIMS);
+
+    // Step 6: repeat sin/cos from cache_ne={tsl,1,pos,1} to final layout {rope_dims,1,pos,1}.
+    // Restored from pristine c9785cc. The candidate's memcpy-based non-neox repeat
+    // (ecee7de, "non-neox PENDING numerical alignment" — never verified) corrupts
+    // Seed-TTS audio-codec generation (WER 1.732% → 97.321%). Pristine uses:
+    //   neox:     aclnn_repeat            → adjacent-duplicate [sin0,sin0,sin1,sin1,...]
+    //   non-neox: aclnn_repeat_interleave → whole-array-repeat [sin0,sin1,...,sin0,sin1,...]
     if (is_neox) {
-        int64_t sin_repeat_ne[GGML_MAX_DIMS] = { rope_dims, 1, position_length, 1 };
-        size_t  sin_repeat_nb[GGML_MAX_DIMS];
-        sin_repeat_nb[0] = sizeof(float);
-        for (int i = 1; i < GGML_MAX_DIMS; i++) {
-            sin_repeat_nb[i] = sin_repeat_nb[i - 1] * sin_repeat_ne[i - 1];
-        }
-        acl_tensor_ptr acl_sin_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.sin_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
-        acl_tensor_ptr acl_cos_repeat_tensor = ggml_cann_create_tensor(ctx.rope_cache.cos_cache, ACL_FLOAT, sizeof(float),
-                                                                       sin_repeat_ne, sin_repeat_nb, GGML_MAX_DIMS);
-        int64_t repeatsArray[] = { 1, 1, 1, 2 }; // CANN dim=3 (=GGML dim=0) ×2
+        // [sinθ1, sinθ1, sinθ2, sinθ2, ..., sinθn, sinθn]
+        int64_t repeatsArray[] = { 1, 1, 1, 2 };
         aclnn_repeat(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), repeatsArray);
         aclnn_repeat(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), repeatsArray);
     } else {
-        // non-neox: whole-array-repeat via memcpy.
-        // sin_buffer has {tsl,1,pos,1} layout: [sin0@pos0..sin_{tsl-1}@pos0, sin0@pos1..]
-        // sin_cache needs {rope_dims,1,pos,1} with:
-        //   [sin0..sin_{tsl-1}, sin0..sin_{tsl-1}] at each position.
-        // Copy each position block twice: once to first half, once to second half.
-        {
-            size_t block_bytes = theta_scale_length * sizeof(float);
-            size_t src_stride  = block_bytes;                              // tsl between positions in src
-            size_t dst_stride  = rope_dims * sizeof(float);                // 2*tsl between positions in dst
-            size_t dst_offset2 = theta_scale_length * sizeof(float);       // second half offset within a position
-            for (int64_t pi = 0; pi < position_length; pi++) {
-                void * src_pos = (char *)sin_buffer + pi * src_stride;
-                void * dst_pos = (char *)ctx.rope_cache.sin_cache + pi * dst_stride;
-                ACL_CHECK(aclrtMemcpyAsync(dst_pos, block_bytes, src_pos, block_bytes, ACL_MEMCPY_DEVICE_TO_DEVICE, ctx.stream()));
-                ACL_CHECK(aclrtMemcpyAsync((char *)dst_pos + dst_offset2, block_bytes, src_pos, block_bytes, ACL_MEMCPY_DEVICE_TO_DEVICE, ctx.stream()));
-            }
-        }
-        {
-            size_t block_bytes = theta_scale_length * sizeof(float);
-            size_t src_stride  = block_bytes;
-            size_t dst_stride  = rope_dims * sizeof(float);
-            size_t dst_offset2 = theta_scale_length * sizeof(float);
-            for (int64_t pi = 0; pi < position_length; pi++) {
-                void * src_pos = (char *)cos_buffer + pi * src_stride;
-                void * dst_pos = (char *)ctx.rope_cache.cos_cache + pi * dst_stride;
-                ACL_CHECK(aclrtMemcpyAsync(dst_pos, block_bytes, src_pos, block_bytes, ACL_MEMCPY_DEVICE_TO_DEVICE, ctx.stream()));
-                ACL_CHECK(aclrtMemcpyAsync((char *)dst_pos + dst_offset2, block_bytes, src_pos, block_bytes, ACL_MEMCPY_DEVICE_TO_DEVICE, ctx.stream()));
-            }
-        }
+        int64_t num_repeats = 2;
+        int64_t dim         = 3;
+        int64_t output_size = theta_scale_length * num_repeats;
+        // [sinθ1, sinθ2, ..., sinθn, sinθ1, sinθ2, ..., sinθn]
+        aclnn_repeat_interleave(ctx, acl_sin_tensor.get(), acl_sin_repeat_tensor.get(), dim, num_repeats, output_size);
+        aclnn_repeat_interleave(ctx, acl_cos_tensor.get(), acl_cos_repeat_tensor.get(), dim, num_repeats, output_size);
     }
 
     // Update cached value.
@@ -3268,8 +3240,8 @@ void ggml_cann_rope(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
                           mrope_used, is_imrope, is_vision, rope_dims);
 
     // Cache read shape: {rope_dims, 1, ne02, 1} for both neox and non-neox.
-    // Non-neox path in cache_init uses memcpy to produce this layout with
-    // whole-array-repeat values (different from neox adjacent-duplicate).
+    // cache_init produces this layout via aclnn_repeat (neox) and
+    // aclnn_repeat_interleave (non-neox), matching pristine c9785cc.
     int64_t sin_reshape_ne[4] = { rope_dims, 1, ne02, 1 };
     size_t  sin_reshape_nb[GGML_MAX_DIMS];
     sin_reshape_nb[0] = sizeof(float);
@@ -4517,13 +4489,20 @@ void ggml_cann_flash_attn_ext(ggml_backend_cann_context & ctx, ggml_tensor * dst
             }
         }
 
-        // OMNI_CANN_FA_MAX_Q: FA-local Q split (DEFAULT 16)
+        // OMNI_CANN_FA_MAX_Q: FA-local Q split (DEFAULT 0 = OFF).
         // Split Q into chunks of at most max_q_per_chunk along the S dimension
         // to avoid CANN FusedInferAttentionScoreV2 NaN when Q>=17 at KV>=768.
         // 0 = no split (backward-compatible bypass).
         // Independent of OMNI_CANN_FA_MAX_UBATCH (which caps global n_ubatch).
+        //
+        // DEFAULT IS 0 (OFF) — the Q split is a TIER2 DO_NOT_PROMOTE experiment
+        // that changes FA numerics vs pristine and corrupts Seed-TTS audio-codec
+        // generation (WER 100%→12%). NaN protection for long multimodal sequences
+        // is provided by OMNI_CANN_FA_MAX_UBATCH=16 (keeps Q<=16, below the video
+        // threshold Q>=17) — verified 0 NaN at kv_seq up to 29952. Opt in with
+        // OMNI_CANN_FA_MAX_Q=N only for isolated perf experiments.
         const char * env_max_q = getenv("OMNI_CANN_FA_MAX_Q");
-        const int64_t max_q_per_chunk = (env_max_q && atoi(env_max_q) >= 0) ? atoi(env_max_q) : 16;
+        const int64_t max_q_per_chunk = (env_max_q && atoi(env_max_q) >= 0) ? atoi(env_max_q) : 0;
         const int64_t total_S = src0_bsnd_ne[2];  // seq_len in bsnd layout (after transpose12)
         const bool split_q = (max_q_per_chunk > 0 && total_S > max_q_per_chunk);
         const int64_t num_chunks = split_q ? (total_S + max_q_per_chunk - 1) / max_q_per_chunk : 1;
