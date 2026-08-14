@@ -150,7 +150,7 @@
 
 ## 4. vLLM 迁移（track）
 
-> 从 llama.cpp-omni 比赛经验迁移到 vLLM-Omni（官方 Thinker→Talker→Token2Wav 多 Stage pipeline）的完整文档集，在 `docs/vllm-migration/`（10 份）。
+> 从 llama.cpp-omni 比赛经验迁移到 vLLM-Omni（官方 Thinker→Talker→Token2Wav 多 Stage pipeline）的完整文档集，在 `docs/vllm-migration/`（8 份）。
 > **最重要的纪律**：llama 侧数字只是参考标尺，不是 vLLM 结果；vLLM 未源码核实的一律 `TO_AUDIT`；内部结果 ≠ 官方结果。
 
 | 文档 | 内容 |
