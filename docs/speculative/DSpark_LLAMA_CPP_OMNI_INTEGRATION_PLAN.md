@@ -13,7 +13,7 @@
 | `UPSTREAM_DSPARK_AVAILABLE` | **YES**（上游 llama.cpp 已有 `--spec-type draft-dspark` + markov/confidence head） |
 | 本 fork DSpark | **NO**（`common/speculative` 只有 `DRAFT_SIMPLE / EAGLE3 / MTP / NGRAM_*`） |
 | 本 fork 上游同步点 | llama.cpp `cb47092b0`（**2026-05-29**，`server: bump timeout #23842`） |
-| `DSPARK_UPSTREAM_PORT_GAP` | **两阶段 backport**：先 DFlash（#22105，本 fork 无），再 DSpark（#25173，构建于 DFlash 之上）+ K/V rotate fix（#25823）—— 非「只加一个 enum」 |
+| `DSPARK_UPSTREAM_PORT_GAP` | **两阶段 backport**：先 DFlash（#22105，本 fork 无），再 DSpark（#25173，构建于 DFlash 之上）。K/V rotate（#25823，`571d0d540`）是 DSpark 的**祖先 commit**（DFlash 演进中途），非 DSpark 之后的补丁 —— 非「只加一个 enum」 |
 | `MAIN_LLM_DSPARK_FEASIBLE` | **STRUCTURALLY_YES / AMDAHL_BOUNDED**（见 §4） |
 | `TTS_DSPARK_FEASIBLE` | **UNKNOWN / LIKELY_NO**（Talker 输出 speech token，与主 LLM 不同 latent） |
 | `GGUF_CONVERSION_REQUIRED` | **LIKELY_YES**（llama.cpp 路径吃 GGUF；除非直接 backport HF 加载器） |
@@ -43,11 +43,16 @@ UPSTREAM LLAMA DSPARK（上游 commit 含 dspark_markov_w1/w2 + dspark_conf_proj
 | 3. DFlash K/V rotate | `571d0d540` | #25823 | 2026-07-18 | — | 注入 KV 旋转，正确性必需 |
 | 4. **DSpark** | `84075273c` | #25173 | 2026-07-28 | 14 文件 +286/−33 | 目标 commit（parent=`6ba5ef247`） |
 
+> **ancestry 核对（2026-08-14）**：`571d0d540` 已是 `84075273c` 的**祖先**（`571d0d540` → +95 commits → `84075273c`）。
+> 依赖模型应为「DFlash substrate → K/V injection rotate 语义 → 后续 DFlash 演进 → DSpark」，
+> **不是**「DFlash → DSpark → K/V rotate」顺序。backport 时确保移植进来的 DFlash substrate 已含 `571d` 语义，
+> **不要**移完 DSpark 后再机械 cherry-pick `571d`（会与已演进的 `dflash.cpp` / KV cache 接口重复冲突）。
+
 **上游架构事实（来自 DSpark commit message）**：
 - DSpark **不新增 `LLM_ARCH_DSPARK`**（review 时已删）：draft 转成 DFlash GGUF，markov 头张量（`markov_w1/w2`）按「存在即检测」（同 eagle3 d2t），`block_size` 复用既有 `dflash.block_size` key。
 - `llama_model_dspark : llama_model_dflash`，复用 DFlash 图 + target 特征提取 + KV 注入 + verify/accept；仅 override `draft()`。
-- `conf_proj`（confidence head）在本 commit **加载但未使用**（confidence-scheduled pruning 未实现，`--spec-draft-conf-min` 已 fold 进 `p_min`）。
-- 语义 = anchor-first block + semi-autoregressive 前 token 条件 logit bias；**greedy 保持 lossless**。
+- `conf_proj`（confidence head）在最终 commit `84075273c` **参与推理**：`draft()` 读取 confidence，低于 `p_min` 时对 draft block 做**基于置信度的前缀截断**（threshold 已 fold 进 `p_min`）；Markov head 存在时 `conf_proj` 为 **REQUIRED**。（早期 PR 版本才是「加载但未使用」，已过时。）
+- 语义 = anchor-first block + semi-autoregressive 前 token 条件 logit bias；无 confidence 截断时 **greedy 保持 lossless**。
 - **converter 仅支持 Qwen3**（`Qwen3DSparkModel`）。⚠️ **MiniCPM-o 4.5 非 Qwen3** —— 队友 draft 若训在 MiniCPM-o hidden state 上，需自写 converter；若训在 Qwen3 上，则与 target 不匹配。这是比「checkpoint 未到位」更深的兼容性问题。
 
 **backport 难度（实测 drift）**：`cb47092b0..d1b34251b`（约 1 个月上游 drift）在 8 个 speculative 相关文件上 = **+1938/−579**，仅 `common/speculative.cpp` 就 **~1443 行变更**。→ DFlash/DSpark cherry-pick **必然冲突**，需按 commit 顺序 rebase，不是干净 pick。
@@ -231,8 +236,14 @@ feat/dspark-llama-port
 
 ## 10. 下一步实现 Gate（NEXT_IMPLEMENTATION_GATE）
 
-1. 队友 draft checkpoint 到位（解除 `TEAMMATE_DRAFT_COMPATIBILITY=NOT_AVAILABLE`）**+ 确认 draft 训在哪个 target 上**（MiniCPM-o 4.5 vs Qwen3，见 §2.0 的 Qwen3-only converter 约束）。
-2. ✅ 上游 DSpark commit 集合定位（**DONE 2026-08-14**：upstream=`ggml-org/llama.cpp`，DFlash `d1b34251b` → DSpark `84075273c` → K/V rotate `571d0d540`，见 §2.0）。
-3. backport **两阶段**（先 DFlash，再 DSpark），在 **`llama-cli`/`llama-server`**（非 omni）先跑通 `draft-dspark` 独立正确性 —— 预期 **cherry-pick 冲突**（drift ~+1938/−579，见 §2.0）。
-4. 再接线 `llama-omni-server`。
-5. Amdahl 前提重测：若 decode 占比仍 < 20%，继续压低期望（见 §4.2）。
+1. **TEAMMATE_DRAFT_TARGET_ARCH** —— 确认 draft 训在哪个 target（MiniCPM-o 4.5 Main LLM vs Qwen3-8B）。target ≠ MiniCPM-o 则此 draft 与 target 不匹配，直接停（见 §2.0 Qwen3-only converter 约束）。
+2. **CHECKPOINT_TENSOR_CONTRACT** —— 索要 draft tensor 名/形状（markov_w1/w2 **+ conf_proj**，缺 conf_proj 非完整 DSpark），见 `DSpark_DRAFT_ARTIFACT_CONTRACT.md`。
+3. **MINICPMO_CONVERTER_FEASIBILITY** —— MiniCPM-o → DFlash GGUF converter（上游 `Qwen3DSparkModel` 仅 Qwen3）。
+4. **DFLASH_SUBSTRATE_BACKPORT** —— 先移植 DFlash substrate（`d1b34251b`），**确保含 `571d0d540` K/V rotate 语义**（571d 是 DSpark 祖先，非事后补丁）。
+5. **DSPARK_DELTA** —— 再 backport DSpark delta（`84075273c`）。
+6. **LLAMA_CLI_STANDALONE** —— 在 `llama-cli`/`llama-server`（**非 omni**）先跑通 `draft-dspark` 独立正确性。
+7. **CANN** —— CANN 算子/图兼容 + FA NaN 回归。
+8. **OMNI_INTEGRATION** —— 最后才接线 `llama-omni-server`。
+9. **ACCEPTANCE / AMDAHL** —— acceptance A/B + E2E Amdahl 重测（decode 占比仍 < 20% 则压低期望）。
+
+> 关键：**先让同一 target + draft 在普通 llama-cli 路径跑通**，否则 CANN / DSpark / Omni lifecycle 三变量齐进，极难 debug。

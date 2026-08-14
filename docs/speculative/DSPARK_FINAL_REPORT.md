@@ -35,14 +35,15 @@ competition-final-20260814 (tag → fd3dd36)      ← 冻结，禁止 DSpark 开
 UPSTREAM_DSPARK_AVAILABLE = YES（ggml-org/llama.cpp）
 DSPARK_UPSTREAM_PORT_GAP  = 两阶段 backport：
                             ① DFlash #22105 (d1b34251b, 14文件+712)  ← 本 fork 连 DFlash 都没有
-                            ② DSpark #25173 (84075273c, 14文件+286)  ← 构建于 DFlash 之上
-                            ③ DFlash K/V rotate #25823 (571d0d540)
+                            ② DFlash K/V rotate #25823 (571d0d540)  ← DSpark 的祖先（DFlash 演进中途）
+                            ③ DSpark #25173 (84075273c, 14文件+286)  ← 构建于 DFlash 之上
+                            ancestry: 571d0d540 → +95 commits → 84075273c
                             预期 cherry-pick 冲突（drift +1938/−579）
 ```
 
 - 本 fork 同步点 = llama.cpp `cb47092b0`（**2026-05-29**，#23842）。
 - 本 fork 已有 `common/speculative`（SIMPLE/EAGLE3/MTP/ngram），**缺 DRAFT_DFLASH 与 DRAFT_DSPARK**。
-- DSpark 不新增 arch（fold 进 DFlash）；markov 头按存在检测；conf head 加载未使用；greedy lossless。
+- DSpark 不新增 arch（fold 进 DFlash）；markov 头按存在检测；conf head 参与推理（confidence-based prefix pruning，`conf_proj` 在 Markov head 存在时 REQUIRED）；无 confidence 截断时 greedy lossless。
 - ⚠️ converter 仅支持 Qwen3；MiniCPM-o 4.5 非 Qwen3 → 需自写 converter 或队友 draft 训在 Qwen3。
 - `server-context.cpp` 已接 `common_speculative`，接线缺口 = omni decode 主循环未走 speculative proposer。
 
@@ -82,13 +83,15 @@ LLAMA_FULL_PIPELINE_DOC = docs/speculative/OMNI_SPECULATIVE_FULL_PIPELINE.md
 
 ```text
 NEXT_IMPLEMENTATION_GATE =
-  1) 队友 draft checkpoint + config 到位（解除 NOT_AVAILABLE）
-     + 确认 draft target（MiniCPM-o 4.5 vs Qwen3，Qwen3-only converter 约束）
-  2) ✅ DONE：upstream=ggml-org/llama.cpp 已 add；DFlash d1b34251b → DSpark 84075273c → K/V rotate 571d0d540
-  3) backport 两阶段（DFlash→DSpark）→ llama-cli/server 独立跑通 draft-dspark
-     （预期冲突，drift +1938/−579）
-  4) 接线 llama-omni-server（omni.cpp decode 主循环 → common_speculative）
-  5) Amdahl 重测（decode 占比仍 <20% 则期望压低至 3–5%）
+  1) TEAMMATE_DRAFT_TARGET_ARCH：确认 draft 训在哪个 target（MiniCPM-o vs Qwen3）
+  2) CHECKPOINT_TENSOR_CONTRACT：markov_w1/w2 + conf_proj（缺 conf_proj 非完整 DSpark）
+  3) MINICPMO_CONVERTER_FEASIBILITY（上游 Qwen3DSparkModel 仅 Qwen3）
+  4) DFLASH_SUBSTRATE_BACKPORT（d1b34251b，确保含 571d0d540 K/V rotate 语义）
+  5) DSPARK_DELTA（84075273c）
+  6) LLAMA_CLI_STANDALONE（先 llama-cli/server 跑通，非 omni）
+  7) CANN（算子/图兼容 + FA NaN 回归）
+  8) OMNI_INTEGRATION（最后接线）
+  9) ACCEPTANCE / AMDAHL 重测
 ```
 
 ## 8. 阶段遵守声明（Current Stage Restriction）

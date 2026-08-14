@@ -57,7 +57,7 @@ Can teammate draft → convert directly to upstream DSpark GGUF?
 
 ## 4. GGUF 转换计划（若 llama.cpp 路径需要 GGUF）
 
-上游 DSpark 转换入口 = `conversion/qwen.py` 里的 `Qwen3DSparkModel`（`@ModelBase.register("Qwen3DSparkModel")`，继承 `DFlashModel`）。**DSpark 不新增 GGUF arch**：draft 转成 DFlash GGUF，markov/conf 头按「存在即检测」。
+上游 DSpark 转换入口 = `conversion/qwen.py` 里的 `Qwen3DSparkModel`（`@ModelBase.register("Qwen3DSparkModel")`，继承 `DFlashModel`）。**DSpark 不新增 GGUF arch**：draft 转成 DFlash GGUF；「是否 DSpark」由 Markov head 张量是否存在识别（同 eagle3 d2t），`block_size` 复用 `dflash.block_size`。
 
 实际 HF→GGUF 张量映射（已从上游 diff `84075273c` 确认）：
 
@@ -73,7 +73,16 @@ metadata: dflash.block_size                  →  必需（DSpark draft 硬依�
 **运行时确认的事实**（`src/models/dflash.cpp`）：
 - `markov_rank` 由 `markov_w1.weight` 的 `ne[0]` 推断，不是显式 GGUF key。
 - `conf_proj` 输入 = `[n_embd + markov_rank]`（hidden ⊕ markov 前-token embedding）→ `[1]`。
+- **`conf_proj` 在 Markov head 存在时为 REQUIRED**（最终 commit 的 `draft()` 读 confidence 做 prefix pruning，非「加载但未使用」）。
 - 缺 `dflash.block_size` 会直接 `GGML_ASSERT` 崩 —— 转换时必须注入。
+
+**Required DSpark tensor contract（最终 commit `84075273c`）**：
+```text
+markov_w1          REQUIRED
+markov_w2          REQUIRED
+conf_proj          REQUIRED（Markov head 存在时）
+dflash.block_size  REQUIRED（metadata）
+```
 
 **必过 Gate**（在任何 speculate 集成之前）：
 
