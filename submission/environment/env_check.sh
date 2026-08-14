@@ -43,8 +43,8 @@ SERVER_BIN="${SERVER_BIN:-${REPO_ROOT}/build/bin/llama-omni-server}"
 LIBOMNI="${LIBOMNI:-${REPO_ROOT}/build/bin/libomni.so}"
 if [ -f "${SERVER_BIN}" ]; then
   got="$(sha256sum "${SERVER_BIN}" | cut -c1-8)"
-  exp="db258375"
-  [ "${got}" = "${exp}" ] && ok "server ${got}…（= 冻结 db258375…）" || warn "server ${got}…（期望 ${exp}…，非冻结二进制）"
+  exp="4694cb58"
+  [ "${got}" = "${exp}" ] && ok "server ${got}…（= 冻结 4694cb58…）" || warn "server ${got}…（期望 ${exp}…，非冻结二进制）"
 else
   fail "server 二进制不存在: ${SERVER_BIN}（先 build.sh）"
 fi

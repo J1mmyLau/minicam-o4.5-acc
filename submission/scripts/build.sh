@@ -26,7 +26,7 @@ cmake -B "${BUILD_DIR}" \
 echo "== build target ${TARGET} (-j${JOBS}) =="
 cmake --build "${BUILD_DIR}" -j "${JOBS}" --target "${TARGET}"
 
-echo "== SHA（期望 server=db258375… libomni=c4b16937…） =="
+echo "== SHA（期望 server=4694cb58… libomni=3f3e1e63…） =="
 [ -f "${BUILD_DIR}/bin/llama-omni-server" ] && sha256sum "${BUILD_DIR}/bin/llama-omni-server"
 [ -f "${BUILD_DIR}/bin/libomni.so" ]         && sha256sum "${BUILD_DIR}/bin/libomni.so"
 echo "BUILD_DONE"

@@ -1,8 +1,11 @@
 # OFFICIAL_GATE_READINESS_REPORT（官方 Gate 就绪度核查报告）
 
-> 生成：2026-08-05 · 状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**（工具链就绪；官方 Gate 仍 BLOCKED_BY_OFFICIAL_STARTER_KIT）
+> 生成：2026-08-05（历史） · 状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**（工具链就绪）
+> ⚠️ 2026-08-14 校正：统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）已到达，
+> `OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE` / `STARTER_KIT_BLOCKER=REMOVE`，三条准确率已在其官方脚本上跑通全量。
+> 本文下方"官方 Harness 未到 / BLOCKED_BY_OFFICIAL_STARTER_KIT"均为**过时口径**，权威状态见 `OFFICIAL_GATE_STATUS.md`。
 > 就绪度标签：DRY_RUN_SUPPORT=PASS / BASELINE_CANDIDATE_SYMMETRY=PASS / CHUNK_AUDIO_VALIDATION=PASS /
-> PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / OFFICIAL_ASSET_VERSION_MATCH=PENDING_STARTER_KIT / OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT
+> PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / OFFICIAL_ASSET_VERSION_MATCH=CONFIRMED / OFFICIAL_GATES=READY_TO_EXECUTE
 > 本报告是对 `submission/` 提交包在官方资产到达前的就绪度核查，**不产生任何 OFFICIAL 成绩**。
 > 与 `OFFICIAL_GATE_STATUS.md` 配套：后者是 Gate 判定状态页，本报告是"资产到达后第一步做什么"的执行准备页。
 > 工具链离线自检命令与结果见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`。
@@ -59,11 +62,12 @@ model   SHA256 = d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3d
 | 冻结 server | ✅ 存在 | SHA `db258375…` |
 | 冻结 libomni | ✅ 存在 | SHA `c4b16937…` |
 | 官方 Demo `OpenBMB/MiniCPM-o-Demo` | ❌ **MISSING**（`/workspace/MiniCPM-o-Demo` 不存在） | 需 `git clone https://github.com/OpenBMB/MiniCPM-o-Demo` |
-| 官方 Harness / Starter Kit | ❌ **BLOCKED** | `/workspace/llama.cpp-omni-official-eval/competition/`：METRIC_CONTRACT 全"待官方确认"，STARTER_KIT_CHECKLIST **0/45 确认** |
+| 官方统一评测分支 | ✅ **AVAILABLE** | `tc-mb/llama.cpp-omni`（`bench/huawei`，含 `evaluation/README.md` + `./run_all.sh --smoke 2`）；已跑通 smoke 4/4 + 三条准确率全量 |
 
-#### 官方口径待定项（METRIC_CONTRACT provisional）
+#### 官方口径（已由统一评测分支定义）
 
-TTFT 起点/终点、TTFP 判定（首完整 WAV vs 首帧）、chunk 语义（服务端帧/固定间隔/语义段）、预处理是否计入、样本数、排除规则、聚合方式、评分权重 —— **全部以 Starter Kit 为准**，到达前一律不填。
+RTF 口径：`rtf.core.rtf_aggregate = Σcompute/Σaudio`；`compute = max(VPM,APM) + LLM_prefill + LLM_decode + TTS + token2wav`（见 `evaluation/judge-final/scripts/eval_duplex_e2e_latency.py`）。
+唯一阻塞 = 生产 C++（非受保护）不吐 `stage_timing.jsonl`/SSE `metrics` 事件（Class A，可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`）。
 
 ### 1.3 每个 Gate 资产到达后的第一条执行命令
 
@@ -127,4 +131,4 @@ TTFT 起点/终点、TTFP 判定（首完整 WAV vs 首帧）、chunk 语义（�
 
 > P1–P4 均为**提交包卫生/就绪性**改进，不涉及冻结源码 `bdd4550`，不产生任何优化候选。
 > 离线自检全绿：`submission/tests/run_selftest.sh` → **14/14 PASS**（命令与结果见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`）。
-> 工具链就绪状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**；官方 Gate 仍 **BLOCKED_BY_OFFICIAL_STARTER_KIT**，COMPETITION_COMPLETE=NOT_CLAIMED。
+> 工具链就绪状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**；官方 Gate 已 **READY_TO_EXECUTE**（统一评测分支已到达），COMPETITION_COMPLETE=NOT_CLAIMED。

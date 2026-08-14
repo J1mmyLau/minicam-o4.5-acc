@@ -1,26 +1,26 @@
-# benchmark.yaml — Benchmark 运行配置（官方 Starter Kit 到达后回填）
-# 当前全部 BLOCKED_BY_OFFICIAL_STARTER_KIT
+# benchmark.yaml — Benchmark 运行配置（统一评测分支 tc-mb/llama.cpp-omni @ bench/huawei）
+# 统一评测分支已到达（OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE），三条准确率全量已在官方脚本上跑通。
 
 benchmarks:
   daily_omni:
     data_dir: /workspace/benchmarks/Daily-Omni
-    data_version: PENDING_OFFICIAL      # 官方数据版本
-    subset: PENDING_OFFICIAL            # 官方子集
-    prompt_template: PENDING_OFFICIAL
-    answer_parser: PENDING_OFFICIAL     # A-D 解析
-    denominator: PENDING_OFFICIAL
-    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+    data_version: UNIFIED_EVAL_BRANCH     # 官方公开子集（统一评测分支）
+    subset: UNIFIED_EVAL_BRANCH
+    prompt_template: UNIFIED_EVAL_BRANCH
+    answer_parser: UNIFIED_EVAL_BRANCH    # A-D 解析
+    denominator: 1196                     # 官方公开子集；隐藏集公开后复核
+    status: PASS_ACCURACY                 # 79.43% (950/1196) ≥ 77.5% (+1.93pp)
 
   tts_seed:
     data_dir: /workspace/benchmarks/seed-tts-eval
-    metrics: PENDING_OFFICIAL           # WER/SIM/音频有效性/RTF 以官方为准
-    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+    metrics: UNIFIED_EVAL_BRANCH          # WER 1.422% (≤1.56) / SIM 0.969 (≥0.689)
+    status: PASS_ACCURACY                 # 2020/2020, 0 NaN
 
   video_mme:
     data_dir: /workspace/benchmarks/Video-MME
-    decode: PENDING_OFFICIAL            # 视频解码/抽帧策略
-    answer_parser: PENDING_OFFICIAL
-    status: BLOCKED_BY_OFFICIAL_STARTER_KIT
+    decode: UNIFIED_EVAL_BRANCH           # 视频解码/抽帧策略（官方脚本）
+    answer_parser: UNIFIED_EVAL_BRANCH
+    status: PASS_ACCURACY                 # 69.8% ≥ 67.0% (+2.8pp)
 
 admission:
   max_accuracy_drop_pp: 2.0             # 相对官方基线降幅 ≤ 2 个百分点

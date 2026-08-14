@@ -1,5 +1,9 @@
 # 工程复现审计（干净环境）
 
+> ⚠️ **已作废（SUPERSEDED）**：本文件是 2026-08-05 前序冻结（source `bdd4550` / server `db258375…` /
+> libomni `c4b16937…`）的审计模板，其中 SHA 与 commit **不再**是提交身份。权威复现步骤见
+> **`REPRODUCTION.md`**；权威 SHA 见 **`BINARY_PROVENANCE.md`**（当前 = `fd3dd36` / `4694cb58…` / `3f3e1e63…`）。
+
 > 主办方会在官方环境重新部署并测试。本文件定义复现清单与审计流程。
 > 目标：**一条命令从 checkout 到启动成功 → health → 冒烟 → Benchmark 小流量 → Demo → 性能采集**。
 > 现状：构建侧已证 `REPRODUCIBLE_BINARY=PASS`（bdd4550 两次干净重建 SHA 逐字节一致）；干净环境完整时间线待官方环境验证。

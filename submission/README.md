@@ -46,10 +46,11 @@ bash submission/scripts/run_performance.sh
 
 | 块 | 状态 | 说明 |
 |---|---|---|
-| 代码与配置 | ✅ 冻结 | source `bdd4550` / server `db258375…` / libomni `c4b16937…` |
-| 三项 Benchmark | 🔴 NOT_RUN | 官方 Starter Kit 未到（BLOCKED_BY_ASSET），脚本骨架已建 |
-| 性能报告 | 🟡 管线就绪 | 日志已含逐 chunk RTF，官方计时口径待定 |
+| 代码与配置 | ✅ 冻结 | source `fd3dd36`（tag `competition-final-20260814`）/ server `4694cb58…` / libomni `3f3e1e63…` |
+| 三项 Benchmark 准确率 | ✅ PASS | Daily-Omni 79.43%（950/1196）· VideoMME 69.8% · Seed-TTS WER 1.422% / SIM 0.969（2020/2020） |
+| 性能报告（RTF） | ✅ AVAILABLE | core.rtf_aggregate 1.09–1.17（parity baseline 1.087）；LISTEN-wedge 修复后 n_speak 0→33，0 拒绝；见 `docs/F6_OFFICIAL_RTF_RESOLVED.md` |
+| 稳定性 | ✅ PASS | 2 次 RTS soak 0 崩溃、无线程泄漏（见 Track D） |
 | Demo | 🟡 服务侧 PASS | 官方 Demo 前端接入待做 |
-| 复现 | 🟡 构建侧 PASS | 官方环境复现待做 |
+| 复现 | ✅ 构建侧 PASS | REPRODUCIBLE_BINARY=PASS（libomni.so 重建 SHA 逐字节一致） |
 
 > 详细状态见 `docs/competition-submission/OFFICIAL_GATE_STATUS.md`。

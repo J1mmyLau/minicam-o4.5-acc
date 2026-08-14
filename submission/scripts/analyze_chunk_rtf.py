@@ -297,7 +297,7 @@ def main():
         w.writerows(rows)
 
     summary = compute_summary(rows, a.run_id,
-                              f"frozen server log T2W线程 lines (mode={a.mode or 'unknown'}, binary db258375…)",
+                              f"frozen server log T2W线程 lines (mode={a.mode or 'unknown'}, binary 4694cb58…)",
                               binary_sha=a.binary_sha, model_sha=a.model_sha)
     summary["mode"] = a.mode
     sum_path = os.path.join(a.out, "chunk_rtf_summary.json")

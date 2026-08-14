@@ -80,9 +80,10 @@ fi
 # ================= 真实运行 =================
 if [ "${HARNESS_MISSING}" = "1" ]; then
   cat >&2 <<'EOF'
-[BLOCKED_BY_OFFICIAL_STARTER_KIT]
-  TTS-Seed 数据在，但官方能力指标（WER/SIM/音频有效性/RTF）与脚本未定。
-  不得用内部文档猜测最终官方指标。官方到达后（RUN_ID 两 MODE 保持一致）：
+[OFFICIAL_SCRIPT_NOT_PROVIDED]
+  TTS-Seed 数据在，统一评测分支已到达（tc-mb/llama.cpp-omni @ bench/huawei，
+  已跑通全量 WER 1.422% / SIM 0.969，2020/2020，0 NaN）。
+  设置 OFFICIAL_SCRIPT 指向官方脚本即可复跑（RUN_ID 两 MODE 保持一致）：
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_tts_seed.sh baseline
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_tts_seed.sh candidate
   输出须含 baseline vs candidate 完整对比 + 逐 chunk RTF raw（供性能报告）。

@@ -7,7 +7,7 @@
 
 ## A. 完整代码与配置
 
-- [ ] 推理适配与性能优化代码（冻结源码 `bdd4550` 已固化）
+- [ ] 推理适配与性能优化代码（冻结源码 `a77d6a8` + `trackA_fixes.patch` 已固化）
 - [ ] llama.cpp-omni 相关配置（`submission/config/server.env`、`benchmark.yaml`）
 - [ ] 服务启动脚本（`start_server.sh` / `stop_server.sh` / `health_check.sh`）
 - [ ] Benchmark 执行脚本（`run_daily_omni.sh` / `run_tts_seed.sh` / `run_video_mme.sh`）
@@ -65,11 +65,11 @@
 
 | 块 | 状态 |
 |---|---|
-| A 代码与配置 | 基本齐备（骨架 + 冻结源码） |
-| B 三项 Benchmark | 待官方 Starter Kit（BLOCKED_BY_ASSET） |
-| C 性能报告 | 模板就绪，官方口径待定 |
+| A 代码与配置 | 基本齐备（骨架 + 冻结源码 a77d6a8 + patch） |
+| B 三项 Benchmark | 三条准确率基线 PASS（Daily 79.43% ≥77.5% +1.93pp / VideoMME 69.8% ≥67.0% +2.8pp / Seed-TTS WER 1.422% ≤1.56% + SIM 0.969 ≥0.689，2020/2020）；统一评测分支 AVAILABLE |
+| C 性能报告 | RTF = Class A（生产 C++ 缺计时发射，可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`）；SPEAK→WAV 墙钟 1306–2747ms 已捕获 |
 | D Demo | 服务侧 PASS，官方前端接入 NOT_RUN |
-| E 复现 | 构建侧 PASS，官方环境 NOT_RUN |
-| F 目录 | 骨架已建 |
+| E 复现 | 构建侧 PASS（REPRODUCIBLE_BINARY=PASS），官方环境 NOT_RUN |
+| F 目录 | 骨架已建（40 文件） |
 
 > `COMPETITION_COMPLETE` 在 A–F 全勾 + 官方 Gate 全过后才置 YES。

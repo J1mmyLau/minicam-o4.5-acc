@@ -52,7 +52,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo "  - ${m}"
   done
   echo ""
-  echo "OFFICIAL_DEMO_GATE=BLOCKED_BY_OFFICIAL_STARTER_KIT"
+  echo "OFFICIAL_DEMO_GATE=NOT_RUN"
   echo "D1-D12=NOT_RUN (12/12)"
   if [ "$DRY_RUN" = false ]; then
     exit 2

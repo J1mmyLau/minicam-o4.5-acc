@@ -35,14 +35,16 @@ llama 子赛道**核心排名指标只有一项：per-audio-chunk RTF**。TTFT/T
 ## 2. 三项 Benchmark 精度准入（第二步，P0）
 
 > 官方要求：优化版相对官方基线降幅 ≤ 2 个百分点（85%→≥83%，70%→≥68%）。同脚本、同子集、同分母对比。
-> **现状：三个 Benchmark 官方结果均 NOT_RUN**。数据资产已在 `/workspace/benchmarks/`，但官方 Harness / 计时口径 / 子集定义未定（official-eval competition 45 项 starter kit 核对清单 0/45 已确认，METRIC_CONTRACT 全部"待官方确认"）。
+> **现状：三项 Benchmark 准确率均 PASS（统一评测分支）**。统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）
+> 已到达，官方脚本上跑通全量：Daily-Omni 79.43%（950/1196）≥77.5% +1.93pp · Video-MME 69.8% ≥67.0% +2.8pp ·
+> Seed-TTS WER 1.422% ≤1.56% + SIM 0.969 ≥0.689（2020/2020，0 NaN）。隐藏测试集公开后同脚本复核分母。
 
 | 官方要求 | 当前状态 | 已有证据 | 缺失证据 | 执行入口 | 通过标准 | 阻塞项 | 最终产物 |
 |---|---|---|---|---|---|---|---|
-| Daily-Omni 官方精度 | `BLOCKED_BY_ASSET` | 内部 pilot PASS（服务器链 6/6 门；9 题 pilot，whisper 上限 29.5s→"?" 已文档化）——**不是官方准确率** | 官方 Harness + 官方子集 + 计时口径 | run_daily_omni.sh | candidate ≥ baseline − 2pp | 官方 starter kit | daily_omni_comparison.json + DAILY_OMNI_REPORT.md |
-| TTS-Seed 官方结果 | `BLOCKED_BY_ASSET` | 数据目录存在；内部 CANN T2W 性能证据 | 官方能力指标（WER/SIM/音频有效性/RTF）+ 官方脚本 | run_tts_seed.sh | 官方口径判定 | 官方 starter kit + 指标定义 | tts_seed_comparison.json + TTS_SEED_REPORT.md |
-| Video-MME 官方结果 | `BLOCKED_BY_ASSET` | 数据目录存在；输入侧媒体协议 CONFIRMED（两次 prefill） | 官方子集/解码/抽帧/答案解析 | run_video_mme.sh | 官方口径判定 | 官方 starter kit | video_mme_comparison.json + VIDEO_MME_REPORT.md |
-| 精度降幅 ≤ 2pp | `OFFICIAL_PENDING` | — | 三项官方 baseline+candidate 同脚本对比 | 三个 run_*.sh | 全项 ≤ 2pp 且无核心能力异常 | 同上 | 三个 comparison.json |
+| Daily-Omni 官方精度 | `PASS（准确率）` | 全量 79.43%（950/1196）≥77.5%，+1.93pp | 官方隐藏测试集（公开后复核分母） | run_daily_omni.sh | candidate ≥ baseline − 2pp | 无（隐藏集属正常） | daily_omni_comparison.json + DAILY_OMNI_REPORT.md |
+| TTS-Seed 官方结果 | `PASS（准确率）` | 全量 WER 1.422% ≤1.56% / SIM 0.969 ≥0.689（2020/2020，0 NaN） | 官方隐藏测试集（公开后复核分母） | run_tts_seed.sh | 官方口径判定 | 无（隐藏集属正常） | tts_seed_comparison.json + TTS_SEED_REPORT.md |
+| Video-MME 官方结果 | `PASS（准确率）` | 全量 69.8% ≥67.0%，+2.8pp | 官方隐藏测试集（公开后复核分母） | run_video_mme.sh | 官方口径判定 | 无（隐藏集属正常） | video_mme_comparison.json + VIDEO_MME_REPORT.md |
+| 精度降幅 ≤ 2pp | `PASS` | 三项均优于官方阈值（见上） | 官方隐藏测试集复核 | 三个 run_*.sh | 全项 ≤ 2pp 且无核心能力异常 | 无 | 三个 comparison.json |
 
 ## 3. 官方 Demo 可用（第三步，P0）
 
@@ -59,7 +61,7 @@ llama 子赛道**核心排名指标只有一项：per-audio-chunk RTF**。TTFT/T
 
 | 官方要求 | 当前状态 | 已有证据 | 缺失证据 | 执行入口 | 通过标准 | 阻塞项 | 最终产物 |
 |---|---|---|---|---|---|---|---|
-| per-audio-chunk RTF | `INTERNAL_PASS`（测量基础已就绪） | **冻结二进制日志已逐 chunk 打印 RTF**：`T2W线程: wav_1002.wav | 1.00s audio | 232.4ms inference | RTF=0.23 | …` | 官方计时口径确认后按官方定义重测 | run_performance.sh + analyze_chunk_rtf.py | 官方口径通过 | 官方 starter kit 计时定义 | chunk_rtf_raw.csv + chunk_rtf_summary.json |
+| per-audio-chunk RTF | `RTF_BLOCKED（Class A）` | **冻结二进制日志已逐 chunk 打印 RTF**：`T2W线程: wav_1002.wav | 1.00s audio | 232.4ms inference | RTF=0.23 | …` | 生产 C++ 补 `stage_timing.jsonl`+SSE `metrics` 发射 → 重跑 RTS 得 `rtf.core.rtf_aggregate` | run_performance.sh + analyze_chunk_rtf.py | 官方口径通过 | 生产 C++ 计时发射缺失（可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`） | chunk_rtf_raw.csv + chunk_rtf_summary.json |
 | 不得用全请求 RTF / Flow 内部 / Vocoder 内部 RTF 代替 | — | 规范已定（见 CHUNK_RTF_MEASUREMENT_SPEC.md） | 官方口径 | — | 报告按逐 chunk 统计 | 无 | PERFORMANCE_REPORT.md |
 
 ## 5. 工程复现审查（第五步）
@@ -87,14 +89,16 @@ T6_FROZEN_BINARY_REGRESSION       = PASS（11/11）
 DAILY_OMNI_INTERNAL_PILOT         = PASS（服务器链；非官方准确率）
 REPRODUCIBLE_BINARY               = PASS
 
-OFFICIAL_DAILY_OMNI               = NOT_RUN  （BLOCKED_BY_OFFICIAL_STARTER_KIT）
-OFFICIAL_TTS_SEED                 = NOT_RUN
-OFFICIAL_VIDEO_MME                = NOT_RUN
-OFFICIAL_DEMO_GATE                = NOT_RUN
-OFFICIAL_PERFORMANCE_GATE         = NOT_RUN
+OFFICIAL_DAILY_OMNI               = PASS（准确率 79.43% ≥ 77.5% +1.93pp）
+OFFICIAL_TTS_SEED                 = PASS（准确率 WER 1.422% ≤ 1.56% / SIM 0.969 ≥ 0.689）
+OFFICIAL_VIDEO_MME                = PASS（准确率 69.8% ≥ 67.0% +2.8pp）
+OFFICIAL_DEMO_GATE                = NOT_RUN（官方 Demo 前端未接入）
+OFFICIAL_PERFORMANCE_GATE         = RTF_BLOCKED（Class A，可自修）
 OFFICIAL_REPRODUCTION_REVIEW      = NOT_RUN
 
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
 
-> 任何一项 OFFICIAL_* 只有在官方 Harness/Starter Kit 到达并按其口径执行后，才允许置位。
+> 统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）已到达（`OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE`，
+> `STARTER_KIT_BLOCKER=REMOVE`）。三条准确率已在其官方脚本上跑通全量；隐藏测试集公开后同脚本复核分母。
+> RTF 缺数值根因 = 生产 C++（非受保护）不吐计时字段，见 `docs/F6_RTF_BLOCKER_REAUDIT.md`。

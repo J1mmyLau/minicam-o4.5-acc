@@ -3,7 +3,7 @@
 > 生成：2026-08-05 · 结果：**14/14 PASS** · 状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**
 > 全部自检**离线**执行：不起服务、不占 NPU、不发 benchmark 请求、不落成绩、不写 PASS 结果。
 > 与 `OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查）配套：本文件记录工具链修复后的可复现自检命令与结果。
-> 官方 Gate 仍 **BLOCKED_BY_OFFICIAL_STARTER_KIT**；本文件**不产生任何 OFFICIAL 成绩**。
+> 统一评测分支已到达（`OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE`）；本文件**不产生任何 OFFICIAL 成绩**。
 
 ---
 
@@ -81,7 +81,7 @@ DRY_RUN_OK
   OUT             : <REPO_ROOT>/submission_runs/run_<ts>_daily_omni/candidate
   server_cmd      : RUN_DIR=<OUT>/run bash …/start_server.sh
   benchmark_cmd   : python3 <official-harness> --data <DATA> --out <OUT>（以官方 Harness 为准）
-  missing_official_assets : YES（官方 starter kit 未到 → 退出 2）
+  missing_official_assets : NO（统一评测分支已到达，仅需设置 OFFICIAL_SCRIPT 指向官方脚本）
 DRY_RUN_OK(none)   → rc=2
 ```
 

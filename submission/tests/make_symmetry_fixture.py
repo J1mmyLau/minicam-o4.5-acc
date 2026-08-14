@@ -11,7 +11,7 @@ CHECKER = os.path.join(ROOT, "submission", "scripts", "check_baseline_candidate_
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_out", "symmetry")
 
 MANIFEST = dict(
-    run_id="fixture", source_commit="abc", candidate_source_commit="bdd4550",
+    run_id="fixture", source_commit="abc", candidate_source_commit="fd3dd36",
     binary_sha="aaa", model_sha="model123", model_path="/data/model.gguf",
     data_sha="data456", text_dir="/data/texts", stats_code_sha="stat789",
     n_measured="3", warmup="0", seed="0", sample_rate="24000", server_port="18093",

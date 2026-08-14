@@ -81,10 +81,10 @@ fi
 # ================= 真实运行 =================
 if [ "${HARNESS_MISSING}" = "1" ]; then
   cat >&2 <<'EOF'
-[BLOCKED_BY_OFFICIAL_STARTER_KIT]
-  Daily-Omni 数据在，但官方评测脚本/子集/计时口径未定（starter kit 45 项 0/45 确认）。
-  内部 pilot 证据：docs/f6-s13-closure/phase2/daily_omni_pilot/PILOT_REPORT.md（非官方准确率）。
-  官方脚本到达后设置 OFFICIAL_SCRIPT 并重跑（RUN_ID 两 MODE 保持一致以便对称性检查）：
+[OFFICIAL_SCRIPT_NOT_PROVIDED]
+  Daily-Omni 数据在，统一评测分支已到达（tc-mb/llama.cpp-omni @ bench/huawei，
+  已跑通全量 79.43% (950/1196) ≥ 77.5%，+1.93pp）。
+  设置 OFFICIAL_SCRIPT 指向官方脚本即可复跑（RUN_ID 两 MODE 保持一致以便对称性检查）：
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_daily_omni.sh baseline
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_daily_omni.sh candidate
   输出须含：daily_omni_{baseline,candidate}_raw.json + daily_omni_comparison.json + DAILY_OMNI_REPORT.md

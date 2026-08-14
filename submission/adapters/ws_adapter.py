@@ -2,7 +2,7 @@
 WebSocket adapter for benchmark_client.py.
 
 Implements ProtocolAdapter interface, translating HTTP /v1/stream semantics
-to WebSocket /backend protocol used by llama-omni-server (frozen binary bdd4550).
+to WebSocket /backend protocol used by llama-omni-server (frozen binary fd3dd36).
 
 Status: IMPLEMENTED for turn_based TTS sessions.
 Limitation: Each decode_stream() creates an independent WS session.

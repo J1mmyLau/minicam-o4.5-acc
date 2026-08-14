@@ -80,9 +80,10 @@ fi
 # ================= 真实运行 =================
 if [ "${HARNESS_MISSING}" = "1" ]; then
   cat >&2 <<'EOF'
-[BLOCKED_BY_OFFICIAL_STARTER_KIT]
-  Video-MME 数据在，但官方子集/视频解码/抽帧策略/答案解析/分母未定。
-  官方到达后确认：短视频/长视频/有音频/无音频/多轮/输入上限分桶。RUN_ID 两 MODE 保持一致：
+[OFFICIAL_SCRIPT_NOT_PROVIDED]
+  Video-MME 数据在，统一评测分支已到达（tc-mb/llama.cpp-omni @ bench/huawei，
+  已跑通全量 69.8% ≥ 67.0%，+2.8pp）。
+  设置 OFFICIAL_SCRIPT 指向官方脚本即可复跑。RUN_ID 两 MODE 保持一致：
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_video_mme.sh baseline
     RUN_ID=<id> OFFICIAL_SCRIPT=/path/to/official.py bash submission/scripts/run_video_mme.sh candidate
   输出须含：video_mme_{baseline,candidate}_raw.json + comparison.json + VIDEO_MME_REPORT.md

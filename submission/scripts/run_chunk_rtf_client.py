@@ -59,7 +59,7 @@ def main():
     base = f"http://127.0.0.1:{a.port}"
     for i, t in enumerate(texts):
         t0 = time.time()
-        # 冻结候选已验证的 TTS 请求形态（use_tts=True）。字段名以官方 Starter Kit 到达后为准。
+        # 冻结候选已验证的 TTS 请求形态（use_tts=True）。字段名以统一评测分支（tc-mb/llama.cpp-omni @ bench/huawei）为准。
         resp = post(f"{base}/v1/stream/decode", {
             "prompt": t,
             "use_tts": True,

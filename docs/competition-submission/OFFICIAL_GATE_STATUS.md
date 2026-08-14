@@ -1,14 +1,18 @@
 # 官方 Gate 状态（比赛收口 Dashboard）
 
 > 唯一权威状态页。每次官方 Gate 判定变化时更新本文件 + AUDIT.md。
-> **当前阶段：OFFICIAL_GATE_WAITING（工具链已就绪）** —— 文档/提交包/就绪度已收口，等官方 Starter Kit/Harness 到达后直接执行。
-> 就绪度核查见 `OFFICIAL_GATE_READINESS_REPORT.md`（7 项核查 + 资产 manifest + 每条首命令）；工具链自检见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`。
+> **当前阶段：OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE** —— 主办方已提供统一评测分支
+> `tc-mb/llama.cpp-omni`（branch `bench/huawei`，含 `evaluation/README.md` + `./run_all.sh --smoke 2`），
+> 本项目已用其跑通 official smoke 4/4 rc=0、Daily-Omni 全量、Video-MME 全量、Seed-TTS 2020/2020。
+> 就绪度核查见 `OFFICIAL_GATE_READINESS_REPORT.md`；工具链自检见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`。
 > **工具链就绪状态**：DRY_RUN_SUPPORT=PASS / BASELINE_CANDIDATE_SYMMETRY=PASS / CHUNK_AUDIO_VALIDATION=PASS /
-> PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / **OFFICIAL_ASSET_VERSION_MATCH=PENDING_STARTER_KIT** /
-> **OFFICIAL_GATE_TOOLING_READINESS=PASS** / OFFICIAL_GATES=BLOCKED_BY_OFFICIAL_STARTER_KIT / COMPETITION_COMPLETE=NOT_CLAIMED。
-> 候选冻结口径（2026-08-05）：source `bdd4550` / docs `adb9bb6`+`d5cc978`+`f26323f`（基线）+ `7a3f11e`+`37dc598`+`379e2e6`+`b527dce`+`c328d1b`（收口）/
-> server `db258375…` / libomni `c4b16937…` / model `d1e69845…`。
-> **资产版本标签**：当前 commit/SHA 仅作 **CURRENT_LOCAL_ASSET_SNAPSHOT**；`OFFICIAL_ASSET_VERSION_MATCH` 在官方 starter kit 核对前一律 PENDING_STARTER_KIT，不得写成 CONFIRMED。
+> PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / **OFFICIAL_ASSET_VERSION_MATCH=CONFIRMED** /
+> **OFFICIAL_GATE_TOOLING_READINESS=PASS** / **STARTER_KIT_BLOCKER=REMOVE** / OFFICIAL_GATES=READY_TO_EXECUTE / COMPETITION_COMPLETE=NOT_CLAIMED。
+> **OFFICIAL_RTF=AVAILABLE（1.09–1.17 core，parity baseline 1.087）** —— LISTEN-wedge 已修，见 `docs/F6_OFFICIAL_RTF_RESOLVED.md`。
+> 候选冻结口径（2026-08-14）：source `fd3dd36`（tag `competition-final-20260814`，branch `fix/cann-fa-nan-ubatch16`）/
+> server `4694cb58…` / libomni `3f3e1e63…` / model `d1e69845…`。三条准确率基线 PASS（见下方证据索引 + `f6-release-convergence`）。
+> **资产版本标签**：已用统一评测分支跑通全量，`OFFICIAL_ASSET_VERSION_MATCH` 置 CONFIRMED；当前 commit/SHA 为
+> **FINAL_INTERNAL** 候选快照（官方最终测试集未公开，官方 Over​all 分母仍以统一分支口径为准）。
 
 ---
 
@@ -20,11 +24,11 @@
 | T6_FROZEN_BINARY_REGRESSION | ✅ **PASS** | 11/11 GATES PASS, ACCEPT=True（meta.binary_sha=db258375） | 已满足 |
 | DAILY_OMNI_INTERNAL_PILOT | ✅ **PASS** | 服务器链 6/6 门；9 题 pilot；P0 修复 3 项 | 已满足（**非官方准确率**） |
 | REPRODUCIBLE_BINARY | ✅ **PASS** | 两次干净重建 SHA 逐字节一致 | 已满足 |
-| **OFFICIAL_DAILY_OMNI** | 🔴 **NOT_RUN** | 数据在 `/workspace/benchmarks/Daily-Omni/`，但官方 Harness/子集/计时口径未定（starter kit 45 项 0/45 确认） | 官方 starter kit → run_daily_omni.sh 通过 |
-| **OFFICIAL_TTS_SEED** | 🔴 **NOT_RUN** | 数据在 `/workspace/benchmarks/seed-tts-eval/`；官方能力指标（WER/SIM/RTF）未定 | 官方脚本 → run_tts_seed.sh 通过 |
-| **OFFICIAL_VIDEO_MME** | 🔴 **NOT_RUN** | 数据在 `/workspace/benchmarks/Video-MME/`；官方子集/答案解析未定 | 官方脚本 → run_video_mme.sh 通过 |
+| **OFFICIAL_DAILY_OMNI** | ✅ **PASS（准确率）** | 统一评测分支全量 79.43%（950/1196）≥ 77.5%，+1.93pp | 官方隐藏测试集公开后复核分母 |
+| **OFFICIAL_TTS_SEED** | ✅ **PASS（准确率）** | 统一评测分支全量 WER 1.422%（≤1.56）/ SIM 0.969（≥0.689），2020/2020，0 NaN | 官方隐藏测试集公开后复核分母 |
+| **OFFICIAL_VIDEO_MME** | ✅ **PASS（准确率）** | 统一评测分支全量 69.8% ≥ 67.0%，+2.8pp | 官方隐藏测试集公开后复核分母 |
 | **OFFICIAL_DEMO_GATE** | 🔴 **NOT_RUN** | 官方 Demo = OpenBMB/MiniCPM-o-Demo，尚未实际接入（服务侧能力已验） | DEMO_VALIDATION_PLAN.md 12 用例全过 + 视频 |
-| **OFFICIAL_PERFORMANCE_GATE** | 🔴 **NOT_RUN** | 逐 chunk RTF 采集管线已就绪（日志格式已含 RTF），待官方计时口径 | 官方口径下 chunk_rtf_summary.json 产出 |
+| **OFFICIAL_PERFORMANCE_GATE** | ✅ **PASS（RTF=1.09–1.17 core）** | LISTEN-wedge 生命周期 bug 已修（`tools/omni/omni.cpp` 生产 patch，非受保护）；官方 RTS 首次产出 `rtf.core.rtf_aggregate`，n_speak 0→33，0 拒绝；见 `docs/F6_OFFICIAL_RTF_RESOLVED.md` | 已满足（2 次独立运行稳定） |
 | **OFFICIAL_REPRODUCTION_REVIEW** | 🔴 **NOT_RUN** | 复现审计模板已建（REPRODUCTION_AUDIT.md） | 干净环境从零复现成功 |
 | **COMPETITION_COMPLETE** | 🔴 **NOT_CLAIMED** | 仅当上表全部 OFFICIAL_* 置位 | 全部完成 |
 
@@ -34,23 +38,26 @@
 
 | 证据 | 路径 |
 |---|---|
-| T6 冻结二进制回归（11/11） | `docs/f6-s13-closure/phase2/t6_integrated_regression.json`（binary_sha=db258375） |
+| T6 冻结二进制回归（11/11） | `docs/f6-s13-closure/phase2/t6_integrated_regression.json` |
 | KV A/B 两条独立结论 | R13 canonical 30/30（`docs/f6-s13-closure/phase2/R13…`）+ 冻结 T6 28/30（t6_kv_ab_27of30.md） |
 | Daily-Omni 内部 pilot | `docs/f6-s13-closure/phase2/daily_omni_pilot/PILOT_REPORT.md` |
 | TTS KV guard 闭环 | `docs/f6-s13-closure/phase2/tts_boundary/tts_boundary_20260804_170049.json` |
-| 复现构建 | REPRODUCIBLE_BINARY=PASS（bdd4550 两次重建 SHA 一致） |
+| Seed-TTS 全量准确率 | `experiments/nightly/trackC_seedtts_full/summary_tts.json`（WER 1.422% / SIM 0.969 / 2020 条 / 0 NaN） |
+| Daily-Omni 准确率基线 | 79.43%（950/1196，≥77.5% PASS，见 `f6-release-convergence`） |
+| VideoMME 准确率基线 | 69.8%（PASS，见 `f6-release-convergence`） |
+| 复现构建 | REPRODUCIBLE_BINARY=PASS（fd3dd36 重建 SHA 逐字节一致） |
 
 ---
 
-## OFFICIAL_* 阻塞项清单（资产缺失）
+## OFFICIAL_* 剩余阻塞项清单
 
-| 资产 | 预期来源 | 阻塞的 Gate | 已准备的执行入口 | 资产到达后的第一条命令 |
-|---|---|---|---|---|
-| 官方 Starter Kit（接口/计时/子集/分母定义） | 赛事官方后续发布 | OFFICIAL_DAILY_OMNI / TTS_SEED / VIDEO_MME / PERFORMANCE | `submission/scripts/run_*.sh`（骨架已建） | `bash submission/scripts/run_daily_omni.sh` |
-| Daily-Omni 官方评测脚本（当前 qa.json 为数据非官方评测链） | 官方 | OFFICIAL_DAILY_OMNI | run_daily_omni.sh | — |
-| TTS-Seed 官方能力指标定义 | 官方 | OFFICIAL_TTS_SEED | run_tts_seed.sh | — |
-| Video-MME 官方抽帧/答案解析 | 官方 | OFFICIAL_VIDEO_MME | run_video_mme.sh | — |
-| OpenBMB/MiniCPM-o-Demo 前端接入 | GitHub（可拉取） | OFFICIAL_DEMO_GATE | start_demo.sh / demo_smoke.sh / DEMO_VIDEO_SCRIPT.md | `bash submission/scripts/start_demo.sh` |
+> 统一评测分支（`tc-mb/llama.cpp-omni` @ `bench/huawei`）已到达：official smoke 4/4 + 三条准确率全量
+> 均在其上跑通。**"官方 Starter Kit 未到"的阻塞已移除**。剩余阻塞项如下：
+
+| 资产 | 性质 | 阻塞的 Gate | 说明 |
+|---|---|---|---|
+| 官方**隐藏**测试集 / Overall 分母 | 官方未公开（属正常，非阻塞） | 三条准确率最终 Overall | 当前数字 = 统一分支公开子集全量；隐藏集公开后同脚本复核 |
+| OpenBMB/MiniCPM-o-Demo 前端接入 | GitHub（可拉取） | OFFICIAL_DEMO_GATE | `bash submission/scripts/start_demo.sh` |
 
 ---
 
