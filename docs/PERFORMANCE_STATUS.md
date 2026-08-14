@@ -56,22 +56,27 @@
 - **官方 RTF 无加速的诚实原因**：官方 harness 的计时链（Main LLM→Talker→TTS→T2W→Flow→Vocoder）
   与本地 A/B 的计时对象不同；本地 wall 改善没有映射到 official RTF 指标。
 
-### 若续做：唯一待解根因（官方口径映射缺口）
+### 若续做：先钉根因，再下刀（已开分支 `perf/official-rtf-attribution`）
 
-**Amdahl 账**：decode→speak 只占 wall ~13%（Amdahl 上限 RTF→~0.94），T2W 占 ~93%。
-所以 decode 侧优化（KV 2.4× / Q8 / W8A8 / DSpark 投机）全撞 13% 天花板——DSpark 增益封顶 6.5%。
+本地 wall 改善（T2W −81% / Config D −18%）与 official RTF parity 之间的缺口，**尚未通过逐段计时对齐钉死**。
+此前「decode 13% + T2W 93%」的加法占比混了不同计时边界（相加 >100%），**不得直接当 Amdahl 依据**。
 
-**剩余单点**（都在 T2W，官方 harness 已设 `OMNI_T2W_DEVICE=gpu`）：
+已确认的现状（勿再沿用旧结论）：
+- Config D = Flow CANN + Vocoder CANN + overlap，**已验证正常出 WAV**（「vocoder zero-output 未解」是旧结论）。
+- Config D 的 env 可**外部合法注入**官方 harness（并非「固定 gpu 不可达」）。
+
+剩余待验证落点（都在 T2W 链路，配对 A/B 逐一排除）：
 
 | 单点 | 状态 |
 |---|---|
-| Vocoder 完全上 NPU | 最大单点（≈T2W 的 76%），此前 CANN vocoder = zero output（broken，未解） |
-| Flow ACL graph 捕获 | Phase 7 已证 negative（flow −20.4% p50 但 E2E +11%），回滚 |
-| Config D −18% wall | env-only 注入，未进代码，未映射到官方 RTF |
+| Flow↔Vocoder 同卡竞争 | 待测（先例：Flow serial ~145ms vs Config D ~202ms） |
+| queue / drain / overlap 调度 | 待测（可能吞掉局部收益） |
+| 官方 denominator / 样本组成 | 待测（numerator 快但 RTF 不动 → 查 denominator / `src_cnt` / SPEAK selection） |
+| Flow ACL graph 捕获 | ❌ 已证 negative（−20.4% p50 但 E2E +11%），不回滚重试 |
 
-**结论**：本地 wall 快 81% / 18%，官方 RTF 口径下零体现——不先解开这个映射缺口，再堆优化都是空转。
-唯一值得投入 = **根因对齐**：拿官方 `benchmark_client.py` 计时链
-（Main LLM→Talker→TTS→T2W→Flow→Vocoder）与本地 A/B 计时对象逐段对表，定位那 −81%/−18% 漏在哪一段、官方口径多算了什么。
+**结论**：不先解开「本地 wall 快、官方 RTF 持平」的映射缺口，再堆优化都是空转。
+唯一值得投入 = **attribution**（见实验分支 `README-RTF-EXPERIMENT.md`）：官方 `benchmark_client.py` 计时链逐段对表，
+定位 −81%/−18% 漏在哪一段、官方 numerator/denominator 谁没动。
 
 ## 6. 权威数据源
 

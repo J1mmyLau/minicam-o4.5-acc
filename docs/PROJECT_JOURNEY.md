@@ -181,7 +181,7 @@
 | 二进制可复现 | ✅ PASS（重建 SHA 逐字节一致） |
 | 稳定性 | ✅ PASS（2× RTS soak 0 崩溃、无线程泄漏） |
 | Demo | 🟡 服务侧 PASS / 官方前端 NOT_RUN |
-| 官方 eval（G1→G8） | 🟡 NOT_RUN（`BLOCKED_BY_OFFICIAL_STARTER_KIT`） |
+| 官方 eval（G1→G8） | 🟡 NOT_RUN（RTF 可测，eval 待跑） |
 | 提交完成声明 | 🟡 NOT_CLAIMED（以主办方正式提交为准） |
 
 ---
