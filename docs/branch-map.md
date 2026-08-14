@@ -1,103 +1,115 @@
-# Branch Map — MiniCPM-o 4.5 昇腾优化
+# Branch Map — llama.cpp-omni 昇腾赛道仓库分支导读
 
-> 所有分支的完整地图。每个分支一行：用途、状态、HEAD、README 状态。
->
-> 生成时间: 2026-08-10
+> 更新: 2026-08-14 · 共 **42 支本地分支**。
+> **最终仓库生命周期 = 3 支活跃分支**（下表）。其余 ~39 支均为历史（已合入 final / 证据链收口 / 未采用 / 废弃），**勿再开发**。
 
----
+## 最终生命周期（3 支，活跃）
 
-## 分支总览 (26 branches, 20 已推送至 private remote)
+| 分支 | 用途 | 状态 | 入口 |
+|---|---|---|---|
+| `competition/final-ascend-track-a` | 赛道一最终提交（源码冻结 `fd3dd36` + 提交文档） | 🔒 FREEZE | `README.md` → `README-COMPETITION.md` |
+| `feat/dspark-llama-port` | DSpark 投机解码 backport（赛道二） | 队友 draft 到位后继续 | `README.md` → `README-DSPARK.md` |
+| `docs/specdecode-migration` | llama / vLLM / DSpark 迁移研究 | 文档研究 | `README.md`（导读） |
 
-### 主分支 (main)
+## 关键 commit 身份（导航锚点）
 
-| 分支 | 用途 | HEAD | README |
-|------|------|------|--------|
-| `main` | 提交主分支, 冻结 @ 051e993 | `051e993` | ✅ |
-| `master` | 原始上游 master | `origin/master` | ✅ |
+| commit | 含义 | 所在分支 |
+|---|---|---|
+| `fd3dd36` | **冻结 runtime**（tag `competition-final-20260814`，跑出最终数据） | `fix/cann-fa-nan-ubatch16` |
+| `c9785cc` | **pristine 基线**（组织方 bench/huawei，无 NaN） | `fix/fa-mask-semantics`、`perf/decode-profile`、`perf/kv-fast-write` |
+| `051e993` | 旧 FROZEN BASELINE（F16 + Flow∥Vocoder pipeline） | `perf/vocoder-cann` |
+| `b6b6af0` | FA mask 回归（raw -Inf→pseShift 引入 NaN，已回滚） | `integration/bench-huawei-port` |
 
-### 稳定性修复 (fix/*)
+## 主分支
 
-| 分支 | 修复内容 | HEAD | README | 状态 |
-|------|---------|------|--------|------|
-| `fix/ws-session-lifecycle` | WS 生命周期 (CTX_STATE_REUSABLE, drain, thread leak) | `7a9519a` | ✅ | MERGED |
-| `fix/tts-thread-lifecycle` | TTS 线程生命周期 (per-gen active, drain predicate, fault injection) | `e23b8d9` | ✅ | MERGED |
-| `fix/full-duplex-request-max-tokens` | full_duplex 未设置 request_max_tokens → max_tgt_len=0 | `baee842` | ✅ | MERGED |
-| `fix/f003-cann-rope-repeat-interleave` | CANN RoPE repeat_interleave (GPU TTS 启用) | `95d3c5c` | ✅ | MERGED |
-| `fix/ws-multimodal-nan` | WS 多模态 NaN 调查 (已追踪至 mel 预处理) | `8fae469` | ❌ | INVESTIGATION |
+| 分支 | 用途 | 说明 |
+|---|---|---|
+| `main` | 项目介绍（6 阶段推进全记录） | 本 README 所在，**非交付分支** |
+| `master` | 原始上游 master | — |
 
-### 性能优化 (perf/*)
+## 正确性修复 `fix/*`（已吸收进 final `fd3dd36`）
 
-| 分支 | 优化内容 | HEAD | README | 状态 |
-|------|---------|------|--------|------|
-| `perf/f6-decode-to-speak` | CANN T2W 设备放置 (W0 −81.4%) | on private | ✅ | MERGED |
-| `perf/flow-chunk-rtf` | Flow chunk RTF 离线链路 | `fc687f7` | ✅ | COMPLETE |
-| `perf/kv-cache-production-gates` | KV Cache 静态前缀 (prefill 2.4×) | `c0b58c3` | ❌ | COMPLETE |
-| `perf/operator-decode-speak` | 算子级 decode→speak 分解 | `1bef27a` | ❌ | COMPLETE |
-| `perf/ngl8-e2e-stage-profiling` | NGL8 E2E profiling | `04ce85b` | ❌ | COMPLETE |
+| 分支 | 修复内容 | HEAD | 状态 |
+|---|---|---|---|
+| `fix/cann-fa-nan-ubatch16` | ★ **= 冻结 runtime `fd3dd36`** | `fd3dd36` | FINAL |
+| `fix/cann-fa-safe-prefill` | CANN FA 安全 prefill | `ae537a7` | 已吸收 |
+| `fix/fa-mask-semantics` | FA mask 语义（= pristine `c9785cc`） | `c9785cc` | 对照基线 |
+| `fix/f003-cann-rope-repeat-interleave` | CANN RoPE repeat_interleave（GPU TTS 启用） | `95d3c5c` | 已合入 |
+| `fix/full-duplex-request-max-tokens` | full_duplex 未传 request_max_tokens → max_tgt_len=0 | `baee842` | 已合入 |
+| `fix/tts-thread-lifecycle` | TTS 线程生命周期（per-gen active） | `e23b8d9` | 已合入 |
+| `fix/ws-session-lifecycle` | WS 生命周期（CTX_STATE_REUSABLE + CV） | `cf8dacf` | 已合入 |
+| `fix/ws-multimodal-nan` | WS 多模态 NaN 调查 | `8fae469` | 调查（未直接合入） |
 
-### 实验 (exp/*)
+## 性能实验 `perf/*`（证据链已收口 → `docs/F6_*`）
 
-| 分支 | 实验内容 | HEAD | README | 状态 |
-|------|---------|------|--------|------|
-| `exp/token2wav-cann-runtime` | T2W CANN runtime 放置 | `59c5c16` | ✅ | EXPERIMENTAL |
-| `exp/f003-neox-layout` | NeoX layout 实验 | `f694e28` | ❌ | EXPERIMENTAL |
-| `exp/f004-precision-ablation` | Precision ablation | `faa2554` | ❌ | EXPERIMENTAL |
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `perf/f6-decode-to-speak` | CANN T2W 设备放置（W0 −81.4%） | `8813907` | 证据收口 |
+| `perf/vocoder-cann` | Vocoder CANN（= 旧 FROZEN BASELINE `051e993`） | `051e993` | 证据收口 |
+| `perf/vocoder-cann-pipeline` | Flow∥Vocoder pipeline（1.60×） | `d661573` | 证据收口 |
+| `perf/kv-cache-production-gates` | KV Cache 静态前缀（prefill 2.4×） | `70d342e` | 证据收口 |
+| `perf/decode-profile` | decode 分解 profiling（= pristine） | `c9785cc` | 证据收口 |
+| `perf/kv-fast-write` | KV fast write（= pristine） | `c9785cc` | 证据收口 |
+| `perf/flow-chunk-rtf` | Flow chunk RTF 离线链路 | `cdb4f28` | 证据收口 |
+| `perf/operator-decode-speak` | 算子级 decode→speak 分解 | `1bef27a` | 证据收口 |
+| `perf/ngl8-e2e-stage-profiling` | NGL8 多卡 stage profiling | `ec7408e` | 证据收口 |
+| `perf/exp001-v1-sync-memcpy` | sync memcpy 实验 | `1145688` | 证据收口 |
+| `perf/exp005-instrumentation` | 打点 instrumentation | `da2a332` | 证据收口 |
+| `perf/exp005-v3b-persistent-worker` | persistent worker 实验 | `801e810` | 证据收口 |
 
-### 优化候选 (opt/*)
+## 实验 `exp/*`（SUPERSEDED）
 
-| 分支 | 内容 | HEAD | README | 状态 |
-|------|------|------|--------|------|
-| `opt/r4.2-t2w-trt` | T2W TRT optimization | `7a86d08` | ✅ | OPTIMIZATION |
-| `opt/r4.3-vit-trt` | ViT TRT optimization | `35bdfc8` | ✅ | OPTIMIZATION |
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `exp/token2wav-cann-runtime` | T2W CANN runtime 放置 | `59c5c16` | 已废弃 |
+| `exp/f003-neox-layout` | NeoX 权重布局 | `13084d2` | 已废弃 |
+| `exp/f004-precision-ablation` | FP16→FP32→Q8 精度衰减链 | `899f982` | 已废弃 |
 
-### 功能分支 (feat/*)
+## 优化候选 `opt/*`（未采用）
 
-| 分支 | 内容 | HEAD | README | 状态 |
-|------|------|------|--------|------|
-| `feat/omni-duplex-r2` | Omni 全双工 R2 | `dd3001a` | ✅ | FEATURE |
-| `feat/ascend-cann` | Ascend CANN backend | `5e23913` | ✅ | FEATURE |
-| `feat/web-server` | Web 服务器 (HTTP API) | `a9a6dcb` | ✅ | FEATURE |
-| `feat/web-demo` | Web Demo (Gateway + Worker) | `ad3e00c` | ❌ | FEATURE |
-| `feat/speed-test` | 速度测试工具 | `14d0104` | ❌ | TOOLING |
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `opt/r4.2-t2w-trt` | T2W TensorRT | `7a86d08` | 未采用 |
+| `opt/r4.2-t2w-trt-test` | T2W TRT 测试 | `8b7b9c4` | 未采用 |
+| `opt/r4.3-vit-trt` | ViT TensorRT | `35bdfc8` | 未采用 |
 
-### 基准 & 快照
+## 功能 `feat/*`（历史，与 final 无关）
 
-| 分支 | 内容 | HEAD | README | 状态 |
-|------|------|------|--------|------|
-| `eval/official-baseline` | 官方 Demo 基线 (ba7fa9c clone) | on private | ✅ | BASELINE |
-| `release/final-integration` | 最终集成候选 | on private | ✅ | INTEGRATION |
-| `backup-pre-filter-20260808` | 2026-08-08 pre-filter 快照 | `bd67bb9` | ❌ | SNAPSHOT |
-| `app` | 应用层入口 | `0f0c76c` | ❌ | APP |
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `feat/ascend-cann` | Ascend CANN backend | `b43cabe` | 历史 |
+| `feat/omni-duplex-r2` | Omni 全双工 R2 | `dd3001a` | 历史 |
+| `feat/speed-test` | 测速工具 | `14d0104` | 历史 |
+| `feat/web-server` | Web 服务器（HTTP API） | `a9a6dcb` | 历史 |
+| `feat/web-demo` | Web Demo（Gateway + Worker） | `ad3e00c` | 历史 |
+| `app` | 早期 app | `0f0c76c` | 历史 |
 
----
+## 其它
 
-## 分支依赖链
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `integration/bench-huawei-port` | 组织方 bench/huawei 移植（= FA 回归 `b6b6af0`） | `b6b6af0` | 已回滚 |
+| `release/final-integration` | 最终集成 | `9f260bb` | 历史 |
+| `eval/official-baseline` | 官方 Demo 基线 | `7b96e45` | 历史 |
+| `backup-pre-filter-20260808` | pre-filter 备份 | `bd67bb9` | 备份 |
 
-```
-eval/official-baseline (官方 Demo 基线)
-  └─ fix/f003-cann-rope-repeat-interleave (CANN RoPE → GPU TTS)
-      └─ fix/ws-session-lifecycle (WS lifecycle → persistent server)
-          └─ fix/tts-thread-lifecycle (线程泄漏修复)
-              └─ fix/full-duplex-request-max-tokens (full_duplex token cap)
-                  └─ perf/f6-decode-to-speak (CANN T2W)
-                      └─ perf/flow-chunk-rtf (Flow chunk RTF)
-                          └─ main (051e993, frozen)
-                              └─ fix/ws-multimodal-nan (NaN 调查, NOT merged)
-```
+## 清理建议
 
----
+- **保留**：3 支活跃分支 + `main`（介绍）+ `master`（上游）。
+- **可删**（已收口/废弃，证据已落 `docs/F6_*`）：全部 `perf/*`、`exp/*`、`opt/*`、
+  `feat/*`（除 `feat/dspark-llama-port`）、`app`、`backup-*`、`release/*`、`eval/*`。
+- **勿动**：`fix/cann-fa-nan-ubatch16`（= `fd3dd36` 冻结 runtime 的落点）、`fix/fa-mask-semantics`（pristine 对照）。
 
-## 提交仓库
+## 提交仓库（remote 拓扑）
 
 ```bash
-# 私有工作仓库 (读写)
-private: ssh.github.com:Phoenix3334/minicpmo45-ascend-private.git
-         认证: ~/.ssh/minicpmo45_ascend_private (deploy key, port 443)
+# 私有工作仓库（读写，push 一律走 SSH）
+private/origin: ssh.github.com:Phoenix3334/minicpmo45-ascend-private.git
+                认证: ~/.ssh/minicpmo45_ascend_private (deploy key, port 443)
 
-# 官方上游 (只读)
-origin:  https://github.com/tc-mb/llama.cpp-omni.git
+# 官方上游（只读，fetch）
+organizer: https://github.com/tc-mb/llama.cpp-omni.git
+upstream:  https://github.com/ggml-org/llama.cpp.git   # DFlash/DSpark 上游
+
+# ⚠️ HTTPS 无 credential helper，`git ls-remote <https>` 会挂起；只能用 SSH deploy key。
 ```
-
----
-
-> 更新时间: 2026-08-10 | 作者: Claude (Co-Authored-By)

@@ -4,6 +4,9 @@
 > 重点优化从模型完成文本推理到生成首段语音的 Decode-to-Speak 链路。
 >
 > **当前状态 (2026-08-10):** 🟡 FROZEN — 等待官方统一测评分支
+>
+> **⚠️ 更新 (2026-08-14):** 最终交付已迁至 `competition/final-ascend-track-a`（源码冻结 `fd3dd36`，🔒 FREEZE）。
+> 本 `main` 分支保留为**项目介绍 + 推进全记录**。全部 42 支分支导读见 [docs/branch-map.md](docs/branch-map.md)。
 
 ---
 
@@ -245,47 +248,16 @@ Phase 7: Accuracy 收口 (8/8–至今)                │  │                 
 
 ## 分支地图
 
-> 所有分支的完整地图，含理论背景说明。详见 [docs/branch-map.md](docs/branch-map.md)。
+> 42 支本地分支的完整导读见 [docs/branch-map.md](docs/branch-map.md)。
+> **最终仓库生命周期 = 3 支活跃分支**，其余均为历史（已合入 / 证据收口 / 未采用 / 废弃）。
 
-### 核心链路（依赖顺序）
+| 分支 | 用途 | 状态 |
+|---|---|---|
+| `competition/final-ascend-track-a` | 赛道一最终提交（源码冻结 `fd3dd36`） | 🔒 FREEZE |
+| `feat/dspark-llama-port` | DSpark 投机解码 backport（赛道二） | 队友 draft 后继续 |
+| `docs/specdecode-migration` | llama / vLLM / DSpark 迁移研究 | 文档研究 |
 
-```text
-eval/official-baseline (官方 Demo 基线)
-  └─ fix/f003-cann-rope-repeat-interleave (CANN RoPE → GPU TTS 可用)
-      └─ fix/ws-session-lifecycle (WS 生命周期 → persistent server)
-          └─ fix/tts-thread-lifecycle (线程泄漏 → libgomp OpenMP 模型)
-              └─ fix/full-duplex-request-max-tokens (full_duplex max_tgt_len=0)
-                  └─ perf/f6-decode-to-speak (CANN T2W 设备放置)
-                      └─ perf/flow-chunk-rtf (Flow chunk RTF 离线)
-                          └─ main ← 051e993 (FROZEN BASELINE)
-                              └─ fix/ws-multimodal-nan (NaN 调查, NOT merged)
-```
-
-### 分支分类速览
-
-| 类别 | 分支 | 用途 | 关键理论点 |
-|------|------|------|-----------|
-| **主** | `main` | 提交主分支 @ 051e993 | F16 冻结 + 全部优化已合入 |
-| **稳定性** | `fix/ws-session-lifecycle` | WS 生命周期修复 | CTX_STATE_REUSABLE 状态机 + CV 通知替代轮询 |
-| | `fix/tts-thread-lifecycle` | 线程泄漏修复 | libgomp fork-join 与 httplib 线程模型不兼容 |
-| | `fix/full-duplex-request-max-tokens` | duplex max_tgt_len=0 | full_duplex 路径遗漏 request_max_tokens 传播 |
-| | `fix/f003-cann-rope-repeat-interleave` | CANN RoPE fix | CANN 算子不支持非标准 interleave 模式 |
-| | `fix/ws-multimodal-nan` | NaN 调查 | mel 预处理 NaN → Whisper → LLM 全链传播 |
-| **性能** | `perf/f6-decode-to-speak` | CANN T2W | CANN stream 线程亲和性 + 设备放置 |
-| | `perf/flow-chunk-rtf` | Flow chunk RTF | 离线测量每 chunk RTF 不依赖服务 |
-| | `perf/kv-cache-production-gates` | KV Cache | Static prefix 复用 O(n²)→O(n) 计算量转移 |
-| | `perf/operator-decode-speak` | 算子分解 | decode→speak 子组件级 profiling |
-| | `perf/ngl8-e2e-stage-profiling` | E2E profiling | NGL8 多卡 stage 级性能追踪 |
-| **实验** | `exp/token2wav-cann-runtime` | CANN runtime | FM+CANN vs CPU fallback 对比 |
-| | `exp/f003-neox-layout` | NeoX layout | GPT-NeoX 权重布局的 CANN 适配 |
-| | `exp/f004-precision-ablation` | precision ablation | FP16→FP32→Q8 精度衰减链 |
-| **优化** | `opt/r4.2-t2w-trt` | T2W TRT | TensorRT 后端替换方案 |
-| | `opt/r4.3-vit-trt` | ViT TRT | Vision encoder TRT 优化 |
-| **功能** | `feat/omni-duplex-r2` | 全双工 R2 | duplex session 状态机重构 |
-| | `feat/ascend-cann` | CANN backend | Ascend NPU 算子适配全链路 |
-| | `feat/web-server` | HTTP API | RESTful 推理接口 |
-| | `feat/web-demo` | Web Demo | Gateway + Worker 双层架构 |
-| | `feat/speed-test` | 测速工具 | 标准化延迟/吞吐 benchmark |
+关键 commit：`fd3dd36` = 冻结 runtime · `c9785cc` = pristine 基线 · `051e993` = 旧 FROZEN BASELINE · `b6b6af0` = FA 回归（已回滚）。
 
 ---
 
