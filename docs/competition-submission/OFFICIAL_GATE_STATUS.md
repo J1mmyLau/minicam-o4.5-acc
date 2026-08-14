@@ -9,8 +9,8 @@
 > PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / **OFFICIAL_ASSET_VERSION_MATCH=CONFIRMED** /
 > **OFFICIAL_GATE_TOOLING_READINESS=PASS** / **STARTER_KIT_BLOCKER=REMOVE** / OFFICIAL_GATES=READY_TO_EXECUTE / COMPETITION_COMPLETE=NOT_CLAIMED。
 > **OFFICIAL_RTF=AVAILABLE（1.09–1.17 core，parity baseline 1.087）** —— LISTEN-wedge 已修，见 `docs/F6_OFFICIAL_RTF_RESOLVED.md`。
-> 候选冻结口径（2026-08-14）：source `fd3dd36`（tag `competition-final-20260814`，branch `fix/cann-fa-nan-ubatch16`）/
-> server `4694cb58…` / libomni `3f3e1e63…` / model `d1e69845…`。三条准确率基线 PASS（见下方证据索引 + `f6-release-convergence`）。
+> 候选冻结口径（2026-08-14）：source `fd3dd36`（tag `competition-final-20260814`，最终 branch `competition/final-ascend-track-a`）/
+> server `4694cb58…` / libomni `3f3e1e63…` / model `d1e69845…`。四项精度指标 PASS（见下方证据索引 + `f6-release-convergence`）。
 > **资产版本标签**：已用统一评测分支跑通全量，`OFFICIAL_ASSET_VERSION_MATCH` 置 CONFIRMED；当前 commit/SHA 为
 > **FINAL_INTERNAL** 候选快照（官方最终测试集未公开，官方 Over​all 分母仍以统一分支口径为准）。
 
@@ -21,7 +21,7 @@
 | Gate | 状态 | 判定依据 / 阻塞原因 | 置位条件 |
 |---|---|---|---|
 | FINAL_INTERNAL（内部候选冻结） | ✅ **PASS** | 源码冻结 + REPRODUCIBLE_BINARY=PASS + 冻结二进制 T6 11/11 | 已满足 |
-| T6_FROZEN_BINARY_REGRESSION | ✅ **PASS** | 11/11 GATES PASS, ACCEPT=True（meta.binary_sha=db258375） | 已满足 |
+| T6_FROZEN_BINARY_REGRESSION | ✅ **PASS** | 11/11 GATES PASS, ACCEPT=True（T6 历史冻结 db258375；最终 binary server 4694cb58… / libomni 3f3e1e63… 经 Phase 8 smoke + RTS 复验） | 已满足 |
 | DAILY_OMNI_INTERNAL_PILOT | ✅ **PASS** | 服务器链 6/6 门；9 题 pilot；P0 修复 3 项 | 已满足（**非官方准确率**） |
 | REPRODUCIBLE_BINARY | ✅ **PASS** | 两次干净重建 SHA 逐字节一致 | 已满足 |
 | **OFFICIAL_DAILY_OMNI** | ✅ **PASS（准确率）** | 统一评测分支全量 79.43%（950/1196）≥ 77.5%，+1.93pp | 官方隐藏测试集公开后复核分母 |
@@ -51,12 +51,12 @@
 
 ## OFFICIAL_* 剩余阻塞项清单
 
-> 统一评测分支（`tc-mb/llama.cpp-omni` @ `bench/huawei`）已到达：official smoke 4/4 + 三条准确率全量
+> 统一评测分支（`tc-mb/llama.cpp-omni` @ `bench/huawei`）已到达：official smoke 4/4 + 四项精度指标全量
 > 均在其上跑通。**"官方 Starter Kit 未到"的阻塞已移除**。剩余阻塞项如下：
 
 | 资产 | 性质 | 阻塞的 Gate | 说明 |
 |---|---|---|---|
-| 官方**隐藏**测试集 / Overall 分母 | 官方未公开（属正常，非阻塞） | 三条准确率最终 Overall | 当前数字 = 统一分支公开子集全量；隐藏集公开后同脚本复核 |
+| 官方**隐藏**测试集 / Overall 分母 | 官方未公开（属正常，非阻塞） | 四项精度指标最终 Overall | 当前数字 = 统一分支公开子集全量；隐藏集公开后同脚本复核 |
 | OpenBMB/MiniCPM-o-Demo 前端接入 | GitHub（可拉取） | OFFICIAL_DEMO_GATE | `bash submission/scripts/start_demo.sh` |
 
 ---

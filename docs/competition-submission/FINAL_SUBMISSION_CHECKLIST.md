@@ -7,20 +7,20 @@
 
 ## A. 完整代码与配置
 
-- [ ] 推理适配与性能优化代码（冻结源码 `a77d6a8` + `trackA_fixes.patch` 已固化）
+- [ ] 推理适配与性能优化代码（冻结 runtime `fd3dd36`，tag `competition-final-20260814`）
 - [ ] llama.cpp-omni 相关配置（`submission/config/server.env`、`benchmark.yaml`）
 - [ ] 服务启动脚本（`start_server.sh` / `stop_server.sh` / `health_check.sh`）
 - [ ] Benchmark 执行脚本（`run_daily_omni.sh` / `run_tts_seed.sh` / `run_video_mme.sh`）
 - [ ] Demo 启动脚本（`start_demo.sh` / `run_demo.sh` / `demo_smoke.sh`）
 - [ ] 依赖与环境配置（`environment/env_check.sh` / `requirements.txt` / `system_info.txt`）
 
-## B. 三项 Benchmark 评测结果
+## B. Benchmark 评测结果（四项精度指标）
 
 - [ ] **Daily-Omni**：测试命令 + 参数 + 原始输出 + 结果汇总
 - [ ] **TTS-Seed**：同上
 - [ ] **Video-MME**：同上
 - [ ] baseline 与 candidate 同脚本同子集同分母
-- [ ] 精度降幅 ≤ 2pp 逐项判定
+- [ ] 精度降幅逐项判定（VideoMME/Daily-Omni ≤2pp；TTS-Seed ASV 绝对下降 ≤0.02 + WER 相对增幅 ≤10%）
 - [ ] 失败样本 / 异常说明
 
 ## C. 性能测试报告
@@ -45,7 +45,7 @@
 - [ ] 原始性能瓶颈分析（T2W CPU = 93%）
 - [ ] 采用的优化方法（静态前缀 KV / 生命周期 / CANN Flow/Vocoder / TTS KV guard / 接口修复）
 - [ ] 各项优化带来的性能变化（每项 baseline/candidate/CI95/决策）
-- [ ] 效果保持情况（T6 11/11 + 三项精度）
+- [ ] 效果保持情况（T6 11/11 + 四项精度指标）
 - [ ] 完整复现步骤（`REPRODUCTION_GUIDE.md`）
 - [ ] 关键技术说明
 
@@ -65,9 +65,9 @@
 
 | 块 | 状态 |
 |---|---|
-| A 代码与配置 | 基本齐备（骨架 + 冻结源码 a77d6a8 + patch） |
-| B 三项 Benchmark | 三条准确率基线 PASS（Daily 79.43% ≥77.5% +1.93pp / VideoMME 69.8% ≥67.0% +2.8pp / Seed-TTS WER 1.422% ≤1.56% + SIM 0.969 ≥0.689，2020/2020）；统一评测分支 AVAILABLE |
-| C 性能报告 | RTF = Class A（生产 C++ 缺计时发射，可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`）；SPEAK→WAV 墙钟 1306–2747ms 已捕获 |
+| A 代码与配置 | 基本齐备（骨架 + 冻结 runtime fd3dd36） |
+| B Benchmark 评测 | 四项精度指标 PASS（Daily 79.43% ≥77.5% +1.93pp / VideoMME 69.8% ≥67.0% +2.8pp / Seed-TTS WER 1.422% ≤1.56% + SIM 0.969 ≥0.689，2020/2020）；统一评测分支 AVAILABLE |
+| C 性能报告 | RTF = AVAILABLE（core.rtf_aggregate 1.09–1.17，parity baseline 1.087，无已证实加速）；SPEAK→WAV 墙钟 1306–2747ms 已捕获 |
 | D Demo | 服务侧 PASS，官方前端接入 NOT_RUN |
 | E 复现 | 构建侧 PASS（REPRODUCIBLE_BINARY=PASS），官方环境 NOT_RUN |
 | F 目录 | 骨架已建（40 文件） |

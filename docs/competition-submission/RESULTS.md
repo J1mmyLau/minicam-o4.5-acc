@@ -5,7 +5,7 @@
 > 所有结果 = 统一评测分支（`tc-mb/llama.cpp-omni` @ `bench/huawei`）上的**全量**公开子集。
 > 官方隐藏测试集 / Overall 分母未公开；公开后同脚本复核分母，数值会以主办方口径为准。
 
-## 1. 准确率（三条基线，全部 PASS）
+## 1. 准确率（四项精度指标，全部 PASS）
 
 | 基准 | 候选结果 | 验收线 | 判定 |
 |---|---|---|---|
@@ -15,7 +15,7 @@
 | Seed-TTS SIM（ASV） | **0.969**（2020/2020） | ≥ 0.689 | ✅ PASS |
 
 - 原始汇总：`experiments/nightly/trackC_seedtts_full/summary_tts.json`（WER 1.422% / SIM 0.969 / 0 NaN）。
-- 三条准确率基线在候选 binary 上验证通过，Config D **零精度副作用**（Seed-TTS simplex 保持 pristine NPU 路径）。
+- 四项精度指标（三个 Benchmark）在候选 binary 上验证通过，Config D **零精度副作用**（Seed-TTS simplex 保持 pristine NPU 路径）。
 
 ## 2. 官方 SPEAK→WAV RTF
 

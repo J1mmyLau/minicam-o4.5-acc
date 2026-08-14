@@ -7,7 +7,7 @@
 
 ## 视频硬性要素（评审必看）
 
-- 画面一角固定显示：候选 commit `bdd4550`、server SHA `db258375…`、libommi `c4b16937…`
+- 画面一角固定显示：候选 commit `fd3dd36`、server SHA `4694cb58…`、libomni `3f3e1e63…`
 - `npu-smi` 窗口常驻（展示 910C 状态、HBM、利用率）
 - 录制工具显示时间戳
 - Server 日志可见（可切换窗口）

@@ -2,7 +2,7 @@
 
 > 生成：2026-08-05（历史） · 状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**（工具链就绪）
 > ⚠️ 2026-08-14 校正：统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）已到达，
-> `OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE` / `STARTER_KIT_BLOCKER=REMOVE`，三条准确率已在其官方脚本上跑通全量。
+> `OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE` / `STARTER_KIT_BLOCKER=REMOVE`，四项精度指标已在其官方脚本上跑通全量。
 > 本文下方"官方 Harness 未到 / BLOCKED_BY_OFFICIAL_STARTER_KIT"均为**过时口径**，权威状态见 `OFFICIAL_GATE_STATUS.md`。
 > 就绪度标签：DRY_RUN_SUPPORT=PASS / BASELINE_CANDIDATE_SYMMETRY=PASS / CHUNK_AUDIO_VALIDATION=PASS /
 > PRIVATE_PATH_AUDIT=PASS / LOCAL_ASSET_MANIFEST=PASS / OFFICIAL_ASSET_VERSION_MATCH=CONFIRMED / OFFICIAL_GATES=READY_TO_EXECUTE
@@ -15,18 +15,18 @@
 ## 0. 固定版本口径（不得混用）
 
 ```text
-LLAMA_CANDIDATE_SOURCE_COMMIT = bdd4550     # 真正参加 llama 子赛道的冻结源码
-COMPETITION_DOCS_COMMIT       = 7a3f11e     # 比赛收口文档（competition-submission/ + submission/）
-VLLM_MIGRATION_DOCS_COMMIT    = 37dc598     # vLLM 迁移文档对齐比赛约束层
-FINAL_TRACKING_HEAD           = c328d1b     # 最终跟踪文档 HEAD（不是候选源码版本）
+TESTED_RUNTIME_COMMIT          = fd3dd36     # 真正跑出数据的 runtime（tag competition-final-20260814，冻结）
+COMPETITION_DOCS_COMMIT       = 16ec3500d    # 最终提交文档包（tag competition-submission-20260814，branch competition/final-ascend-track-a）
+VLLM_MIGRATION_DOCS_COMMIT    = 37dc598      # vLLM 迁移文档对齐比赛约束层
+FINAL_TRACKING_HEAD           = c328d1b      # 最终跟踪文档 HEAD（不是候选源码版本）
 
-server  SHA256 = db258375c3d2185ca2181da2a5c8f99a95d381413fcb7ab92a771850ba3a4a21
-libomni SHA256 = c4b169376bced6bc3107cfda2f77abf35a634c1e146eed313a193e99e3739ea1
+server  SHA256 = 4694cb589b61fbc3d9c26508dbfb044ae06f07395ca409659dbb0f066a28815f
+libomni SHA256 = 3f3e1e636f66e81501eeda9285e1228e14da542211292a67f8bae70fbdf822ec
 model   SHA256 = d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3de
 ```
 
 > **禁令**：`c328d1b`（及任何文档 HEAD）仅作 FINAL_TRACKING_HEAD；任何地方不得把文档 HEAD 写成候选源码版本。
-> 参赛冻结源码永远是 `bdd4550`。
+> 参赛冻结源码永远是 `fd3dd36`。
 > **资产版本标签**：当前 commit/SHA 只叫 **CURRENT_LOCAL_ASSET_SNAPSHOT**；`OFFICIAL_ASSET_VERSION_MATCH=PENDING_STARTER_KIT`（官方 starter kit 到达并核对后方可称 CONFIRMED，本报告不称 CONFIRMED）。
 
 ---
@@ -59,15 +59,15 @@ model   SHA256 = d1e6984531bab1962d8bc73da4b6dffc5c2d9b0da336603943df04100e57c3d
 | 资产 | 状态 | 指纹 |
 |---|---|---|
 | 模型 `MiniCPM-o-4_5-F16.gguf` | ✅ 存在 | SHA `d1e69845…`（= 冻结模型，16.38 GB） |
-| 冻结 server | ✅ 存在 | SHA `db258375…` |
-| 冻结 libomni | ✅ 存在 | SHA `c4b16937…` |
+| 冻结 server | ✅ 存在 | SHA `4694cb58…` |
+| 冻结 libomni | ✅ 存在 | SHA `3f3e1e63…` |
 | 官方 Demo `OpenBMB/MiniCPM-o-Demo` | ❌ **MISSING**（`/workspace/MiniCPM-o-Demo` 不存在） | 需 `git clone https://github.com/OpenBMB/MiniCPM-o-Demo` |
-| 官方统一评测分支 | ✅ **AVAILABLE** | `tc-mb/llama.cpp-omni`（`bench/huawei`，含 `evaluation/README.md` + `./run_all.sh --smoke 2`）；已跑通 smoke 4/4 + 三条准确率全量 |
+| 官方统一评测分支 | ✅ **AVAILABLE** | `tc-mb/llama.cpp-omni`（`bench/huawei`，含 `evaluation/README.md` + `./run_all.sh --smoke 2`）；已跑通 smoke 4/4 + 四项精度指标全量 |
 
 #### 官方口径（已由统一评测分支定义）
 
 RTF 口径：`rtf.core.rtf_aggregate = Σcompute/Σaudio`；`compute = max(VPM,APM) + LLM_prefill + LLM_decode + TTS + token2wav`（见 `evaluation/judge-final/scripts/eval_duplex_e2e_latency.py`）。
-唯一阻塞 = 生产 C++（非受保护）不吐 `stage_timing.jsonl`/SSE `metrics` 事件（Class A，可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`）。
+唯一阻塞已解除：生产 C++（非受保护）LISTEN-wedge 生命周期 bug 已修（空 duplex LISTEN chunk_end 未完成 drain 记账 → active_gen 楔死 → NOT_REUSABLE 拒绝），官方 RTS 现产出 `stage_timing.jsonl`/SSE `metrics`，`core.rtf_aggregate` 1.09–1.17（见 `docs/F6_OFFICIAL_RTF_RESOLVED.md`）。
 
 ### 1.3 每个 Gate 资产到达后的第一条执行命令
 
@@ -80,7 +80,7 @@ RTF 口径：`rtf.core.rtf_aggregate = Σcompute/Σaudio`；`compute = max(VPM,A
 | Video-MME | 官方子集/解码/抽帧/解析 + 脚本 | 同上模式：`run_video_mme.sh baseline` → `candidate` → `video_mme_comparison.json` |
 | Demo | `MiniCPM-o-Demo` clone | `git clone https://github.com/OpenBMB/MiniCPM-o-Demo` → `DEMO_DIR=<clone> bash submission/scripts/start_demo.sh` → `demo_smoke.sh`（D1/D3/D10/D12 自动化段）→ D1–D12 全量（DEMO_VALIDATION_PLAN.md）→ 录像（DEMO_VIDEO_SCRIPT.md） |
 | Performance（逐 chunk RTF） | 官方计时口径 | 先 `bash submission/scripts/run_performance.sh --dry-run`（预检 exit 0）→ `MODE=baseline bash submission/scripts/run_performance.sh`（N 调至 ≥30 有效 chunk）→ 同 RUN_ID 跑 `candidate` → `check_baseline_candidate_symmetry.py`（不对称退出非零）→ `chunk_rtf_summary.json` |
-| 复现 | 干净环境 | `REPRODUCTION_AUDIT.md` → `build.sh`（期望 SHA 复现 db258375/c4b16937）→ 从零重跑 S13 抽样 + chunk RTF |
+| 复现 | 干净环境 | `REPRODUCTION_AUDIT.md` → `build.sh`（期望 SHA 复现 4694cb58/3f3e1e63）→ 从零重跑 S13 抽样 + chunk RTF |
 
 ### 1.4 baseline 与 candidate 同数据/同参数/同统计 — ✅ PASS（执行 NOT_RUN）
 
@@ -129,6 +129,6 @@ RTF 口径：`rtf.core.rtf_aggregate = Σcompute/Σaudio`；`compute = max(VPM,A
 | P3 | chunk RTF 排除率逻辑 | ✅ **RESOLVED** | `valid_audio` 真实判定（10 排除原因枚举）+ total/valid/invalid/exclusion_rate/reason counts + 单测 21 例 |
 | P4 | 私有绝对路径默认值 | ✅ **RESOLVED** | MODEL_PATH 必填无默认；DEMO_DIR/OUTPUT_ROOT/DATA_ROOT/OFFICIAL_HARNESS_ROOT 从 REPO_ROOT 派生 |
 
-> P1–P4 均为**提交包卫生/就绪性**改进，不涉及冻结源码 `bdd4550`，不产生任何优化候选。
+> P1–P4 均为**提交包卫生/就绪性**改进，不涉及冻结源码 `fd3dd36`，不产生任何优化候选。
 > 离线自检全绿：`submission/tests/run_selftest.sh` → **14/14 PASS**（命令与结果见 `OFFICIAL_GATE_TOOLING_SELFTEST.md`）。
 > 工具链就绪状态：**OFFICIAL_GATE_TOOLING_READINESS=PASS**；官方 Gate 已 **READY_TO_EXECUTE**（统一评测分支已到达），COMPETITION_COMPLETE=NOT_CLAIMED。

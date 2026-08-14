@@ -47,7 +47,7 @@ bash submission/scripts/run_performance.sh
 | 块 | 状态 | 说明 |
 |---|---|---|
 | 代码与配置 | ✅ 冻结 | source `fd3dd36`（tag `competition-final-20260814`）/ server `4694cb58…` / libomni `3f3e1e63…` |
-| 三项 Benchmark 准确率 | ✅ PASS | Daily-Omni 79.43%（950/1196）· VideoMME 69.8% · Seed-TTS WER 1.422% / SIM 0.969（2020/2020） |
+| 四项精度指标（三个 Benchmark） | ✅ PASS | Daily-Omni 79.43%（950/1196）· VideoMME 69.8% · Seed-TTS WER 1.422% / SIM 0.969（2020/2020） |
 | 性能报告（RTF） | ✅ AVAILABLE | core.rtf_aggregate 1.09–1.17（parity baseline 1.087）；LISTEN-wedge 修复后 n_speak 0→33，0 拒绝；见 `docs/F6_OFFICIAL_RTF_RESOLVED.md` |
 | 稳定性 | ✅ PASS | 2 次 RTS soak 0 崩溃、无线程泄漏（见 Track D） |
 | Demo | 🟡 服务侧 PASS | 官方 Demo 前端接入待做 |

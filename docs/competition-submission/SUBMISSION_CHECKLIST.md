@@ -21,7 +21,7 @@
 
 | 提交项 | 路径 | 工程准备 | 执行状态 |
 |--------|------|---------|---------|
-| 推理适配与性能优化代码 | `src/`, `tools/omni/`, `ggml/src/ggml-cann/` — 冻结于 bdd4550 | `READY` | `INTERNAL_PASS` |
+| 推理适配与性能优化代码 | `src/`, `tools/omni/`, `ggml/src/ggml-cann/` — 冻结于 fd3dd36 | `READY` | `INTERNAL_PASS` |
 | llama.cpp-omni 配置文件 | `submission/config/server.env`, `submission/config/benchmark.yaml` | `READY` | `INTERNAL_PASS` |
 | 服务启动脚本 | `submission/scripts/start_server.sh`, `stop_server.sh` | `READY` | `INTERNAL_PASS` |
 | Benchmark 执行脚本 | `submission/scripts/run_daily_omni.sh`, `run_tts_seed.sh`, `run_video_mme.sh` | `READY` | `OFFICIAL_NOT_RUN` |

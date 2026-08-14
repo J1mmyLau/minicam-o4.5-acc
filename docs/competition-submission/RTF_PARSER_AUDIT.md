@@ -76,7 +76,7 @@ SPEAK_STATE_CLASSIFICATION = BLOCKED_BY_RUNTIME_MARKERS
 - `SPEAK_GENERATION_END req=N gen=N t=XXXms` — LLM 结束，进入尾部
 - 每行 WAV chunk 增加 `speak_state=LISTEN|SPEAK_GENERATION|SPEAK_TAIL`
 
-在验证性能影响前，不得修改冻结源码 bdd4550。
+在验证性能影响前，不得修改冻结源码 fd3dd36。
 
 ---
 

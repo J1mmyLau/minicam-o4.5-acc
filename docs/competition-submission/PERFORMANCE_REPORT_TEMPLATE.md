@@ -10,7 +10,7 @@
 
 ### 1. 系统与环境
 - NPU 拓扑（1× Ascend 910C dual-die）、CANN 9.1.0-beta.1、OS、driver。
-- 候选：source `bdd4550` / server `db258375…` / libomni `c4b16937…` / model `d1e69845…`。
+- 候选：source `fd3dd36` / server `4694cb58…` / libomni `3f3e1e63…` / model `d1e69845…`。
 - 完整 `npu-smi`、`ASCEND_HOME_PATH` / `ASCEND_OPP_PATH`。
 
 ### 2. 官方基线

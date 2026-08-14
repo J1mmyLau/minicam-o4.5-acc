@@ -12,7 +12,7 @@
 
 ## 1. 关键事实：冻结二进制已逐 chunk 输出 RTF
 
-冻结候选（server `db258375…`）日志原生打印每个音频 chunk 的计时行，**无需修改正式推理路径**：
+冻结候选（server `4694cb58…`）日志原生打印每个音频 chunk 的计时行，**无需修改正式推理路径**：
 
 ```
 T2W线程: wav_1002.wav | 1.00s audio | 232.4ms inference | RTF=0.23 | t=1744ms | queue_wait=110.5ms | req=1 gen=1

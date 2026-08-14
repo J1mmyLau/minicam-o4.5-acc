@@ -4,11 +4,11 @@
 > 状态标签**只允许 5 种**，禁止混用：
 > `INTERNAL_PASS` / `OFFICIAL_PENDING` / `BLOCKED_BY_ASSET` / `OFFICIAL_PASS` / `NOT_APPLICABLE`
 >
-> 候选口径（冻结，2026-08-05）：
-> - `CANDIDATE_SOURCE_COMMIT=bdd4550`（比赛候选源码）
-> - `EVIDENCE_DOCS_COMMIT=adb9bb6`（+ d5cc978 + f26323f 证据文档提交）
-> - server `db258375…` / libomni `c4b16937…` / model `d1e69845…`
-> - `POST_T11_FINAL_CANDIDATE=FINAL_INTERNAL`，`COMPETITION_COMPLETE=NOT_CLAIMED`
+> 候选口径（冻结，2026-08-14）：
+> - `TESTED_RUNTIME_COMMIT=fd3dd36`（真正跑出数据的 runtime，tag `competition-final-20260814`）
+> - `FINAL_SUBMISSION_COMMIT=16ec3500d`（提交文档包，tag `competition-submission-20260814`，branch `competition/final-ascend-track-a`）
+> - server `4694cb58…` / libomni `3f3e1e63…` / model `d1e69845…`
+> - `COMPETITION_COMPLETE=NOT_CLAIMED`
 
 ---
 
@@ -30,12 +30,12 @@ llama 子赛道**核心排名指标只有一项：per-audio-chunk RTF**。TTFT/T
 | 指定框架 llama.cpp-omni | A | `INTERNAL_PASS` | 全链路在 llama.cpp-omni 完成 | — | — | 框架正确即满足 | 无 | VERSION_MANIFEST.md |
 | 单卡 910C（统一评测硬件） | A+B | `INTERNAL_PASS` | R13_HARDWARE=1×Ascend 910C dual-die（2× Ascend910 芯片，单卡合规） | 提交材料中保存完整 `npu-smi` 输出 | environment/env_check.sh | npu-smi 与声明一致 | 无 | system_info.txt |
 | 镜像 CANN 9.1.0-beta.1 | A | `INTERNAL_PASS` | env-cann91.sh + ASCEND_HOME_PATH 验证 | 环境安装/验证脚本进提交包 | environment/env_check.sh | `ASCEND_HOME_PATH` / `ASCEND_OPP_PATH` 正确 | 无 | env_check.sh 输出 |
-| 固定仓库/分支/commit | A | `INTERNAL_PASS` | source `bdd4550`、branch `perf/f6-decode-to-speak` | 复现审查时 checkout 同一 commit | REPRODUCTION_AUDIT.md | 复现 checkout 成功 | 无 | VERSION_MANIFEST.md |
+| 固定仓库/分支/commit | A | `INTERNAL_PASS` | source `fd3dd36`、branch `competition/final-ascend-track-a` | 复现审查时 checkout 同一 commit | REPRODUCTION_AUDIT.md | 复现 checkout 成功 | 无 | VERSION_MANIFEST.md |
 
 ## 2. 三项 Benchmark 精度准入（第二步，P0）
 
 > 官方要求：优化版相对官方基线降幅 ≤ 2 个百分点（85%→≥83%，70%→≥68%）。同脚本、同子集、同分母对比。
-> **现状：三项 Benchmark 准确率均 PASS（统一评测分支）**。统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）
+> **现状：四项精度指标均 PASS（三个 Benchmark，统一评测分支）**。统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）
 > 已到达，官方脚本上跑通全量：Daily-Omni 79.43%（950/1196）≥77.5% +1.93pp · Video-MME 69.8% ≥67.0% +2.8pp ·
 > Seed-TTS WER 1.422% ≤1.56% + SIM 0.969 ≥0.689（2020/2020，0 NaN）。隐藏测试集公开后同脚本复核分母。
 
@@ -44,7 +44,7 @@ llama 子赛道**核心排名指标只有一项：per-audio-chunk RTF**。TTFT/T
 | Daily-Omni 官方精度 | `PASS（准确率）` | 全量 79.43%（950/1196）≥77.5%，+1.93pp | 官方隐藏测试集（公开后复核分母） | run_daily_omni.sh | candidate ≥ baseline − 2pp | 无（隐藏集属正常） | daily_omni_comparison.json + DAILY_OMNI_REPORT.md |
 | TTS-Seed 官方结果 | `PASS（准确率）` | 全量 WER 1.422% ≤1.56% / SIM 0.969 ≥0.689（2020/2020，0 NaN） | 官方隐藏测试集（公开后复核分母） | run_tts_seed.sh | 官方口径判定 | 无（隐藏集属正常） | tts_seed_comparison.json + TTS_SEED_REPORT.md |
 | Video-MME 官方结果 | `PASS（准确率）` | 全量 69.8% ≥67.0%，+2.8pp | 官方隐藏测试集（公开后复核分母） | run_video_mme.sh | 官方口径判定 | 无（隐藏集属正常） | video_mme_comparison.json + VIDEO_MME_REPORT.md |
-| 精度降幅 ≤ 2pp | `PASS` | 三项均优于官方阈值（见上） | 官方隐藏测试集复核 | 三个 run_*.sh | 全项 ≤ 2pp 且无核心能力异常 | 无 | 三个 comparison.json |
+| 精度降幅 ≤ 2pp | `PASS` | 四项均优于官方阈值（见上） | 官方隐藏测试集复核 | 三个 run_*.sh | 全项 ≤ 2pp 且无核心能力异常 | 无 | 三个 comparison.json |
 
 ## 3. 官方 Demo 可用（第三步，P0）
 
@@ -61,7 +61,7 @@ llama 子赛道**核心排名指标只有一项：per-audio-chunk RTF**。TTFT/T
 
 | 官方要求 | 当前状态 | 已有证据 | 缺失证据 | 执行入口 | 通过标准 | 阻塞项 | 最终产物 |
 |---|---|---|---|---|---|---|---|
-| per-audio-chunk RTF | `RTF_BLOCKED（Class A）` | **冻结二进制日志已逐 chunk 打印 RTF**：`T2W线程: wav_1002.wav | 1.00s audio | 232.4ms inference | RTF=0.23 | …` | 生产 C++ 补 `stage_timing.jsonl`+SSE `metrics` 发射 → 重跑 RTS 得 `rtf.core.rtf_aggregate` | run_performance.sh + analyze_chunk_rtf.py | 官方口径通过 | 生产 C++ 计时发射缺失（可自修，见 `F6_RTF_BLOCKER_REAUDIT.md`） | chunk_rtf_raw.csv + chunk_rtf_summary.json |
+| per-audio-chunk RTF | `AVAILABLE（1.09–1.17）` | `stage_timing.jsonl` + SSE `metrics` 已发射；2 次独立运行 n_speak 0→33、0 拒绝，`core.rtf_aggregate` 1.09–1.17（parity baseline 1.087） | 无已证实加速（诚实口径，见 `F6_OFFICIAL_RTF_RESOLVED.md`） | run_performance.sh + analyze_chunk_rtf.py | 官方口径通过 | 无 | chunk_rtf_raw.csv + chunk_rtf_summary.json |
 | 不得用全请求 RTF / Flow 内部 / Vocoder 内部 RTF 代替 | — | 规范已定（见 CHUNK_RTF_MEASUREMENT_SPEC.md） | 官方口径 | — | 报告按逐 chunk 统计 | 无 | PERFORMANCE_REPORT.md |
 
 ## 5. 工程复现审查（第五步）
@@ -93,12 +93,12 @@ OFFICIAL_DAILY_OMNI               = PASS（准确率 79.43% ≥ 77.5% +1.93pp）
 OFFICIAL_TTS_SEED                 = PASS（准确率 WER 1.422% ≤ 1.56% / SIM 0.969 ≥ 0.689）
 OFFICIAL_VIDEO_MME                = PASS（准确率 69.8% ≥ 67.0% +2.8pp）
 OFFICIAL_DEMO_GATE                = NOT_RUN（官方 Demo 前端未接入）
-OFFICIAL_PERFORMANCE_GATE         = RTF_BLOCKED（Class A，可自修）
+OFFICIAL_PERFORMANCE_GATE         = AVAILABLE（1.09–1.17，parity baseline 1.087，无已证实加速）
 OFFICIAL_REPRODUCTION_REVIEW      = NOT_RUN
 
 COMPETITION_COMPLETE              = NOT_CLAIMED
 ```
 
 > 统一评测分支 `tc-mb/llama.cpp-omni`（`bench/huawei`）已到达（`OFFICIAL_UNIFIED_EVAL_BRANCH=AVAILABLE`，
-> `STARTER_KIT_BLOCKER=REMOVE`）。三条准确率已在其官方脚本上跑通全量；隐藏测试集公开后同脚本复核分母。
-> RTF 缺数值根因 = 生产 C++（非受保护）不吐计时字段，见 `docs/F6_RTF_BLOCKER_REAUDIT.md`。
+> `STARTER_KIT_BLOCKER=REMOVE`）。四项精度指标已在其官方脚本上跑通全量；隐藏测试集公开后同脚本复核分母。
+> RTF 已可用（1.09–1.17，parity baseline 1.087，无已证实加速），根因 LISTEN-wedge 生命周期修复见 `docs/F6_OFFICIAL_RTF_RESOLVED.md`。
