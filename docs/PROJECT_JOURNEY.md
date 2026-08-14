@@ -186,9 +186,12 @@
 
 ---
 
+> **性能现状速览**：见 [`docs/PERFORMANCE_STATUS.md`](PERFORMANCE_STATUS.md)（精度 4/4 PASS + RTF parity + 本地优化收益 + 稳定性，单页可转交）。
+
 ## 6. 证据链索引
 
 - 权威提交文档：`docs/competition-submission/`（RESULTS / OPTIMIZATIONS / OFFICIAL_GATE_STATUS / VERSION_MANIFEST …）
+- 性能现状速览：`docs/PERFORMANCE_STATUS.md`
 - 证据链（性能/精度/稳定性追踪）：`docs/F6_*.md`
 - 分支导读：`docs/branch-map.md`（42 支分支）
 - 原始 llama.cpp-omni README：`README-llama-cpp-omni.md`
