@@ -32,14 +32,18 @@ competition-final-20260814 (tag → fd3dd36)      ← 冻结，禁止 DSpark 开
 ## 3. 上游 DSpark 审计
 
 ```text
-UPSTREAM_DSPARK_AVAILABLE = YES
-DSPARK_UPSTREAM_PORT_GAP  = backport COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK
-                            + DSpark draft loader (markov W1/W2 + conf proj + dflash.block_size)
-                            + GGUF 元数据 + --spec-type draft-dspark CLI + server 接线
+UPSTREAM_DSPARK_AVAILABLE = YES（ggml-org/llama.cpp）
+DSPARK_UPSTREAM_PORT_GAP  = 两阶段 backport：
+                            ① DFlash #22105 (d1b34251b, 14文件+712)  ← 本 fork 连 DFlash 都没有
+                            ② DSpark #25173 (84075273c, 14文件+286)  ← 构建于 DFlash 之上
+                            ③ DFlash K/V rotate #25823 (571d0d540)
+                            预期 cherry-pick 冲突（drift +1938/−579）
 ```
 
-- 本 fork 同步点 = llama.cpp `cb47092b0`（2026-06-01）。
-- 本 fork 已有 `common/speculative`（SIMPLE/EAGLE3/MTP/ngram），**缺 DRAFT_DSPARK**。
+- 本 fork 同步点 = llama.cpp `cb47092b0`（**2026-05-29**，#23842）。
+- 本 fork 已有 `common/speculative`（SIMPLE/EAGLE3/MTP/ngram），**缺 DRAFT_DFLASH 与 DRAFT_DSPARK**。
+- DSpark 不新增 arch（fold 进 DFlash）；markov 头按存在检测；conf head 加载未使用；greedy lossless。
+- ⚠️ converter 仅支持 Qwen3；MiniCPM-o 4.5 非 Qwen3 → 需自写 converter 或队友 draft 训在 Qwen3。
 - `server-context.cpp` 已接 `common_speculative`，接线缺口 = omni decode 主循环未走 speculative proposer。
 
 ## 4. Draft Artifact 契约
@@ -79,8 +83,10 @@ LLAMA_FULL_PIPELINE_DOC = docs/speculative/OMNI_SPECULATIVE_FULL_PIPELINE.md
 ```text
 NEXT_IMPLEMENTATION_GATE =
   1) 队友 draft checkpoint + config 到位（解除 NOT_AVAILABLE）
-  2) git remote add upstream + 定位 DSpark 引入 commit 集合
-  3) backport 最小文件集 → llama-cli/server 独立跑通 draft-dspark
+     + 确认 draft target（MiniCPM-o 4.5 vs Qwen3，Qwen3-only converter 约束）
+  2) ✅ DONE：upstream=ggml-org/llama.cpp 已 add；DFlash d1b34251b → DSpark 84075273c → K/V rotate 571d0d540
+  3) backport 两阶段（DFlash→DSpark）→ llama-cli/server 独立跑通 draft-dspark
+     （预期冲突，drift +1938/−579）
   4) 接线 llama-omni-server（omni.cpp decode 主循环 → common_speculative）
   5) Amdahl 重测（decode 占比仍 <20% 则期望压低至 3–5%）
 ```

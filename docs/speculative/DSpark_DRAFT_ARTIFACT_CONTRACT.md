@@ -38,7 +38,8 @@ TRAINING_FRAMEWORK     = NOT_AVAILABLE   # SGLang / DeepSpec / custom
 | tie_word_embeddings | **False** | `config.json` |
 | GGUF (F16) | `/workspace/models/MiniCPM-o-4_5-gguf/MiniCPM-o-4_5-F16.gguf` (16.4 GB) | 磁盘 |
 
-> 主 LLM 是 Qwen 系（4096/36L/32h/8kv），与 `f6-cross-stage-npu-profile` 的 profiler 观测一致。
+> `model_type = minicpmo`（MiniCPM-o 4.5），**不是 Qwen3**。维度上 4096/36L/32h/8kv 与 Qwen 系相近（profiler 观测一致），但 arch 标识是 `minicpmo`。
+> ⚠️ 上游 DSpark converter 注册为 `Qwen3DSparkModel`（`conversion/qwen.py`），**仅匹配 Qwen3 arch**。MiniCPM-o 4.5 需要**自写 converter**（或队友 draft 训在 Qwen3 上，但与 target 不匹配）。这是比「checkpoint 未到位」更深的兼容性约束。
 
 ## 3. 核心问题
 
@@ -56,16 +57,23 @@ Can teammate draft → convert directly to upstream DSpark GGUF?
 
 ## 4. GGUF 转换计划（若 llama.cpp 路径需要 GGUF）
 
-上游 `convert_hf_to_gguf.py` 对 DSpark 的支持（待从上游 diff 确认）。预期 HF→GGUF 张量映射：
+上游 DSpark 转换入口 = `conversion/qwen.py` 里的 `Qwen3DSparkModel`（`@ModelBase.register("Qwen3DSparkModel")`，继承 `DFlashModel`）。**DSpark 不新增 GGUF arch**：draft 转成 DFlash GGUF，markov/conf 头按「存在即检测」。
+
+实际 HF→GGUF 张量映射（已从上游 diff `84075273c` 确认）：
 
 ```
-HF tensor                          →  GGUF tensor
-draft.markov.w1  [rank, hidden]    →  dspark_markov_w1
-draft.markov.w2  [vocab, rank]     →  dspark_markov_w2
-draft.conf.proj  [1, hidden]       →  dspark_conf_proj
-draft.backbone.* (DFlash)          →  blk.*.attn_q/w/k/v/o + ffn（复用 target 命名空间）
-metadata: block_size                →  dflash.block_size
+HF tensor                                    →  GGUF tensor
+model.markov_head.markov_w1                  →  markov_w1
+model.markov_head.markov_w2                  →  markov_w2
+model.confidence_head.proj                   →  conf_proj
+draft.backbone.* (DFlash)                    →  blk.*（复用 DFlash 命名空间）
+metadata: dflash.block_size                  →  必需（DSpark draft 硬依赖）
 ```
+
+**运行时确认的事实**（`src/models/dflash.cpp`）：
+- `markov_rank` 由 `markov_w1.weight` 的 `ne[0]` 推断，不是显式 GGUF key。
+- `conf_proj` 输入 = `[n_embd + markov_rank]`（hidden ⊕ markov 前-token embedding）→ `[1]`。
+- 缺 `dflash.block_size` 会直接 `GGML_ASSERT` 崩 —— 转换时必须注入。
 
 **必过 Gate**（在任何 speculate 集成之前）：
 
@@ -91,6 +99,7 @@ HF_DRAFT_OUTPUT  ≈  GGUF_DRAFT_OUTPUT
 - draft checkpoint 路径（或 tar/safetensors）+ 训练框架（SGLang/DeepSpec/custom）。
 - `config.json`（draft 结构：hidden/layers/heads/vocab/block_size/markov_rank）。
 - 训练时挂载的 base model + commit。
+- **draft 训练挂载的 target arch**（`minicpmo` vs `qwen3`）—— 决定能否复用上游 `Qwen3DSparkModel` converter，还是要自写 `MiniCPMoDSparkModel`。
 - 一个固定输入的 golden 输出（用于 GGUF 转换校验）。
 
 **在拿到这些之前，`TEAMMATE_DRAFT_COMPATIBILITY = NOT_AVAILABLE`，DSpark runtime 集成停在 backport + 架构层。**

@@ -12,8 +12,8 @@
 |---|---|
 | `UPSTREAM_DSPARK_AVAILABLE` | **YES**（上游 llama.cpp 已有 `--spec-type draft-dspark` + markov/confidence head） |
 | 本 fork DSpark | **NO**（`common/speculative` 只有 `DRAFT_SIMPLE / EAGLE3 / MTP / NGRAM_*`） |
-| 本 fork 上游同步点 | llama.cpp `cb47092b0`（2026-06-01，距今 ~2.5 月） |
-| `DSPARK_UPSTREAM_PORT_GAP` | backport `COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK` + DSpark draft loader + GGUF 元数据 + CLI flag + server 接线 |
+| 本 fork 上游同步点 | llama.cpp `cb47092b0`（**2026-05-29**，`server: bump timeout #23842`） |
+| `DSPARK_UPSTREAM_PORT_GAP` | **两阶段 backport**：先 DFlash（#22105，本 fork 无），再 DSpark（#25173，构建于 DFlash 之上）+ K/V rotate fix（#25823）—— 非「只加一个 enum」 |
 | `MAIN_LLM_DSPARK_FEASIBLE` | **STRUCTURALLY_YES / AMDAHL_BOUNDED**（见 §4） |
 | `TTS_DSPARK_FEASIBLE` | **UNKNOWN / LIKELY_NO**（Talker 输出 speech token，与主 LLM 不同 latent） |
 | `GGUF_CONVERSION_REQUIRED` | **LIKELY_YES**（llama.cpp 路径吃 GGUF；除非直接 backport HF 加载器） |
@@ -31,16 +31,38 @@ UPSTREAM LLAMA DSPARK（上游 commit 含 dspark_markov_w1/w2 + dspark_conf_proj
 
 **明确禁止**：逐行翻译 SGLang 的 DSpark 实现。上游 llama.cpp 的 `common/speculative` 已经是成熟的 speculative 运行时，DSpark 只是往里面加一个 **draft 类型 + 模型加载器 + 头张量**。
 
-### 需要 backport 的最小文件集（待从上游 diff 精确定位）
+### 2.0 上游 commit 集合（已定位，2026-08-14，`git remote add upstream https://github.com/ggml-org/llama.cpp.git`）
 
-| 区域 | 预期文件 | 内容 |
+> **关键修正**：DSpark **不是**独立的新 arch，而是**构建在 DFlash 之上**。本 fork（同步点 `cb47092b0`）**连 DFlash 都没有** —— 所以 backport 是**两阶段**，不是「只加一个 enum」。
+
+| 阶段 | commit | PR | 日期 | 规模 | 说明 |
+|---|---|---|---|---|---|
+| 0. fork 同步点 | `cb47092b0` | #23842 | 2026-05-29 | — | 本 fork 现状 |
+| 1. **DFlash（前置）** | `d1b34251b` | #22105 | 2026-06-28 | 14 文件 +712/−9 | DSpark 的 backbone，**本 fork 无** |
+| 2. DFlash p-min | `152d337fa` | #25246 | — | — | `spec-draft-p-min` in DFlash |
+| 3. DFlash K/V rotate | `571d0d540` | #25823 | 2026-07-18 | — | 注入 KV 旋转，正确性必需 |
+| 4. **DSpark** | `84075273c` | #25173 | 2026-07-28 | 14 文件 +286/−33 | 目标 commit（parent=`6ba5ef247`） |
+
+**上游架构事实（来自 DSpark commit message）**：
+- DSpark **不新增 `LLM_ARCH_DSPARK`**（review 时已删）：draft 转成 DFlash GGUF，markov 头张量（`markov_w1/w2`）按「存在即检测」（同 eagle3 d2t），`block_size` 复用既有 `dflash.block_size` key。
+- `llama_model_dspark : llama_model_dflash`，复用 DFlash 图 + target 特征提取 + KV 注入 + verify/accept；仅 override `draft()`。
+- `conf_proj`（confidence head）在本 commit **加载但未使用**（confidence-scheduled pruning 未实现，`--spec-draft-conf-min` 已 fold 进 `p_min`）。
+- 语义 = anchor-first block + semi-autoregressive 前 token 条件 logit bias；**greedy 保持 lossless**。
+- **converter 仅支持 Qwen3**（`Qwen3DSparkModel`）。⚠️ **MiniCPM-o 4.5 非 Qwen3** —— 队友 draft 若训在 MiniCPM-o hidden state 上，需自写 converter；若训在 Qwen3 上，则与 target 不匹配。这是比「checkpoint 未到位」更深的兼容性问题。
+
+**backport 难度（实测 drift）**：`cb47092b0..d1b34251b`（约 1 个月上游 drift）在 8 个 speculative 相关文件上 = **+1938/−579**，仅 `common/speculative.cpp` 就 **~1443 行变更**。→ DFlash/DSpark cherry-pick **必然冲突**，需按 commit 顺序 rebase，不是干净 pick。
+
+### 需要 backport 的最小文件集（已从上游 diff 精确定位）
+
+| 区域 | 实际文件（来自上游 diff） | 内容 |
 |---|---|---|
-| 类型枚举 | `common/common.h` | `COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK` |
-| draft 参数 | `common/common.h` / `common/arg.cpp` | `--spec-type draft-dspark`、`--spec-draft-n-max` 等已有 |
-| 模型加载 | `src/llama-model.cpp` / `src/llama.cpp` | DFlash backbone + markov head + confidence head 张量加载 |
-| 运行时 | `common/speculative.cpp` | draft 前向：`dspark_markov_w1/w2`、`dspark_conf_proj`、`dflash.block_size` |
-| GGUF 转换 | `convert_hf_to_gguf.py`（或独立 converter） | HF DSpark → GGUF 张量映射 |
-| CLI/server | `tools/server/` | 现有 `server-context.cpp` 已接 `common_speculative`，需补 DSpark 分支 |
+| 类型枚举 + draft 参数 | `common/common.h` | `COMMON_SPECULATIVE_TYPE_DRAFT_DFLASH` + `DRAFT_DSPARK`（枚举 + draft params） |
+| draft 运行时 | `common/speculative.cpp` | DFlash 实现 + DSpark impl（override `draft()`，anchor-first block + markov bias） |
+| 模型 arch | `src/llama-arch.{h,cpp}`、`src/models/models.h`、`src/models/dflash.cpp` | **DFlash 是新 arch**（dspark 不新增，fold 进 dflash） |
+| 模型加载 / 图 | `src/llama-model.{h,cpp}`、`src/llama-context.cpp`、`src/llama-graph.cpp` | 张量加载 + encoder/decoder 图 + KV 注入 |
+| GGUF 元数据 | `gguf-py/gguf/constants.py`、`gguf-py/gguf/tensor_mapping.py` | `dflash.block_size` + markov/conf 张量 key |
+| GGUF 转换 | `conversion/qwen.py`、`conversion/__init__.py` | `Qwen3DSparkModel` converter（**Qwen3-only**） |
+| CLI/server | `tools/server/server-schema.cpp` | `--spec-type draft-dspark` 入参接线 |
 
 ### 本 fork 已有的基础设施（可直接复用）
 
@@ -209,8 +231,8 @@ feat/dspark-llama-port
 
 ## 10. 下一步实现 Gate（NEXT_IMPLEMENTATION_GATE）
 
-1. 队友 draft checkpoint 到位（解除 `TEAMMATE_DRAFT_COMPATIBILITY=NOT_AVAILABLE`）。
-2. 上游 DSpark commit 集合定位（`git log upstream --grep dspark`）。
-3. backport 最小文件集，在 **`llama-cli`/`llama-server`**（非 omni）先跑通 `draft-dspark` 独立正确性。
+1. 队友 draft checkpoint 到位（解除 `TEAMMATE_DRAFT_COMPATIBILITY=NOT_AVAILABLE`）**+ 确认 draft 训在哪个 target 上**（MiniCPM-o 4.5 vs Qwen3，见 §2.0 的 Qwen3-only converter 约束）。
+2. ✅ 上游 DSpark commit 集合定位（**DONE 2026-08-14**：upstream=`ggml-org/llama.cpp`，DFlash `d1b34251b` → DSpark `84075273c` → K/V rotate `571d0d540`，见 §2.0）。
+3. backport **两阶段**（先 DFlash，再 DSpark），在 **`llama-cli`/`llama-server`**（非 omni）先跑通 `draft-dspark` 独立正确性 —— 预期 **cherry-pick 冲突**（drift ~+1938/−579，见 §2.0）。
 4. 再接线 `llama-omni-server`。
 5. Amdahl 前提重测：若 decode 占比仍 < 20%，继续压低期望（见 §4.2）。
