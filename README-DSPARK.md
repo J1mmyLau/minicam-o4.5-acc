@@ -65,6 +65,32 @@ feat/dspark-llama-port
 └── eval/dspark-official-ab      correctness / accuracy / RTF / E2E A/B
 ```
 
+## 代码项目结构（DSpark 落点速览）
+
+> 本分支目前 **PLANNING**（未写 decode 代码）；下列是 DSpark backport 将触及的**代码落点**。
+
+```
+llama.cpp-omni/
+├── src/llama-context.cpp        # decode 循环落点（draft→verify→accept 主逻辑）
+├── src/llama-arch.cpp           # LLM_ARCH 常量（DSpark 不新增 arch，靠 DFlash 演进）
+├── src/llama-vocab.cpp          # 词表/采样（draft 采样 token 兼容）
+├── src/llama-kv-cache.cpp       # K/V rotate 语义（571d0d540 祖先依赖）
+├── ggml/src/ggml-cann/          # CANN 后端算子/图兼容（NEXT_GATE 阶段 7）
+├── tools/omni/omni.cpp          # llama-omni-server 主 LLM decode 接线（阶段 8，最后）
+├── examples/                    # llama-cli / llama-server standalone 跑通（阶段 6，先）
+└── docs/speculative/            # 集成计划 + draft 契约（在 docs/specdecode-migration 分支）
+```
+
+**开发顺序纪律**（对应 NEXT_GATE）：`llama-cli` standalone → CANN → omni 接线；**禁止**跳到最后一步。
+
+## 三支分支导航（仓库最终生命周期）
+
+| 分支 | 用途 | 状态 |
+|---|---|---|
+| `competition/final-ascend-track-a` | 赛道一最终提交 | 🔒 FREEZE |
+| `feat/dspark-llama-port` | DSpark 注意力加速移植（赛道二） | 队友 draft 到位后继续（**本分支**） |
+| `docs/specdecode-migration` | llama / vLLM / DSpark 迁移研究 | 文档研究 |
+
 ## 参考文档（docs/specdecode-migration 分支）
 - `docs/speculative/DSpark_LLAMA_CPP_OMNI_INTEGRATION_PLAN.md`
 - `docs/speculative/DSpark_DRAFT_ARTIFACT_CONTRACT.md`
