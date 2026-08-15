@@ -20,6 +20,7 @@ add_library(omni
             vision.h
             omni-impl.h
             token2wav/token2wav-impl.cpp
+            token2wav/tl_conv_bridge.cpp
             token2wav/token2wav-impl.h
             token2wav/token2wav.cpp
             token2wav/token2wav.h
@@ -54,6 +55,11 @@ if (GGML_CANN)
     target_include_directories(omni PRIVATE /usr/local/Ascend/ascend-toolkit/latest/include)
 endif()
 target_compile_features   (omni PRIVATE cxx_std_17)
+# TileLang AOT conv 桥接: dlopen 动态加载 .so
+target_link_libraries     (omni PRIVATE ${CMAKE_DL_LIBS})
+add_executable(tl-selftest token2wav/tl_selftest.cpp)
+target_link_libraries     (tl-selftest PRIVATE omni ggml)
+target_compile_features   (tl-selftest PRIVATE cxx_std_17)
 
 # Link CoreML and Accelerate frameworks when CoreML is enabled
 if(ENABLE_COREML)

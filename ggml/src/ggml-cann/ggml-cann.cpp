@@ -1836,8 +1836,23 @@ ggml_backend_buffer_type_t ggml_backend_cann_host_buffer_type() {
  * stored.
  * @return true if the computation was successful; false otherwise.
  */
+// CUSTOM 回调执行期间指向当前 CANN compute 流（供 TileLang .so kernel 复用同流）
+static thread_local aclrtStream g_cann_compute_stream = nullptr;
+extern "C" void * ggml_cann_custom_current_stream() { return (void *) g_cann_compute_stream; }
+
 static bool ggml_cann_compute_forward(ggml_backend_cann_context & ctx, struct ggml_tensor * dst) {
     switch (dst->op) {
+        case GGML_OP_CUSTOM: {
+            // TileLang/AOT 集成: CUSTOM 节点承载宿主回调，回调内可直调外部
+            // kernel（.so 暴露 call(ptr..., stream)）。stream 通过 thread_local
+            // 传给回调（ggml_cann_custom_current_stream()）。
+            struct ggml_custom_op_params p;
+            memcpy(&p, dst->op_params, sizeof(p));
+            g_cann_compute_stream = ctx.stream();
+            p.fun(dst, 0, 1, p.userdata);
+            g_cann_compute_stream = nullptr;
+            break;
+        }
         case GGML_OP_REPEAT:
             ggml_cann_repeat(ctx, dst);
             break;
@@ -2682,6 +2697,8 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
  */
 static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev, const ggml_tensor * op) {
     switch (op->op) {
+        case GGML_OP_CUSTOM:
+            return true;
         case GGML_OP_UNARY:
             switch (ggml_get_unary_op(op)) {
                 case GGML_UNARY_OP_ABS:

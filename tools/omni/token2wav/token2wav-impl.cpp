@@ -9,6 +9,7 @@
 #include <string>
 #include <cmath>
 #include "ggml-backend.h"
+#include "tl_conv_bridge.h"
 
 // Function pointer types for CUDA backend extensions (queried via proc address)
 // These types are not exposed by the public ggml API; declare them locally
@@ -4015,6 +4016,29 @@ namespace omni {
 namespace upsample_encoder_v2 {
 namespace {
 // 构建 1D 卷积计算图
+// TileLang conv1d: 命中注册形状时用 CUSTOM 节点替换 im2col+mul_mat 子图
+// 内存布局与 ggml 原生一致（x C-fast / w [K,Cin,Cout] / y Cout-fast），零图内转置
+// ggml-impl.h 私有；此处按同名布局复制（ggml-cann.cpp 侧按 ggml_custom_op_params 读取）
+struct tl_custom_op_params { ggml_custom_op_t fun; int n_tasks; void * userdata; };
+static ggml_tensor * ue_tl_conv1d_custom(ggml_context * ctx, ggml_tensor * w_kic_oc,
+                                         ggml_tensor * x_tcb, int64_t T_out) {
+    const int64_t Cin = x_tcb->ne[0];
+    const int64_t Cout = w_kic_oc->ne[2];
+
+    ggml_tensor * x16 = ggml_cast(ctx, x_tcb, GGML_TYPE_F16);
+    ggml_tensor * w16 = ggml_cast(ctx, w_kic_oc, GGML_TYPE_F16);
+
+    ggml_tensor * y16 = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, Cout, T_out);
+    tl_custom_op_params p = { ::tlconv::conv1d_cb, 1, nullptr };
+    GGML_ASSERT(sizeof(p) <= GGML_MAX_OP_PARAMS);
+    memcpy(y16->op_params, &p, sizeof(p));
+    y16->op     = GGML_OP_CUSTOM;
+    y16->src[0] = x16;
+    y16->src[1] = w16;
+
+    return ggml_cast(ctx, y16, GGML_TYPE_F32);  // 与原 mul_mat 输出同内存布局
+}
+
 static ggml_tensor * ue_prelook_conv1d_im2col_f32_n1(ggml_context * ctx,
                                           ggml_tensor *  w_kic_oc,
                                           ggml_tensor *  x_tcb,
@@ -5083,14 +5107,17 @@ static ggml_tensor * hg_f0_predictor_conv1d_k3_p1_f32(ggml_context * ctx,
                      (long long) Cout, (long long) b_oc->ne[0]);
         return nullptr;
     }
+    ggml_tensor * y_tcb = ::tlconv::try_conv1d(ctx, w_kic_oc, x_tcb, 1, 1);
+    if (!y_tcb) {
     ggml_tensor * im2col = ggml_im2col(ctx, w_kic_oc, x_tcb, 1, 0, 1, 0, 1, 0, false, GGML_TYPE_F32);
     ggml_tensor * im2col_2d = ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1]);
     im2col_2d               = ggml_cont(ctx, im2col_2d);
     ggml_tensor * w_2d = ggml_reshape_2d(ctx, w_kic_oc, K * Cin, Cout);
     w_2d               = ggml_cont(ctx, w_2d);
     ggml_tensor * mm = ggml_mul_mat(ctx, im2col_2d, w_2d);
-    ggml_tensor * y_tcb = ggml_reshape_3d(ctx, mm, T, Cout, B);
+    y_tcb = ggml_reshape_3d(ctx, mm, T, Cout, B);
     y_tcb               = ggml_cont(ctx, y_tcb);
+    }
     ggml_tensor * b_1c1  = ggml_reshape_3d(ctx, b_oc, 1, Cout, 1);
     b_1c1                = ggml_cont(ctx, b_1c1);
     ggml_tensor * b_tcb  = ggml_repeat(ctx, b_1c1, y_tcb);
@@ -5365,14 +5392,17 @@ static ggml_tensor * hg_hift_conv1d_f32(ggml_context * ctx,
                      (long long) b_oc->ne[0]);
         return nullptr;
     }
+    ggml_tensor * y_tcb = (stride == 1) ? ::tlconv::try_conv1d(ctx, w_kic_oc, x_tcb, padding, dilation) : nullptr;
+    if (!y_tcb) {
     ggml_tensor * im2col = ggml_im2col(ctx, w_kic_oc, x_tcb, stride, 0, padding, 0, dilation, 0, false, GGML_TYPE_F32);
     ggml_tensor * im2col_2d = ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1]);
     im2col_2d               = ggml_cont(ctx, im2col_2d);
     ggml_tensor * w_2d = ggml_reshape_2d(ctx, w_kic_oc, K * Cin, Cout);
     w_2d               = ggml_cont(ctx, w_2d);
     ggml_tensor * mm    = ggml_mul_mat(ctx, im2col_2d, w_2d);
-    ggml_tensor * y_tcb = ggml_reshape_3d(ctx, mm, im2col->ne[1], Cout, B);
+    y_tcb = ggml_reshape_3d(ctx, mm, im2col->ne[1], Cout, B);
     y_tcb               = ggml_cont(ctx, y_tcb);
+    }
     ggml_tensor * b_1c1 = ggml_reshape_3d(ctx, b_oc, 1, Cout, 1);
     b_1c1               = ggml_cont(ctx, b_1c1);
     ggml_tensor * b_tcb = ggml_repeat(ctx, b_1c1, y_tcb);
@@ -6101,6 +6131,8 @@ static ggml_tensor * hg_resblock_conv1d_f32(ggml_context *                      
                      c.kernel_size, (long long) K);
         return nullptr;
     }
+    ggml_tensor * y_tcb = ::tlconv::try_conv1d(ctx, c.weight_kic_oc, x_tcb, c.padding, c.dilation);
+    if (!y_tcb) {
     ggml_tensor * im2col =
         ggml_im2col(ctx, c.weight_kic_oc, x_tcb, 1, 0, c.padding, 0, c.dilation, 0, false, GGML_TYPE_F32);
     ggml_tensor * im2col_2d = ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1]);
@@ -6108,8 +6140,9 @@ static ggml_tensor * hg_resblock_conv1d_f32(ggml_context *                      
     ggml_tensor * w_2d = ggml_reshape_2d(ctx, c.weight_kic_oc, K * Cin, Cout);
     w_2d               = ggml_cont(ctx, w_2d);
     ggml_tensor * mm    = ggml_mul_mat(ctx, im2col_2d, w_2d);
-    ggml_tensor * y_tcb = ggml_reshape_3d(ctx, mm, T, Cout, B);
+    y_tcb = ggml_reshape_3d(ctx, mm, T, Cout, B);
     y_tcb               = ggml_cont(ctx, y_tcb);
+    }
     ggml_tensor * b_1c1 = ggml_reshape_3d(ctx, c.bias_oc, 1, Cout, 1);
     b_1c1               = ggml_cont(ctx, b_1c1);
     ggml_tensor * b_tcb = ggml_repeat(ctx, b_1c1, y_tcb);
@@ -7017,6 +7050,7 @@ bool voc_hg2_runner::voc_hg2_runner_eval_stream(const std::vector<float> & speec
     {
         omni::flow::profile::ScopeTimer _t("voc.compute");
         const ggml_status st = ggml_backend_graph_compute(model->backend, gf);
+        ::tlconv::verify_after_compute();
         if (st != GGML_STATUS_SUCCESS) {
             LOG_ERROR( "voc_hg2_runner_eval_stream: ggml_backend_graph_compute failed\n");
             if (is_cann_backend) VOC_PATH_INC(g_vocoder_cann_failure_count);  // P3
