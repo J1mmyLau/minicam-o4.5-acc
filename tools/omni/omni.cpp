@@ -2384,6 +2384,19 @@ bool eval_tokens(struct omni_context* ctx_omni, common_params* params, std::vect
 // hidden_states 由函数内部分配空间，大小为 N * n_embd * sizeof(float)，调用者负责释放
 bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, float *& hidden_states) {
     omni_tok_trace::maybe_dump();
+    // 上限实验: 完全跳过 embeddings 读取路径（时序有效, TTS 拿到 dummy 数据）
+    static bool no_emb = [] { const char * e = getenv("OMNI_NO_EMB"); return e && atoi(e); }();
+    if (no_emb) {
+        llama_batch nb = llama_batch_get_one(tokens.data(), (int) tokens.size());
+        std::vector<llama_pos> pv(tokens.size());
+        for (size_t j = 0; j < tokens.size(); j++) pv[j] = *n_past + (int) j;
+        nb.pos = pv.data();
+        if (llama_decode(ctx_omni->ctx_llama, nb)) return false;
+        *n_past += (int) tokens.size();
+        static std::vector<float> dummy(4096, 0.f);
+        hidden_states = dummy.data();
+        return true;
+    }
     double _t_fn0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     int N = (int) tokens.size();
     if (N == 0) {
