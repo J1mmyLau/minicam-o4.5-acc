@@ -40,9 +40,13 @@ int main(int argc, char ** argv) {
     for (auto & v : hx) v = nd(rng);
     for (auto & v : hw) v = nd(rng) * 0.05f;
     if (getenv("OMNI_TL_PROBE")) {
-        // 脉冲探针: x = δ(ci=0, t=2000) —— 必须在 tensor_set 之前
+        // 脉冲探针: OMNI_TL_PROBE=ci,t —— 必须在 tensor_set 之前
+        int pci = 0, pt = 2000;
+        sscanf(getenv("OMNI_TL_PROBE"), "%d,%d", &pci, &pt);
         std::fill(hx.begin(), hx.end(), 0.f);
-        hx[0 * T + 2000] = 1.f;
+        hx[pci * T + pt] = 1.f;
+        FILE * fm2 = fopen("/tmp/st_probe_pos.txt", "w");
+        fprintf(fm2, "%d %d\n", pci, pt); fclose(fm2);
     }
 
     ggml_init_params ip = {/*.mem_size   =*/ 512u << 20,

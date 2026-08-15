@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cmath>
 extern "C" int aclrtMemcpy(void *, size_t, void *, size_t, int);
+extern "C" int aclrtMalloc(void **, size_t, int);
 extern "C" int aclrtSynchronizeStream(void *);
 
 extern "C" void * ggml_cann_custom_current_stream();  // ggml-cann.cpp 提供
@@ -124,6 +125,33 @@ void verify_after_compute() {
     g_pc_y32 = nullptr;
 }
 
+// w 重排缓存: (源f16设备指针) -> 重排后f16设备buffer
+struct WRewrite { void * src; void * dst; int64_t k, cin, cout; };
+static std::vector<WRewrite> g_wcache;
+
+static void * rewrite_w(const void * src, int64_t K, int64_t Cin, int64_t Cout) {
+    for (auto & e : g_wcache)
+        if (e.src == src && e.k == K && e.cin == Cin && e.cout == Cout) return e.dst;
+
+    const size_t n = (size_t)K * Cin * Cout;
+    std::vector<unsigned short> h(n);
+    aclrtMemcpy(h.data(), n * 2, (void *)src, n * 2, 2 /*D2H*/);
+    // 数据实际布局 [Cout][Cin][K](K连) -> kernel 序 [K][Cin][Cout](Cout连)
+    // 纯下标变换, 不引 torch
+    std::vector<unsigned short> out(n);
+    for (int64_t c = 0; c < Cout; c++)
+        for (int64_t ci = 0; ci < Cin; ci++)
+            for (int64_t k = 0; k < K; k++)
+                out[(size_t)(k * Cin + ci) * Cout + c] = h[(size_t)(c * Cin + ci) * K + k];
+    void * dev = nullptr;
+    aclrtMalloc(&dev, n * 2, 0 /*DDR*/);
+    aclrtMemcpy(dev, n * 2, out.data(), n * 2, 1 /*H2D*/);
+    g_wcache.push_back({(void *)src, dev, K, Cin, Cout});
+    std::fprintf(stderr, "[TL_CONV] w-rewrite cached K=%lld C=%lld->%lld\n",
+                 (long long)K, (long long)Cin, (long long)Cout);
+    return dev;
+}
+
 void conv1d_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userdata*/) {
     static int exec_count = 0;
     if (exec_count++ < 3) std::fprintf(stderr, "[TL_CONV] CB EXECUTED #%d dst=%p op=%d\n", exec_count, (void*)dst, (int)dst->op);
@@ -145,7 +173,8 @@ void conv1d_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userdata*/)
         return;
     }
     void * stream = ggml_cann_custom_current_stream();
-    fn(x->data, w->data, dst->data, stream);
+    void * w_dev = rewrite_w(w->data, K, Cin, Cout);
+    fn(x->data, w_dev, dst->data, stream);
     if (exec_count == 1) {
         aclrtSynchronizeStream(stream);
         auto rd = [&](void * p, int n) {
