@@ -1482,6 +1482,27 @@ struct LLMOut {
 };
 
 // 前向声明
+// ---- OMNI_TOKEN_TRACE: 每 token host 组件耗时分解 ----
+#include <chrono>
+namespace omni_tok_trace {
+struct Acc { double v = 0; };
+static Acc a_slide, a_malloc, a_seton, a_decode, a_embcopy, a_setoff;
+static Acc b_logits, b_adjust, b_sample, b_other;
+static int64_t n_tok = 0;
+inline bool on() { static int e = -1; if (e < 0) { const char * x = getenv("OMNI_TOKEN_TRACE"); e = (x && atoi(x)); fprintf(stderr, "[tok_trace] init: OMNI_TOKEN_TRACE=%s e=%d\n", x ? x : "(null)", e); } return e; }
+inline double now_us() { return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+struct Tmr { Acc & a; double t0; Tmr(Acc & x) : a(x), t0(now_us()) {} ~Tmr() { a.v += now_us() - t0; } };
+inline void maybe_dump() {
+    if (n_tok && (n_tok % 16 == 0)) {
+        double tot = a_slide.v+a_malloc.v+a_seton.v+a_decode.v+a_embcopy.v+a_setoff.v+b_logits.v+b_adjust.v+b_sample.v;
+        fprintf(stderr, "[tok_trace] n=%lld slide=%.0f malloc=%.0f set_on=%.0f decode=%.0f emb_copy=%.0f set_off=%.0f logits=%.0f adjust=%.0f sample=%.0f | sum=%.0fus (per-tok %.0fus)\n",
+            (long long)n_tok, a_slide.v, a_malloc.v, a_seton.v, a_decode.v, a_embcopy.v, a_setoff.v,
+            b_logits.v, b_adjust.v, b_sample.v, tot, tot / n_tok);
+    }
+}
+}
+
+
 static void kv_cache_slide_window(struct omni_context* ctx_omni, common_params* params, int chunk_size);
 
 //
@@ -1531,7 +1552,10 @@ bool prefill_with_emb(struct omni_context * ctx_omni, common_params * params, fl
         }
         batch.pos = pos_vec.data();
         
-        if (llama_decode(ctx_omni->ctx_llama, batch)) {
+        double _t_d0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
+        bool _derr = llama_decode(ctx_omni->ctx_llama, batch);
+        if (omni_tok_trace::on()) { omni_tok_trace::a_decode.v += omni_tok_trace::now_us() - _t_d0; omni_tok_trace::n_tok++; }
+        if (_derr) {
             LOG_ERR("%s : failed to eval\n", __func__);
             return false;
         }
@@ -1577,9 +1601,12 @@ bool prefill_emb_with_hidden(struct omni_context * ctx_omni, common_params * par
         batch.pos = pos_vec.data();
 
         // 启用 embeddings 输出
-        llama_set_embeddings(ctx_omni->ctx_llama, true);
+        { omni_tok_trace::Tmr _t(omni_tok_trace::a_seton); llama_set_embeddings(ctx_omni->ctx_llama, true); }
 
-        if (llama_decode(ctx_omni->ctx_llama, batch)) {
+        double _t_d0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
+        bool _derr = llama_decode(ctx_omni->ctx_llama, batch);
+        if (omni_tok_trace::on()) { omni_tok_trace::a_decode.v += omni_tok_trace::now_us() - _t_d0; omni_tok_trace::n_tok++; }
+        if (_derr) {
             LOG_ERR("%s : failed to eval\n", __func__);
             llama_set_embeddings(ctx_omni->ctx_llama, false);
             free(hidden_states);
@@ -2338,7 +2365,10 @@ bool eval_tokens(struct omni_context* ctx_omni, common_params* params, std::vect
             batch.pos[j] = *n_past + j;  // 从当前 n_past 位置开始
         }
         
-        if (llama_decode(ctx_omni->ctx_llama, batch)) {
+        double _t_d0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
+        bool _derr = llama_decode(ctx_omni->ctx_llama, batch);
+        if (omni_tok_trace::on()) { omni_tok_trace::a_decode.v += omni_tok_trace::now_us() - _t_d0; omni_tok_trace::n_tok++; }
+        if (_derr) {
             LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
             return false;
         }
@@ -2353,6 +2383,8 @@ bool eval_tokens(struct omni_context* ctx_omni, common_params* params, std::vect
 // 与 eval_tokens 类似，但会将每次 decode 的 hidden_state 保存并拼接到 hidden_states 中
 // hidden_states 由函数内部分配空间，大小为 N * n_embd * sizeof(float)，调用者负责释放
 bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* params, std::vector<llama_token> tokens, int n_batch, int * n_past, float *& hidden_states) {
+    omni_tok_trace::maybe_dump();
+    double _t_fn0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     int N = (int) tokens.size();
     if (N == 0) {
         hidden_states = nullptr;
@@ -2364,7 +2396,9 @@ bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* param
     const int n_embd = llama_n_embd(llama_get_model(ctx_omni->ctx_llama));
 
     // 在函数内部分配空间
+    double _t_m0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     hidden_states = (float *)malloc(N * n_embd * sizeof(float));
+    if (omni_tok_trace::on()) omni_tok_trace::a_malloc.v += omni_tok_trace::now_us() - _t_m0;
     if (hidden_states == nullptr) {
         LOG_ERR("%s : failed to allocate memory for hidden_states\n", __func__);
         return false;
@@ -2381,7 +2415,7 @@ bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* param
             break;
 
         // 启用 embeddings 输出
-        llama_set_embeddings(ctx_omni->ctx_llama, true);
+        { omni_tok_trace::Tmr _t(omni_tok_trace::a_seton); llama_set_embeddings(ctx_omni->ctx_llama, true); }
         // llama_batch_get_one 返回的 batch.pos 可能是 nullptr，需要手动设置
         llama_batch batch = llama_batch_get_one(&tokens[i], n_eval);
         std::vector<llama_pos> pos_vec;
@@ -2397,7 +2431,10 @@ bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* param
             print_with_timestamp("[diag] llama_decode: n_past=%d n_eval=%d batch_size=%d\n",
                                 *n_past, n_eval, batch.n_tokens);
         }
-        if (llama_decode(ctx_omni->ctx_llama, batch)) {
+        double _t_d0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
+        bool _derr = llama_decode(ctx_omni->ctx_llama, batch);
+        if (omni_tok_trace::on()) { omni_tok_trace::a_decode.v += omni_tok_trace::now_us() - _t_d0; omni_tok_trace::n_tok++; }
+        if (_derr) {
             LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
             if (getenv("OMNI_WS_DIAG")) {
                 print_with_timestamp("[diag] llama_decode FAILED: n_past=%d n_eval=%d\n", *n_past, n_eval);
@@ -2413,13 +2450,14 @@ bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* param
         }
 
         // 获取当前 batch 的 embeddings 并复制到 hidden_states
+        double _t_e0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
         float * emb = llama_get_embeddings(ctx_omni->ctx_llama);
         if (emb != nullptr) {
-            // 将当前 batch 的 embeddings 复制到 hidden_states 的对应位置
             memcpy(hidden_states + tokens_processed * n_embd, emb, n_eval * n_embd * sizeof(float));
         }
+        if (omni_tok_trace::on()) omni_tok_trace::a_embcopy.v += omni_tok_trace::now_us() - _t_e0;
 
-        llama_set_embeddings(ctx_omni->ctx_llama, false);
+        { omni_tok_trace::Tmr _t(omni_tok_trace::a_setoff); llama_set_embeddings(ctx_omni->ctx_llama, false); }
 
         *n_past += n_eval;
         tokens_processed += n_eval;
@@ -2452,7 +2490,9 @@ static bool eval_string_with_hidden(struct omni_context * ctx_omni, common_param
 }
 
 static const char * sample(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past) {
+    double _t_s0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     const llama_token id = common_sampler_sample(smpl, ctx_omni->ctx_llama, -1);
+    if (omni_tok_trace::on()) omni_tok_trace::b_sample.v += omni_tok_trace::now_us() - _t_s0;
     common_sampler_accept(smpl, id, true);
     static std::string ret;
     if (llama_vocab_is_eog(llama_model_get_vocab(llama_get_model(ctx_omni->ctx_llama)), id)) {
@@ -2486,8 +2526,9 @@ static const char * llama_loop(struct omni_context * ctx_omni, common_params *pa
 // 🔧 [双工模式] 支持 listen_prob_scale 参数，增加 <|listen|> 的采样概率
 // 🔧 [双工模式] 支持 forbidden_token_ids，禁止采样 <|tts_pad|> 等 token
 static const char * sample_with_hidden_and_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past, float *& hidden_states, llama_token & token_id) {
+    double _t_l0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     float * logits = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
-    
+    if (omni_tok_trace::on()) { omni_tok_trace::b_logits.v += omni_tok_trace::now_us() - _t_l0; }
     // 🔧 [双工模式] 在采样前调整 logits
     if (ctx_omni->duplex_mode) {
         if (logits != nullptr) {
