@@ -1,0 +1,2 @@
+[done] out_wav=/tmp/ab_off.wav sr=24000 total_samples=90240 n_calls=4
+[done] out_chunk_wav_dir=/tmp/ab_off_chunks

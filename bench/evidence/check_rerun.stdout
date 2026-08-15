@@ -1,0 +1,2 @@
+[done] out_wav=/tmp/check_rerun.wav sr=24000 total_samples=90240 n_calls=4
+[done] out_chunk_wav_dir=/tmp/check_rerun_chunks

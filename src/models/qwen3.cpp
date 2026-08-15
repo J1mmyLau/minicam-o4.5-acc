@@ -49,6 +49,137 @@ std::unique_ptr<llm_graph_context> llama_model_qwen3::build_arch_graph(const llm
     return std::make_unique<graph>(*this, params);
 }
 
+
+// ============================================================================
+// TileLang fused RoPE (OMNI_TL_ROPE=1): CUSTOM 节点替换 Q/K rope 链
+// (RoPE+Cos+Sin+Mul+Cast+Tile ~400 微算子/token, launch-bound 32ms/token 主因).
+// qwen3 特点: rope 前有 per-head q/k RMSNorm, 其输出连续 [D,H,T],
+// token 步长 = H*D 元素 (Q:4096 / K:1024).
+// ============================================================================
+#include <dlfcn.h>
+#include <cmath>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+#include <atomic>
+
+extern "C" void * ggml_cann_custom_current_stream();
+extern "C" int aclrtMalloc(void **, size_t, int);
+extern "C" int aclrtMemcpy(void *, size_t, void *, size_t, int);
+
+namespace tlrope {
+
+typedef void (*rope_fn)(void * x, void * cs, void * sn, void * pos, void * y, void * stream);
+
+static bool enabled() {
+    static int e = [] { const char * v = getenv("OMNI_TL_ROPE"); return v && atoi(v); }();
+    return e;
+}
+
+struct Tables { void * cs = nullptr; void * sn = nullptr; int maxp = 0; };
+static Tables g_tbl;
+
+static void init_tables(int maxp) {
+    if (g_tbl.cs && g_tbl.maxp >= maxp) return;
+    const int half = 64;
+    std::vector<float> cs(maxp * half), sn(maxp * half);
+    const double theta = 1e6;
+    for (int p = 0; p < maxp; p++)
+        for (int i = 0; i < half; i++) {
+            double ang = p * pow(theta, -(2.0 * i) / 128.0);
+            cs[p * half + i] = cos(ang);
+            sn[p * half + i] = sin(ang);
+        }
+    void * dcs = nullptr, * dsn = nullptr;
+    aclrtMalloc(&dcs, cs.size() * 4, 0);
+    aclrtMalloc(&dsn, sn.size() * 4, 0);
+    aclrtMemcpy(dcs, cs.size() * 4, cs.data(), cs.size() * 4, 1);
+    aclrtMemcpy(dsn, sn.size() * 4, sn.data(), sn.size() * 4, 1);
+    g_tbl = { dcs, dsn, maxp };
+    (void) 0;
+}
+
+static std::unordered_map<uint64_t, rope_fn> g_cache;
+static std::mutex g_mtx;
+
+static rope_fn lookup(int64_t H, int64_t D, int64_t ROW, int64_t T) {
+    uint64_t key = (uint64_t(H) << 48) | (uint64_t(D) << 32) | (uint64_t(ROW) << 12) | uint64_t(T);
+    std::lock_guard<std::mutex> lk(g_mtx);
+    auto it = g_cache.find(key);
+    if (it != g_cache.end()) return it->second;
+    const char * dir = getenv("OMNI_TL_ROPE_DIR");
+    std::string d = dir ? dir : "/workspace/t2w-tilelang/aot";
+    char name[180];
+    snprintf(name, sizeof(name), "%s/tlrope_H%lld_D%lld_R%lld_T%lld_F32.so", d.c_str(),
+             (long long)H, (long long)D, (long long)ROW, (long long)T);
+    void * h = dlopen(name, RTLD_NOW);
+    rope_fn fn = h ? (rope_fn)dlsym(h, "call") : nullptr;
+    if (fn) fprintf(stderr, "[TL_ROPE] loaded %s\n", name);
+    else if (enabled()) fprintf(stderr, "[TL_ROPE] MISS H=%lld ROW=%lld T=%lld\n",
+                                (long long)H, (long long)ROW, (long long)T);
+    g_cache[key] = fn;
+    return fn;
+}
+
+struct RopeKey { int64_t h, d, row, t; };
+static std::unordered_map<const void *, RopeKey> g_key_by_dst;
+
+static std::atomic<int64_t> g_exec{0};
+static std::atomic<int64_t> g_nolook{0};
+
+static void rope_cb(ggml_tensor * dst, int, int, void *) {
+    auto it = g_key_by_dst.find(dst);
+    if (it == g_key_by_dst.end()) {
+        int64_t n = ++g_nolook;
+        if (n <= 3) fprintf(stderr, "[TL_ROPE] cb NO-KEY dst=%p\n", (void *)dst);
+        return;
+    }
+    const RopeKey & k = it->second;
+    rope_fn fn = lookup(k.h, k.d, k.row, k.t);
+    if (!fn) return;
+    {
+        int64_t n = ++g_exec;
+        if (n == 1 || n % 144 == 0)
+            fprintf(stderr, "[TL_ROPE] cb exec#%lld (H=%lld T=%lld)\n",
+                    (long long)n, (long long)k.h, (long long)k.t);
+    }
+    fn(dst->src[0]->data, g_tbl.cs, g_tbl.sn, dst->src[3]->data, dst->data,
+       ggml_cann_custom_current_stream());
+}
+
+// 构图期入口: qwen3 q/k-norm 输出连续 [D,H,T] (token 步长 H*D)。
+// 返回 [D,H,T] 同形张量; 未命中回退 nullptr。
+static ggml_tensor * try_rope(ggml_context * ctx, ggml_tensor * x, ggml_tensor * pos,
+                              int64_t n_ctx) {
+    if (!enabled() || !x) return nullptr;
+    static int diag = [] { const char * v = getenv("OMNI_TL_ROPE_DIAG"); return v && atoi(v); }();
+    if (diag) fprintf(stderr, "[TL_ROPE][diag] type=%d ne=[%lld,%lld,%lld] nb=[%zu,%zu,%zu]\n",
+                      (int)x->type, (long long)x->ne[0], (long long)x->ne[1], (long long)x->ne[2],
+                      x->nb[0], x->nb[1], x->nb[2]);
+    if (x->type != GGML_TYPE_F32) return nullptr;      // q/k-norm 输出 F32
+    const int64_t D = x->ne[0];
+    if (D != 128) return nullptr;
+    if (x->nb[0] != 4 || x->nb[1] != D * 4) return nullptr;
+    const int64_t T = x->ne[2];
+    const int64_t H = x->ne[1];
+    const int64_t row_elems = x->nb[2] / 4;
+    if (row_elems != H * D) return nullptr;            // 连续 (norm 输出)
+    if (!lookup(H, D, row_elems, T)) return nullptr;
+    init_tables((int) n_ctx + 8);
+
+    ggml_tensor * y = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, H * D, T);
+    struct { ggml_custom_op_t fun; int n_tasks; void * userdata; } p = { rope_cb, 1, nullptr };
+    GGML_ASSERT(sizeof(p) <= GGML_MAX_OP_PARAMS);
+    memcpy(y->op_params, &p, sizeof(p));
+    y->op = GGML_OP_CUSTOM;
+    y->src[0] = x;
+    y->src[3] = pos;
+    g_key_by_dst[y] = { H, D, row_elems, T };
+    return ggml_reshape_3d(ctx, y, D, H, T);
+}
+
+}  // namespace tlrope
+
 llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
@@ -85,7 +216,8 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = ggml_rope_ext(
+            if (ggml_tensor * q_t = tlrope::try_rope(ctx0, Qcur, inp_pos, n_ctx)) Qcur = q_t;
+            else Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -94,7 +226,8 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = ggml_rope_ext(
+            if (ggml_tensor * k_t = tlrope::try_rope(ctx0, Kcur, inp_pos, n_ctx)) Kcur = k_t;
+            else Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
