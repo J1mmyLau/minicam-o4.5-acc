@@ -23,4 +23,8 @@ ggml_tensor * try_conv1d(ggml_context * ctx, ggml_tensor * w_kic_oc, ggml_tensor
 void verify_after_compute();
 void track_y32(ggml_tensor * y32);
 
+// flow LayerNorm 融合: y = LN(x)*w + b，CUSTOM(x16,w16,b16)->y16->F32
+ggml_tensor * try_layernorm(ggml_context * ctx, ggml_tensor * x, ggml_tensor * w,
+                            ggml_tensor * b, float eps);
+
 }  // namespace tlconv

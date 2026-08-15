@@ -1389,6 +1389,9 @@ ggml_tensor * build_layer_norm(ggml_context * ctx,
     if (x == nullptr) {
         return nullptr;
     }
+    if (ggml_tensor * tl = ::tlconv::try_layernorm(ctx, x, weight, bias, eps)) {
+        return tl;
+    }
     ggml_tensor * cur = ggml_norm(ctx, x, eps);
     if (weight != nullptr) {
         cur = ggml_mul(ctx, cur, weight);
@@ -2955,6 +2958,9 @@ ggml_tensor * ue_build_linear(ggml_context * ctx, ggml_tensor * x, ggml_tensor *
 ggml_tensor * ue_build_layer_norm(ggml_context * ctx, ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, float eps) {
     if (!ctx || !x) {
         return nullptr;
+    }
+    if (ggml_tensor * tl = ::tlconv::try_layernorm(ctx, x, w, b, eps)) {
+        return tl;
     }
     ggml_tensor * y = ggml_norm(ctx, x, eps);
     if (w) {

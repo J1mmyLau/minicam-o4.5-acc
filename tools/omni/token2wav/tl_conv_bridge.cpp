@@ -318,4 +318,71 @@ ggml_tensor * try_conv1d(ggml_context * ctx, ggml_tensor * w_kic_oc, ggml_tensor
     return y32;
 }
 
+
+// ---------------- flow LayerNorm (LN(x)*w+b) ----------------
+static tl_call_fn ln_lookup(int64_t n, int64_t rows, int eps_tier);
+
+// eps 分档: conformer 1e-6 / qk-norm+conv-block 1e-5 —— 编两套 .so, fn 按 dst 指针索引
+// (构图完成后才执行, map 始终反映最新构图, galloc 地址复用天然安全)
+static std::unordered_map<const void *, tl_call_fn> g_ln_fn_by_dst;
+
+void layernorm_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userdata*/) {
+    auto it = g_ln_fn_by_dst.find(dst);
+    if (it == g_ln_fn_by_dst.end() || !it->second) return;
+    void * stream = ggml_cann_custom_current_stream();
+    ((void (*)(void *, void *, void *, void *, void *))it->second)(
+        dst->src[0]->data, dst->src[1]->data, dst->src[2]->data, dst->data, stream);
+}
+
+static tl_call_fn ln_lookup(int64_t n, int64_t rows, int eps_tier) {
+    static std::unordered_map<uint64_t, tl_call_fn> cache;
+    uint64_t key = (uint64_t(n) << 40) | (uint64_t(rows) << 4) | uint64_t(eps_tier);
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    const char * dir = getenv("OMNI_TL_CONV_DIR");
+    std::string d = dir ? dir : "/workspace/t2w-tilelang/aot";
+    char name[160];
+    std::snprintf(name, sizeof(name), "%s/tlnorm_N%lld_R%lld_E%d.so", d.c_str(),
+                  (long long)n, (long long)rows, eps_tier);
+    void * h = dlopen(name, RTLD_NOW);
+    tl_call_fn fn = h ? (tl_call_fn)dlsym(h, "call") : nullptr;
+    if (fn) std::fprintf(stderr, "[TL_LN] loaded %s\n", name);
+    else if (getenv("OMNI_TL_LN_LOG") || getenv("OMNI_TL_CONV"))
+        std::fprintf(stderr, "[TL_LN] shape N=%lld rows=%lld E%d (no .so)\n",
+                     (long long)n, (long long)rows, eps_tier);
+    cache[key] = fn;
+    return fn;
+}
+
+ggml_tensor * try_layernorm(ggml_context * ctx, ggml_tensor * x, ggml_tensor * w,
+                            ggml_tensor * b, float eps) {
+    if (!ctx || !x || !w) return nullptr;
+    if (x->type != GGML_TYPE_F32 || w->type != GGML_TYPE_F32) return nullptr;
+    if (!b || b->type != GGML_TYPE_F32) return nullptr;
+    if (!ggml_is_contiguous(x)) return nullptr;
+    (void) eps;  // AOT 时编译进 kernel (1e-5 固定，flow/ue 两处相同)
+
+    const int64_t N = x->ne[0];
+    const int64_t rows = ggml_nelements(x) / N;
+    const int tier = (eps < 5e-6f) ? 6 : 5;   // 1e-6 -> E6, 1e-5 -> E5
+    tl_call_fn fn = ln_lookup(N, rows, tier);
+    if (!fn) return nullptr;
+
+    // F32 直传（零 cast 真融合）
+    ggml_tensor * x16 = x;
+    ggml_tensor * w16 = w;
+    ggml_tensor * b16 = b;
+    int y16_nd = (x->ne[3] > 1) ? 4 : (x->ne[2] > 1) ? 3 : (x->ne[1] > 1) ? 2 : 1;
+    ggml_tensor * y16 = ggml_new_tensor(ctx, GGML_TYPE_F32, y16_nd, x->ne);
+    struct { ggml_custom_op_t fun; int n_tasks; void * userdata; } p = { layernorm_cb, 1, nullptr };
+    GGML_ASSERT(sizeof(p) <= GGML_MAX_OP_PARAMS);
+    memcpy(y16->op_params, &p, sizeof(p));
+    y16->op = GGML_OP_CUSTOM;
+    y16->src[0] = x16;
+    y16->src[1] = w16;
+    y16->src[2] = b16;
+    g_ln_fn_by_dst[y16] = fn;
+    return y16;
+}
+
 }  // namespace tlconv
