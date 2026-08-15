@@ -125,29 +125,89 @@ void verify_after_compute() {
     g_pc_y32 = nullptr;
 }
 
-// w 重排缓存: (源f16设备指针) -> 重排后f16设备buffer
-struct WRewrite { void * src; void * dst; int64_t k, cin, cout; };
+// w 重排缓存: 从 w16 沿 src 链回溯到 F32 根权重(模型权重, 地址稳定, 无流依赖),
+// host 一次完成 F32读取 -> K连→Cout连重排 -> F16转换 -> 上传, 按根指针+签名缓存
+struct WRewrite {
+    void * src_root; void * dst; int64_t k, cin, cout;
+    std::vector<unsigned short> sig;   // F32 根的头/中/尾采样(bit 级)
+};
 static std::vector<WRewrite> g_wcache;
 
-static void * rewrite_w(const void * src, int64_t K, int64_t Cin, int64_t Cout) {
-    for (auto & e : g_wcache)
-        if (e.src == src && e.k == K && e.cin == Cin && e.cout == Cout) return e.dst;
+static inline unsigned short f32_to_f16_bits(float f) {
+    unsigned x; memcpy(&x, &f, 4);
+    unsigned sign = (x >> 16) & 0x8000;
+    int exp = (int)((x >> 23) & 0xff) - 127 + 15;
+    unsigned man = x & 0x7fffff;
+    if (((x >> 23) & 0xff) == 0xff) return sign | 0x7c00 | (man ? 1 : 0);  // inf/nan
+    if (((x >> 23) & 0xff) == 0) {                                          // denorm->0
+        if (man < 0x2000) return sign;                                      // 太小截 0
+        // 粗略 denorm 处理: 转规格化
+        int e = -1; unsigned m = man;
+        while (!(m & 0x800000)) { m <<= 1; e--; }
+        exp = 15 - 127 + (127 - 127) + e + 1 - 1;  // 简化路径(权重无 denorm)
+        return sign;
+    }
+    if (exp >= 0x1f) return sign | 0x7c00;                                  // overflow->inf
+    if (exp <= 0) {                                                         // subnormal
+        unsigned short r = sign;
+        if (exp >= -10) { man |= 0x800000; unsigned sh = (unsigned)(14 - exp);
+            r |= (unsigned short)((man >> sh) & 0x3ff);
+            unsigned rem = man & ((1u << sh) - 1), half = 1u << (sh - 1);
+            if (rem > half || (rem == half && (r & 1))) r++; }
+        return r;
+    }
+    unsigned short r = sign | ((unsigned short)exp << 10) | (unsigned short)(man >> 13);
+    unsigned rem = man & 0x1fff, half = 0x1000;                             // RN
+    if (rem > half || (rem == half && (r & 1))) r++;
+    return r;
+}
 
+static void take_sig_f32(const void * dev, size_t n, std::vector<unsigned short> & sig) {
+    sig.clear();
+    size_t idx[4] = {0, n / 3, n / 2, n - 8};
+    float buf[8];
+    sig.reserve(32);
+    for (size_t i = 0; i < 4; i++) {
+        size_t off = idx[i], cnt = (off + 8 <= n) ? 8 : (n > off ? n - off : 0);
+        if (!cnt) continue;
+        aclrtMemcpy(buf, cnt * 4, (char *)dev + off * 4, cnt * 4, 2);
+        for (size_t j = 0; j < cnt; j++) {
+            unsigned b; memcpy(&b, &buf[j], 4);
+            sig.push_back((unsigned short)(b & 0xffff));
+            sig.push_back((unsigned short)(b >> 16));
+        }
+    }
+}
+
+static void * rewrite_w(const ggml_tensor * w16, int64_t K, int64_t Cin, int64_t Cout) {
+    // 沿 src[0] 回溯到 F32 根权重 (cast <- cont <- permute <- F32 w)
+    const ggml_tensor * root = w16;
+    while (root->src[0]) root = root->src[0];
+    const void * src = root->data;               // F32, 稳定
     const size_t n = (size_t)K * Cin * Cout;
-    std::vector<unsigned short> h(n);
-    aclrtMemcpy(h.data(), n * 2, (void *)src, n * 2, 2 /*D2H*/);
-    // 数据实际布局 [Cout][Cin][K](K连) -> kernel 序 [K][Cin][Cout](Cout连)
-    // 纯下标变换, 不引 torch
+
+    std::vector<unsigned short> sig;
+    take_sig_f32(src, n, sig);
+
+    for (auto & e : g_wcache)
+        if (e.src_root == (void *)src && e.k == K && e.cin == Cin && e.cout == Cout &&
+            e.sig == sig)
+            return e.dst;                         // 命中(权重静态, 每层一次)
+
+    std::vector<float> h(n);
+    aclrtMemcpy(h.data(), n * 4, (void *)src, n * 4, 2);
+    // 数据实际 [Cout][Cin][K](K连, 官方 PyTorch 序) -> kernel 序 [K][Cin][Cout](Cout连)
     std::vector<unsigned short> out(n);
     for (int64_t c = 0; c < Cout; c++)
         for (int64_t ci = 0; ci < Cin; ci++)
             for (int64_t k = 0; k < K; k++)
-                out[(size_t)(k * Cin + ci) * Cout + c] = h[(size_t)(c * Cin + ci) * K + k];
+                out[(size_t)(k * Cin + ci) * Cout + c] = f32_to_f16_bits(h[(size_t)(c * Cin + ci) * K + k]);
+
     void * dev = nullptr;
-    aclrtMalloc(&dev, n * 2, 0 /*DDR*/);
-    aclrtMemcpy(dev, n * 2, out.data(), n * 2, 1 /*H2D*/);
-    g_wcache.push_back({(void *)src, dev, K, Cin, Cout});
-    std::fprintf(stderr, "[TL_CONV] w-rewrite cached K=%lld C=%lld->%lld\n",
+    aclrtMalloc(&dev, n * 2, 0);
+    aclrtMemcpy(dev, n * 2, out.data(), n * 2, 1);
+    g_wcache.push_back({(void *)src, dev, K, Cin, Cout, sig});
+    std::fprintf(stderr, "[TL_CONV] w-rewrite(root-f32) K=%lld C=%lld->%lld\n",
                  (long long)K, (long long)Cin, (long long)Cout);
     return dev;
 }
@@ -173,7 +233,7 @@ void conv1d_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userdata*/)
         return;
     }
     void * stream = ggml_cann_custom_current_stream();
-    void * w_dev = rewrite_w(w->data, K, Cin, Cout);
+    void * w_dev = rewrite_w(w, K, Cin, Cout);
     fn(x->data, w_dev, dst->data, stream);
     if (exec_count == 1) {
         aclrtSynchronizeStream(stream);
