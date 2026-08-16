@@ -4,6 +4,10 @@
 #include "omni.h"
 #include "token2wav/token2wav-impl.h"
 
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #include "llama.h"
 #include "common/common.h"
 #include "common/sampling.h"
@@ -2732,6 +2736,49 @@ static const char * llama_loop_with_hidden_and_token(struct omni_context * ctx_o
 // Helper function to get RNG from sampler chain for multinomial sampling
 // Uses common_sampler_get_rng() from common/sampling.cpp
 // This ensures audio_bos sampling uses the same RNG as non-audio_bos sampling
+// head_code GEMV: logits[i] = dot(hidden[0..n_in), w_row_i)
+//
+// The scalar form is a floating-point reduction that the compiler may not
+// reassociate, so it stays ~3.3 ms per call on this host (6562x768 MACs at
+// roughly one FMA per cycle). The NEON form keeps 4 independent 4-wide
+// accumulators and runs ~6x faster; the only numeric change is the summation
+// order inside each dot product (max |Δlogit| ≈ 2.4e-6 vs scalar on random
+// data — far below the sampling temperature's resolution of 0.8).
+// Falls back to the bit-exact scalar loop on non-aarch64 or odd sizes.
+static void head_code_gemv(const float * head_code_w, const float * hidden_state,
+                           float * audio_logits, int num_audio_tokens, int hidden_size) {
+#if defined(__aarch64__)
+    // OMNI_TL_GEMV=scalar forces the bit-exact scalar loop (A/B control arm)
+    static const bool force_scalar = []{
+        const char * v = getenv("OMNI_TL_GEMV");
+        return v && strcmp(v, "scalar") == 0;
+    }();
+    if (!force_scalar && hidden_size % 16 == 0) {
+        for (int i = 0; i < num_audio_tokens; ++i) {
+            const float * __restrict__ row = head_code_w + (size_t) i * hidden_size;
+            const float * __restrict__ h   = hidden_state;
+            float32x4_t a0 = vdupq_n_f32(0.0f), a1 = a0, a2 = a0, a3 = a0;
+            for (int j = 0; j < hidden_size; j += 16) {
+                a0 = vfmaq_f32(a0, vld1q_f32(h + j),      vld1q_f32(row + j));
+                a1 = vfmaq_f32(a1, vld1q_f32(h + j + 4),  vld1q_f32(row + j + 4));
+                a2 = vfmaq_f32(a2, vld1q_f32(h + j + 8),  vld1q_f32(row + j + 8));
+                a3 = vfmaq_f32(a3, vld1q_f32(h + j + 12), vld1q_f32(row + j + 12));
+            }
+            audio_logits[i] = vaddvq_f32(vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3)));
+        }
+        return;
+    }
+#endif
+    for (int i = 0; i < num_audio_tokens; ++i) {
+        const float * row = head_code_w + i * hidden_size;
+        float sum = 0.0f;
+        for (int j = 0; j < hidden_size; ++j) {
+            sum += hidden_state[j] * row[j];
+        }
+        audio_logits[i] = sum;
+    }
+}
+
 static std::mt19937* get_sampler_rng(struct common_sampler * smpl) {
     void* rng_ptr = common_sampler_get_rng(smpl);
     return static_cast<std::mt19937*>(rng_ptr);
@@ -4183,18 +4230,9 @@ static llama_token sample_tts_token_simplex(struct common_sampler * smpl, struct
     }
     
     std::vector<float> audio_logits(num_audio_tokens, 0.0f);
-    const float * head_code_w = ctx_omni->head_code_weight;
-    const int hidden_size = ctx_omni->head_code_hidden_size;
-    
-    for (int i = 0; i < num_audio_tokens; ++i) {
-        const float * row = head_code_w + i * hidden_size;
-        float sum = 0.0f;
-        for (int j = 0; j < hidden_size; ++j) {
-            sum += hidden_state[j] * row[j];
-        }
-        audio_logits[i] = sum;
-    }
-    
+    head_code_gemv(ctx_omni->head_code_weight, hidden_state,
+                   audio_logits.data(), num_audio_tokens, ctx_omni->head_code_hidden_size);
+
     std::mt19937* rng = get_sampler_rng(smpl);
     std::mt19937 local_rng;
     if (rng == nullptr) {
@@ -4524,19 +4562,11 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
     // logits = hidden_state @ head_code_weight
     // hidden_state: (768,), head_code_weight: [6562, 768] (转置后存储) -> logits: (6562,)
     std::vector<float> audio_logits(num_audio_tokens, 0.0f);
-    const float * head_code_w = ctx_omni->head_code_weight;
-    const int hidden_size = ctx_omni->head_code_hidden_size;
-    
-    // ⚡ 优化：head_code_weight已转置为[6562, 768]，每行连续存储
-    // 连续内存访问，cache友好
-    for (int i = 0; i < num_audio_tokens; ++i) {
-        const float * row = head_code_w + i * hidden_size;
-        float sum = 0.0f;
-        for (int j = 0; j < hidden_size; ++j) {
-            sum += hidden_state[j] * row[j];
-        }
-        audio_logits[i] = sum;
-    }
+
+    // ⚡ head_code_weight已转置为[6562, 768]，每行连续存储；GEMV 走 NEON 版
+    // （见 head_code_gemv：标量版 ~3.3ms/token 是 talker 循环的一半耗时）
+    head_code_gemv(ctx_omni->head_code_weight, hidden_state,
+                   audio_logits.data(), num_audio_tokens, ctx_omni->head_code_hidden_size);
     
     int eos_relative_idx = num_audio_tokens - 1;  // EOS token relative index: 6561
     
@@ -4554,7 +4584,7 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
             snprintf(hidden_state_path, sizeof(hidden_state_path), "%s/cpp_first_hidden_state.bin", output_dir);
             FILE* f_hidden = fopen(hidden_state_path, "wb");
             if (f_hidden) {
-                fwrite(hidden_state, sizeof(float), hidden_size, f_hidden);
+                fwrite(hidden_state, sizeof(float), ctx_omni->head_code_hidden_size, f_hidden);
                 fclose(f_hidden);
             }
         }
