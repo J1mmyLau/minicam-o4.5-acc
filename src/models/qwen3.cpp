@@ -22,6 +22,7 @@
 
 extern "C" int aclrtMemcpy(void *, size_t, void *, size_t, int);
 extern "C" int aclrtMalloc(void **, size_t, int);
+extern "C" int aclrtSynchronizeStream(void *);
 
 namespace tlrope {
 
@@ -118,6 +119,22 @@ static void rope_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userda
     if (!cur_stream) cur_stream = (void * (*)()) dlsym(RTLD_DEFAULT, "ggml_cann_custom_current_stream");
     if (!cur_stream) return;
     fn(x->data, g_cs, g_sn, pos->data, dst->data, cur_stream());
+    static int rdump = -1;
+    if (getenv("OMNI_TL_ROPE_DUMP")) {
+        if (rdump < 0) rdump = atoi(getenv("OMNI_TL_ROPE_DUMP"));
+        if (rdump-- > 0) {
+            aclrtSynchronizeStream(cur_stream());
+            const size_t n = (size_t)dst->ne[0] * dst->ne[1] * (dst->ne[2] > 1 ? dst->ne[2] : 1) * 4;
+            FILE * f = fopen("/tmp/rope_dump.bin", "ab");
+            if (f) { std::vector<float> v(n / 4), vx2(n / 4);
+                aclrtMemcpy(vx2.data(), n, x->data, n, 2);
+                aclrtMemcpy(v.data(), n, dst->data, n, 2);
+                fwrite(vx2.data(), 4, vx2.size(), f); fwrite(v.data(), 4, v.size(), f);
+                fclose(f);
+                fprintf(stderr, "[TL_ROPE][dump] in0=%.5f out0=%.5f\n", vx2[0], v[0]);
+            }
+        }
+    }
 }
 
 // x: q/k-norm 输出, 连续; 两种形态 (内存布局等价: 元素 t*H*D + h*D + d):
@@ -152,6 +169,138 @@ ggml_tensor * try_rope(ggml_context * ctx, ggml_tensor * x, ggml_tensor * pos,
     y->src[0] = x;
     y->src[1] = pos;
     return y;
+}
+
+// ================= qk-norm + rope 两级融合 (OMNI_TL_QKR=1) =================
+// 第 1 级: qknorm_strided —— wqkv 输出直读 (r0=Q/K 段偏移), 输出 [T, H*128] 连续
+// 第 2 级: 复用上面 try_rope (tlrope_*.so) 吃该连续输出
+// 每层 Q+K 用 4 个 CUSTOM 节点替换 [2×rmsnorm 链 + 2×rope] ≈ 8-12 个 aclnn launch
+typedef void (*qkn_call_fn)(void *, void *, void *, void *);  // call(x, w, y, stream)
+static std::unordered_map<uint64_t, qkn_call_fn> g_qkn_cache;
+static std::unordered_map<const void *, int64_t> g_qkn_r0;     // dst -> 段偏移(编译进 .so)
+
+static qkn_call_fn lookup_qkn(int64_t H, int64_t T, int64_t r0) {
+    uint64_t key = (uint64_t(H) << 24) | (uint64_t(r0 / 128) << 8) | uint64_t(T);
+    std::lock_guard<std::mutex> lk(g_mu);
+    auto it = g_qkn_cache.find(key);
+    if (it != g_qkn_cache.end()) return it->second;
+    const char * dir = getenv("OMNI_TL_ROPE_DIR");
+    std::string d = dir ? dir : "tilelang-aot";
+    char name[256];
+    snprintf(name, sizeof(name), "%s/tlqkn_H%lld_R%lld_T%lld_F32.so", d.c_str(),
+             (long long)H, (long long)(H * 128), (long long)T);
+    void * h = dlopen(name, RTLD_NOW);
+    qkn_call_fn fn = h ? (qkn_call_fn) dlsym(h, "call") : nullptr;
+    static bool logged = false;
+    if (fn && !logged) { fprintf(stderr, "[TL_QKR] loaded %s\n", name); logged = true; }
+    g_qkn_cache[key] = fn;
+    return fn;
+}
+
+static void qknorm_cb(ggml_tensor * dst, int /*ith*/, int /*nth*/, void * /*userdata*/) {
+    const ggml_tensor * x = dst->src[0];   // wqkv 根 [ROW=6144, T] F32 连续
+    const ggml_tensor * w = dst->src[1];   // [128] F32
+    if (!x || !x->data || !w || !w->data || !dst->data) return;
+    const int64_t H  = dst->ne[0] / 128;
+    const int64_t T  = dst->ne[1];
+    int64_t r0 = 0;
+    { std::lock_guard<std::mutex> lk(g_mu); auto it = g_qkn_r0.find(dst); if (it != g_qkn_r0.end()) r0 = it->second; }
+    qkn_call_fn fn = lookup_qkn(H, T, r0);
+    if (!fn) return;
+    static void * (*cur_stream)() = nullptr;
+    if (!cur_stream) cur_stream = (void * (*)()) dlsym(RTLD_DEFAULT, "ggml_cann_custom_current_stream");
+    if (!cur_stream) return;
+    if (getenv("OMNI_TL_QKR_PRESYNC")) aclrtSynchronizeStream(cur_stream());  // 调试: 验证上游竞态
+    fn(x->data, (void *)w->data, dst->data, cur_stream());
+    // OMNI_TL_QKR_DUMP=n: 抓前 n 次调用的 x/w/y 到 /tmp/qkr_dump.bin (host 侧同步读, 仅调试)
+    static int dump_left = -1;
+    if (getenv("OMNI_TL_QKR_DUMP")) {
+        if (dump_left < 0) dump_left = atoi(getenv("OMNI_TL_QKR_DUMP"));
+        if (dump_left-- > 0) {
+            int rc1 = 0; (void)rc1;
+            aclrtSynchronizeStream(cur_stream());
+            const size_t nx = (size_t)x->ne[0] * x->ne[1] * 4, nw = 128 * 4, ny = (size_t)dst->ne[0] * dst->ne[1] * 4;
+            FILE * f = fopen("/tmp/qkr_dump.bin", "ab");
+            if (f) {
+                std::vector<float> vx(nx / 4), vw(128), vy(ny / 4);
+                aclrtMemcpy(vx.data(), nx, x->data, nx, 2);
+                aclrtMemcpy(vw.data(), nw, (void *)w->data, nw, 2);
+                aclrtMemcpy(vy.data(), ny, dst->data, ny, 2);
+                fwrite(vx.data(), 4, vx.size(), f); fwrite(vw.data(), 4, vw.size(), f); fwrite(vy.data(), 4, vy.size(), f);
+                fclose(f);
+                if (vx.size() >= 8) fprintf(stderr, "[TL_QKR][dump] x0..3=%.4f %.4f %.4f %.4f w0=%.4f y0=%.4f\n",
+                                            vx[0], vx[1], vx[2], vx[3], vw[0], vy[0]);
+            }
+        }
+    }
+}
+
+static bool qkr_enabled() {
+    static const bool e = [] { const char * s = getenv("OMNI_TL_QKR"); return s && (s[0] == '1' || s[0] == '2'); }();
+    return e;
+}
+static bool qkr_norm_only() {   // 2 = 只换 norm 级, rope 走原版 (调试二分用)
+    static const bool e = [] { const char * s = getenv("OMNI_TL_QKR"); return s && s[0] == '2'; }();
+    return e;
+}
+
+// Qcur: build_qkv 的 view (wqkv 融合路径); w: attn_q/k_norm [128]; 返回 3-D [128, H, T] F32
+ggml_tensor * try_qknorm_rope(ggml_context * ctx, ggml_tensor * Qcur, ggml_tensor * w,
+                              ggml_tensor * pos, int64_t n_head, float theta) {
+    static const bool dbg = getenv("OMNI_TL_ROPE_LOG") != nullptr;
+    if (!qkr_enabled() || !ctx || !Qcur || !w || !pos) return nullptr;
+    // 回溯到 wqkv 输出根
+    ggml_tensor * root = Qcur->view_src ? Qcur->view_src : Qcur;
+    if (dbg) fprintf(stderr, "[TL_QKR][dbg] Qcur ne=[%lld,%lld,%lld] type=%d view_src=%p offs=%zu root ne=[%lld,%lld] type=%d cont=%d\n",
+                     (long long)Qcur->ne[0], (long long)Qcur->ne[1], (long long)Qcur->ne[2], (int)Qcur->type,
+                     (void*)Qcur->view_src, (size_t)Qcur->view_offs,
+                     (long long)root->ne[0], (long long)root->ne[1], (int)root->type, (int)ggml_is_contiguous(root));
+    if (!root || root->type != GGML_TYPE_F32) return nullptr;
+    if (!ggml_is_contiguous(root)) return nullptr;
+    const int64_t ROW = root->ne[0];                 // 段根: Q 4096 / K 1024 (连续, offs=0)
+    const int64_t T   = root->ne[1];
+    if (ROW != n_head * 128) return nullptr;             // 仅 wqkv 融合布局的段裁剪根
+    if (T < 1 || T > 8) return nullptr;
+    const size_t  r0  = 0;
+    if (!lookup_qkn(n_head, T, (int64_t)r0)) return nullptr;
+
+    // w F16 -> F32 (kernel 口径)
+    ggml_tensor * w32 = (w->type == GGML_TYPE_F32) ? w : ggml_cast(ctx, w, GGML_TYPE_F32);
+
+    // 流序屏障: TileLang AOT .so 的 launch 排不进 aclnnMatmul 的输出依赖链
+    // (mul_mat 结果对 kernel 不可见, 实测 y 恒错且 presync 后恢复正确)。
+    // 插一道同流 aclnn 算子 (scale×1.0) 把数据落到流序可见的 buffer,
+    // 与 conv 桥吃 cast 输出同款安全性。代价 +1 op +16KB 拷贝, 仍净省 ~6-10 op/段。
+    ggml_tensor * xs = ggml_scale(ctx, root, 1.0f);
+
+    // 第 1 级: norm, 输出 2-D [H*128, T] 连续
+    ggml_tensor * y1 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, n_head * 128, T);
+    struct { ggml_custom_op_t fun; int n_tasks; void * userdata; } p1 = { qknorm_cb, 1, nullptr };
+    memcpy(y1->op_params, &p1, sizeof(p1));
+    y1->op = GGML_OP_CUSTOM;
+    y1->src[0] = xs;
+    y1->src[1] = w32;
+    {  // 记录 r0 供回调查 .so
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_qkn_r0[y1] = (int64_t)r0;
+    }
+    if (qkr_norm_only()) return ggml_reshape_3d(ctx, y1, 128, n_head, T);
+
+    // 第 2 级: rope (复用 tlrope 桥; 输入 y1 2-D 连续 [H*128, T])
+    ensure_tables(64, theta, true);
+    if (!g_cs) return nullptr;
+    ggml_tensor * y2 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, n_head * 128, T);
+    struct { ggml_custom_op_t fun; int n_tasks; void * userdata; } p2 = { rope_cb, 1, nullptr };
+    memcpy(y2->op_params, &p2, sizeof(p2));
+    y2->op = GGML_OP_CUSTOM;
+    y2->src[0] = y1;
+    y2->src[1] = pos;
+    static int hits = 0;
+    if (hits < 4) fprintf(stderr, "[TL_QKR] qknorm+rope H=%lld T=%lld r0=%zu\n",
+                          (long long)n_head, (long long)T, r0);
+    hits++;
+    // 3-D [128, H, T] (wqkv 路径原生形态, 与实 3-D 张量同布局)
+    return ggml_view_3d(ctx, y2, 128, n_head, T, y2->nb[1], y2->nb[2], 0);
 }
 
 }  // namespace tlrope
@@ -239,8 +388,14 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
+            if (ggml_tensor * qk = tlrope::try_qknorm_rope(ctx0, Qcur, model.layers[il].attn_q_norm,
+                                                            inp_pos, n_head, freq_base)) {
+                Qcur = qk;
+                cb(Qcur, "Qcur_tlqkr", il);
+            } else {
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
+            }
 
             if (ggml_tensor * qr = tlrope::try_rope(ctx0, Qcur, inp_pos, n_head, freq_base)) {
                 Qcur = qr;
@@ -252,8 +407,14 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
                         );
             }
 
+            if (ggml_tensor * qk = tlrope::try_qknorm_rope(ctx0, Kcur, model.layers[il].attn_k_norm,
+                                                            inp_pos, n_head_kv, freq_base)) {
+                Kcur = qk;
+                cb(Kcur, "Kcur_tlqkr", il);
+            } else {
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
+            }
 
             if (ggml_tensor * kr = tlrope::try_rope(ctx0, Kcur, inp_pos, n_head_kv, freq_base)) {
                 Kcur = kr;

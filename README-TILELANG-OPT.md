@@ -67,3 +67,19 @@ EVAL_CONFIG=$PWD/config-local.env ./evaluation/run_all.sh --smoke 2 --no-build
 | RTS | OK (RTF 1.1461, SPEAK→wav 1123ms) | `OMNI_T2W_DEVICE=cann-flow-only` + `OMNI_VOC_DEVICE=gpu:0` + `OMNI_T2W_PIPELINE_OVERLAP=1`（缺它们 SPEAK=0 → 无 t2w 事件 → RTF 不可用） |
 
 注意：系统 python3 读 parquet 会 core dump（环境问题），`EVAL_PYTHON` 必须指向可用 venv。
+
+## qk-norm+rope 两级 TileLang 融合 (OMNI_TL_QKR=1) — EXPERIMENTAL / 未达生产
+
+**状态：kernel 数值全部 PASS，E2E 最后一公里未通，默认关闭（不影响任何已认证路径）。**
+
+- kernel: `qknorm_strided`（wqkv 段直读 per-head RMSNorm，rel<1e-3 PASS 全形状）
+  + `fused_rope_view`（已认证）→ 每层 Q+K 共 4 CUSTOM 替 ~8-12 aclnn launch（首次量级足够
+  撼动 launch 税的融合）。AOT `tlqkn_H{32,8}_R{4096,1024}_T{1..8}_F32.so` 16 个。
+- 已验证 ✓：kernel 孤立数值（torch 对照 rel<1e-3）；C++ 单测 `tl_qkr_selftest`
+  （view+F16 权重+cast 全模拟，maxrel 2.9e-3）；python 回放 E2E dump 数据经 .so 全对；
+  E2E 首层 norm 单点值正确；rope 级（OMNI_TL_ROPE=1）文本验证正确（首次文本级验证）。
+- 未通 ✗：E2E 全量对照 4090/4096 错；同指针两次 D2H 读值不一致（0.4273 vs 0.0963），
+  pre/scale 屏障无效。断点：`OMNI_TL_QKR_DUMP` / `OMNI_TL_ROPE_DUMP`（dump 越界已修）。
+- TileLang 教训：`T.reduce_sum` 输出经标量直读不可靠——必须沿用 fused_rmsnorm 的
+  verbatim 归约链（tile.mul 平方 → reduce_sum → Parallel(1) 改写 → tile.rsqrt）；
+  裸 T.copy 进出（无 tile 算子消费）结果错误；jit 装饰函数内模块级 `T=1` 会遮蔽 tilelang.language。
