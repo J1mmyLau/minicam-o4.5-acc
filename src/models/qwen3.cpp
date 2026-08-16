@@ -267,11 +267,7 @@ ggml_tensor * try_qknorm_rope(ggml_context * ctx, ggml_tensor * Qcur, ggml_tenso
     // w F16 -> F32 (kernel 口径)
     ggml_tensor * w32 = (w->type == GGML_TYPE_F32) ? w : ggml_cast(ctx, w, GGML_TYPE_F32);
 
-    // 流序屏障: TileLang AOT .so 的 launch 排不进 aclnnMatmul 的输出依赖链
-    // (mul_mat 结果对 kernel 不可见, 实测 y 恒错且 presync 后恢复正确)。
-    // 插一道同流 aclnn 算子 (scale×1.0) 把数据落到流序可见的 buffer,
-    // 与 conv 桥吃 cast 输出同款安全性。代价 +1 op +16KB 拷贝, 仍净省 ~6-10 op/段。
-    ggml_tensor * xs = ggml_scale(ctx, root, 1.0f);
+    ggml_tensor * xs = root;  // 直读 (launcher <<<...,stream>>> 流序已验证)
 
     // 第 1 级: norm, 输出 2-D [H*128, T] 连续
     ggml_tensor * y1 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, n_head * 128, T);
@@ -284,7 +280,9 @@ ggml_tensor * try_qknorm_rope(ggml_context * ctx, ggml_tensor * Qcur, ggml_tenso
         std::lock_guard<std::mutex> lk(g_mu);
         g_qkn_r0[y1] = (int64_t)r0;
     }
-    if (qkr_norm_only()) return ggml_reshape_3d(ctx, y1, 128, n_head, T);
+    if (qkr_norm_only()) return ggml_view_3d(ctx, y1, 128, n_head, T,
+                        128 * ggml_type_size(GGML_TYPE_F32),
+                        n_head * 128 * ggml_type_size(GGML_TYPE_F32), 0);
 
     // 第 2 级: rope (复用 tlrope 桥; 输入 y1 2-D 连续 [H*128, T])
     ensure_tables(64, theta, true);
@@ -299,8 +297,10 @@ ggml_tensor * try_qknorm_rope(ggml_context * ctx, ggml_tensor * Qcur, ggml_tenso
     if (hits < 4) fprintf(stderr, "[TL_QKR] qknorm+rope H=%lld T=%lld r0=%zu\n",
                           (long long)n_head, (long long)T, r0);
     hits++;
-    // 3-D [128, H, T] (wqkv 路径原生形态, 与实 3-D 张量同布局)
-    return ggml_view_3d(ctx, y2, 128, n_head, T, y2->nb[1], y2->nb[2], 0);
+    // 3-D [128, H, T] (wqkv 路径原生形态): (d,h,t) @ t*(H*128*4) + h*512 + d*4
+    return ggml_view_3d(ctx, y2, 128, n_head, T,
+                        128 * ggml_type_size(GGML_TYPE_F32),
+                        n_head * 128 * ggml_type_size(GGML_TYPE_F32), 0);
 }
 
 }  // namespace tlrope
@@ -390,21 +390,22 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
 
             if (ggml_tensor * qk = tlrope::try_qknorm_rope(ctx0, Qcur, model.layers[il].attn_q_norm,
                                                             inp_pos, n_head, freq_base)) {
+                // 融合路径: norm+rope 已在两级 CUSTOM 内完成, 不再走外层 rope
                 Qcur = qk;
                 cb(Qcur, "Qcur_tlqkr", il);
             } else {
-            Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
-            cb(Qcur, "Qcur_normed", il);
-            }
+                Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
+                cb(Qcur, "Qcur_normed", il);
 
-            if (ggml_tensor * qr = tlrope::try_rope(ctx0, Qcur, inp_pos, n_head, freq_base)) {
-                Qcur = qr;
-            } else {
-                Qcur = ggml_rope_ext(
-                        ctx0, Qcur, inp_pos, nullptr,
-                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                        ext_factor, attn_factor, beta_fast, beta_slow
-                        );
+                if (ggml_tensor * qr = tlrope::try_rope(ctx0, Qcur, inp_pos, n_head, freq_base)) {
+                    Qcur = qr;
+                } else {
+                    Qcur = ggml_rope_ext(
+                            ctx0, Qcur, inp_pos, nullptr,
+                            n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow
+                            );
+                }
             }
 
             if (ggml_tensor * qk = tlrope::try_qknorm_rope(ctx0, Kcur, model.layers[il].attn_k_norm,
@@ -412,18 +413,18 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
                 Kcur = qk;
                 cb(Kcur, "Kcur_tlqkr", il);
             } else {
-            Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
-            cb(Kcur, "Kcur_normed", il);
-            }
+                Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
+                cb(Kcur, "Kcur_normed", il);
 
-            if (ggml_tensor * kr = tlrope::try_rope(ctx0, Kcur, inp_pos, n_head_kv, freq_base)) {
-                Kcur = kr;
-            } else {
-                Kcur = ggml_rope_ext(
-                        ctx0, Kcur, inp_pos, nullptr,
-                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                        ext_factor, attn_factor, beta_fast, beta_slow
-                        );
+                if (ggml_tensor * kr = tlrope::try_rope(ctx0, Kcur, inp_pos, n_head_kv, freq_base)) {
+                    Kcur = kr;
+                } else {
+                    Kcur = ggml_rope_ext(
+                            ctx0, Kcur, inp_pos, nullptr,
+                            n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow
+                            );
+                }
             }
 
             cb(Qcur, "Qcur", il);

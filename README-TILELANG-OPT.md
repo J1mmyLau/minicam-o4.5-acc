@@ -68,9 +68,17 @@ EVAL_CONFIG=$PWD/config-local.env ./evaluation/run_all.sh --smoke 2 --no-build
 
 注意：系统 python3 读 parquet 会 core dump（环境问题），`EVAL_PYTHON` 必须指向可用 venv。
 
-## qk-norm+rope 两级 TileLang 融合 (OMNI_TL_QKR=1) — EXPERIMENTAL / 未达生产
+## qk-norm+rope 两级 TileLang 融合 (OMNI_TL_QKR=1) — ✅ 已修通, +66% decode
 
-**状态：kernel 数值全部 PASS，E2E 最后一公里未通，默认关闭（不影响任何已认证路径）。**
+**2026-08-16 修通并实测: tg64 0.47 → 0.78 t/s (+66%), 4 臂交错双复现; 短 prompt greedy
+与原生链逐字一致, 长 prompt ~48 token 后良性数值分叉 (双方均通顺事实正确)。**
+
+之前"E2E 未通"的根因不是 TileLang——是本桥接的两个 C++ bug:
+1. **双重 RoPE**: try_qknorm_rope 已含 norm+rope, 但外层原 rope 块未互斥, 又 rope 一遍;
+2. **view_3d 步长错**: 返回 3-D [128,H,T] 时 nb1/nb2 应为 512 / H*128*4, 误传 y2->nb。
+误导排查的观测工具 bug: dump 的 vw 缓冲越界 + 变长记录(Q 8320/K 2176 floats)按定长解析
+→ "4090/4096 错"与"同指针两次读不一致"都是解析伪影。`.so` launcher `<<<…,stream>>>`
+流序自始至终正确, presync/scale 屏障均不需要(已撤)。
 
 - kernel: `qknorm_strided`（wqkv 段直读 per-head RMSNorm，rel<1e-3 PASS 全形状）
   + `fused_rope_view`（已认证）→ 每层 Q+K 共 4 CUSTOM 替 ~8-12 aclnn launch（首次量级足够
