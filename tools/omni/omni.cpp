@@ -2538,6 +2538,17 @@ static const char * llama_loop(struct omni_context * ctx_omni, common_params *pa
 // 修改sample_with_hidden来返回token ID（通过引用参数）
 // 🔧 [双工模式] 支持 listen_prob_scale 参数，增加 <|listen|> 的采样概率
 // 🔧 [双工模式] 支持 forbidden_token_ids，禁止采样 <|tts_pad|> 等 token
+static bool is_valid_tts_token(llama_token tid);  // 定义在下方 (omni.cpp:7331)
+
+// 选择性 hidden 获取: 仅有效 TTS token（token2wav 消费者）才导出 embeddings。
+// 文本 token 跳过 llama_set_embeddings(true) + D2H 同步 —— decode 分解中
+// embeddings-sync 占 32%，而文本答案轮全部 token 都不是 TTS token。
+// OMNI_SEL_EMB=0 关闭（回到全量获取）。
+static bool g_sel_emb() {
+    static const bool on = [] { const char * e = getenv("OMNI_SEL_EMB"); return !(e && e[0] == '0'); }();
+    return on;
+}
+
 static const char * sample_with_hidden_and_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past, float *& hidden_states, llama_token & token_id) {
     double _t_l0 = omni_tok_trace::on() ? omni_tok_trace::now_us() : 0;
     float * logits = llama_get_logits_ith(ctx_omni->ctx_llama, -1);
@@ -2693,7 +2704,12 @@ static const char * sample_with_hidden_and_token(struct common_sampler * smpl, s
         }
         text_seq++;
     }
-    eval_id_with_hidden(ctx_omni, params, id, n_past, hidden_states);
+    if (g_sel_emb() && !is_valid_tts_token(id)) {
+        hidden_states = nullptr;  // 调用方按同一谓词过滤，不会读到
+        eval_id(ctx_omni, params, id, n_past);
+    } else {
+        eval_id_with_hidden(ctx_omni, params, id, n_past, hidden_states);
+    }
     return ret.c_str();
 }
 
