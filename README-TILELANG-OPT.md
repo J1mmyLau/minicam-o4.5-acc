@@ -68,6 +68,17 @@ EVAL_CONFIG=$PWD/config-local.env ./evaluation/run_all.sh --smoke 2 --no-build
 
 注意：系统 python3 读 parquet 会 core dump（环境问题），`EVAL_PYTHON` 必须指向可用 venv。
 
+## 行级 RMSNorm 融合 (OMNI_TL_NORM=1) — ✅ norm_row +25% decode
+
+`examples/normalization/rms_norm.py` 官方范式重写（2-D tile + `tile.fill` 累加器 +
+`reduce_sum(dim=-1)` + 标量 `tile.mul` + `tile.broadcast`，零标量大循环）。
+`norm_row` 接管 qwen3 每层 3 个 no-res norm 位点（attn_norm/ffn_norm/output_norm，
+36×3+1 处）。孤立数值 rel<1.6e-3 全形状，146µs/call。
+- qkr+norm 全开: tg64 **0.78–0.79** vs 基线族 0.47–0.52（同 session A/B，**+55~65%**）
+- 官方 smoke 四任务全 OK（Daily 2/2=100%、WER 4.545%、RTS RTF **1.0937**/1026ms
+  vs 基线 1.1828/1175ms，误差分辨率内与基线逐指标一致）
+- 旧 `fused_rmsnorm` N=4096 是标量大循环（元素赋值降级，201µs）——官方例子才是正解
+
 ## qk-norm+rope 两级 TileLang 融合 (OMNI_TL_QKR=1) — ✅ 已修通, +66% decode
 
 **2026-08-16 修通并实测: tg64 0.47 → 0.78 t/s (+66%), 4 臂交错双复现; 短 prompt greedy

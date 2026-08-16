@@ -171,6 +171,62 @@ ggml_tensor * try_rope(ggml_context * ctx, ggml_tensor * x, ggml_tensor * pos,
     return y;
 }
 
+// ================= 行级 RMSNorm 融合 (OMNI_TL_NORM=1) =================
+// 官方范式 tile 化 kernel, 替换 attn_norm/ffn_norm/output_norm 的 rms_norm 链。
+typedef void (*nr_call_fn)(void *, void *, void *, void *);  // call(x, w, y, stream)
+static std::unordered_map<uint64_t, nr_call_fn> g_nr_cache;
+
+static nr_call_fn lookup_nr(int64_t T) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    auto it = g_nr_cache.find(T);
+    if (it != g_nr_cache.end()) return it->second;
+    const char * dir = getenv("OMNI_TL_ROPE_DIR");
+    std::string d = dir ? dir : "tilelang-aot";
+    char name[200];
+    snprintf(name, sizeof(name), "%s/tlnormrow_N4096_T%lld_F32.so", d.c_str(), (long long)T);
+    void * h = dlopen(name, RTLD_NOW);
+    nr_call_fn fn = h ? (nr_call_fn) dlsym(h, "call") : nullptr;
+    static bool logged = false;
+    if (fn && !logged) { fprintf(stderr, "[TL_NORM] loaded %s\n", name); logged = true; }
+    g_nr_cache[T] = fn;
+    return fn;
+}
+
+static void norm_row_cb(ggml_tensor * dst, int, int, void *) {
+    const ggml_tensor * x = dst->src[0];
+    const ggml_tensor * w = dst->src[1];
+    if (!x || !x->data || !w || !w->data || !dst->data) return;
+    nr_call_fn fn = lookup_nr(dst->ne[1]);
+    if (!fn) return;
+    static void * (*cur_stream)() = nullptr;
+    if (!cur_stream) cur_stream = (void * (*)()) dlsym(RTLD_DEFAULT, "ggml_cann_custom_current_stream");
+    if (!cur_stream) return;
+    fn(x->data, (void *)w->data, dst->data, cur_stream());
+}
+
+static bool norm_enabled() {
+    static const bool e = [] { const char * s = getenv("OMNI_TL_NORM"); return s && s[0] == '1'; }();
+    return e;
+}
+
+// x: [4096, T] F32 连续 (wqkv/attn-out/add 输出); w: [4096] norm 权重
+ggml_tensor * try_norm_row(ggml_context * ctx, ggml_tensor * x, ggml_tensor * w) {
+    if (!norm_enabled() || !ctx || !x || !w) return nullptr;
+    if (x->type != GGML_TYPE_F32 || !ggml_is_contiguous(x)) return nullptr;
+    if (x->ne[0] != 4096 || x->ne[2] != 1) return nullptr;   // N4096 kernel
+    const int64_t T = x->ne[1];
+    if (T < 1 || T > 8) return nullptr;
+    if (!lookup_nr(T)) return nullptr;
+    ggml_tensor * w32 = (w->type == GGML_TYPE_F32) ? w : ggml_cast(ctx, w, GGML_TYPE_F32);
+    ggml_tensor * y = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4096, T);
+    struct { ggml_custom_op_t fun; int n_tasks; void * userdata; } p = { norm_row_cb, 1, nullptr };
+    memcpy(y->op_params, &p, sizeof(p));
+    y->op = GGML_OP_CUSTOM;
+    y->src[0] = x;
+    y->src[1] = w32;
+    return y;
+}
+
 // ================= qk-norm + rope 两级融合 (OMNI_TL_QKR=1) =================
 // 第 1 级: qknorm_strided —— wqkv 输出直读 (r0=Q/K 段偏移), 输出 [T, H*128] 连续
 // 第 2 级: 复用上面 try_rope (tlrope_*.so) 吃该连续输出
@@ -377,9 +433,13 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
         ggml_tensor * inpSA = inpL;
 
         // norm
-        cur = build_norm(inpL,
-                model.layers[il].attn_norm, NULL,
-                LLM_NORM_RMS, il);
+        if (ggml_tensor * tn = tlrope::try_norm_row(ctx0, inpL, model.layers[il].attn_norm)) {
+            cur = tn;
+        } else {
+            cur = build_norm(inpL,
+                    model.layers[il].attn_norm, NULL,
+                    LLM_NORM_RMS, il);
+        }
         cb(cur, "attn_norm", il);
 
         // self-attention
@@ -443,9 +503,13 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
-        cur = build_norm(ffn_inp,
-                model.layers[il].ffn_norm, NULL,
-                LLM_NORM_RMS, il);
+        if (ggml_tensor * tn = tlrope::try_norm_row(ctx0, ffn_inp, model.layers[il].ffn_norm)) {
+            cur = tn;
+        } else {
+            cur = build_norm(ffn_inp,
+                    model.layers[il].ffn_norm, NULL,
+                    LLM_NORM_RMS, il);
+        }
         cb(cur, "ffn_norm", il);
 
         cur = build_ffn(cur,
@@ -466,9 +530,13 @@ llama_model_qwen3::graph::graph(const llama_model & model, const llm_graph_param
     }
     cur = inpL;
 
+    if (ggml_tensor * tn = tlrope::try_norm_row(ctx0, cur, model.output_norm)) {
+        cur = tn;
+    } else {
     cur = build_norm(cur,
             model.output_norm, NULL,
             LLM_NORM_RMS, -1);
+    }
 
     cb(cur, "result_norm", -1);
     res->t_embd = cur;
