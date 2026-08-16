@@ -2015,7 +2015,7 @@ struct voc_hg2_runner {
     bool voc_hg2_runner_eval(const std::vector<float> & speech_feat_bct,
                              int64_t                    T_mel,
                              std::vector<float> &       out_wave_bt,
-                             int64_t &                  out_T_audio) const;
+                             int64_t &                  out_T_audio);
     bool voc_hg2_runner_eval_stream(const std::vector<float> & speech_feat_bct,
                                     int64_t                    T_mel,
                                     const std::vector<float> & cache_source_bt1,
@@ -2023,7 +2023,21 @@ struct voc_hg2_runner {
                                     std::vector<float> &       out_wave_bt,
                                     int64_t &                  out_T_audio,
                                     std::vector<float> &       out_source_bt1,
-                                    int64_t &                  out_T_source) const;
+                                    int64_t &                  out_T_source);
+
+    // P11: Graph reuse cache (O2-A + O2-B)
+    // Gate: OMNI_VOC_GRAPH_REUSE=1
+    // When T_mel and Tc are unchanged, skip ggml_init / graph build / galloc_alloc_graph.
+    ggml_context * cached_ctx           = nullptr;
+    ggml_cgraph *  cached_gf            = nullptr;
+    ggml_tensor *  cached_speech_upload = nullptr;  // input: mel data
+    ggml_tensor *  cached_cache_source  = nullptr;  // input: source cache
+    ggml_tensor *  cached_wave_out      = nullptr;  // output: waveform
+    ggml_tensor *  cached_source_out    = nullptr;  // output: source
+    int64_t        cached_T_mel         = -1;
+    int64_t        cached_Tc            = -1;
+    bool           graph_reuse_enabled() const;
+    void           graph_reuse_invalidate();
 };
 }  // namespace vocoder
 }  // namespace omni
@@ -2151,6 +2165,9 @@ struct Token2MelSession {
                                      int                 n_timesteps = -1,
                                      float               temperature = -1.0f);
 
+    bool switch_prompt_bundle(const std::string & prompt_bundle_dir,
+                              int n_timesteps = 10, float temperature = 1.0f);
+
     bool feed_tokens(const int32_t * tokens, int64_t n_tokens, bool is_final, std::vector<float> & mel_bct_out);
 
     bool feed_tokens(const std::vector<int32_t> & tokens, bool is_final, std::vector<float> & mel_bct_out) {
@@ -2229,6 +2246,24 @@ class Token2Wav {
         return push_tokens_window(tokens.data(), (int64_t) tokens.size(), is_final, wave_bt_out, out_T_audio);
     }
 
+    // F6 Phase 4: Flow-only (token→mel).  Extracted from push_tokens_window
+    // for pipeline overlap.  Returns mel_bct (80×T_mel).  Caller owns mel_bct_out;
+    // it is cleared before filling.  Returns true even if mel_bct is empty
+    // (empty-mel case — caller must handle).
+    bool push_tokens_mel_only(const int32_t * tokens,
+                              int64_t         n_tokens,
+                              bool            is_final,
+                              std::vector<float> & mel_bct_out);
+
+    // F6 Phase 4: Vocoder-only (mel→wave).  Extracted from push_tokens_window
+    // for pipeline overlap.  Takes ownership of mel_bct (by value, moved from
+    // MelTask).  The mel cache (voc_mel_cache_bct_) and crossfade state are
+    // managed internally.  MUST be called from a single Vocoder thread.
+    bool push_mel_to_wave(std::vector<float>   mel_bct,
+                          bool                 is_final,
+                          std::vector<float> & wave_bt_out,
+                          int64_t &            out_T_audio);
+
     void reset_stream();
 
     static constexpr int32_t kSampleRate = omni::vocoder::hifigan2::hg2_hift_generator::HG2_SAMPLING_RATE;
@@ -2277,8 +2312,6 @@ struct Token2WavSession {
                                  float               temperature         = 1.0f,
                                  const std::string & coreml_model_path  = "");
 
-    // 仅更换示例音频（prompt bundle）而不重新加载模型：reset 流式状态后重新 start_stream。
-    // 供 omni-tts-eval.cpp 逐条切换参考音频使用（原 diff-master.patch 内容）。
     bool switch_prompt_bundle(const std::string & prompt_bundle_dir,
                               int n_timesteps = 10, float temperature = 1.0f);
 
@@ -2316,6 +2349,19 @@ struct Token2WavSession {
 
     void reset();
 
+    // F6 Phase 4: Pipeline overlap — Flow-only (token→mel).
+    bool feed_window_mel(const int32_t * tokens, int64_t n_tokens, bool is_final,
+                         std::vector<float> & mel_bct_out) {
+        return t2w.push_tokens_mel_only(tokens, n_tokens, is_final, mel_bct_out);
+    }
+
+    // F6 Phase 4: Pipeline overlap — Vocoder-only (mel→wave).
+    // Takes ownership of mel_bct by value.
+    bool feed_mel_to_wave(std::vector<float> mel_bct, bool is_final,
+                          std::vector<float> & wave_bt_out, int64_t & out_T_audio) {
+        return t2w.push_mel_to_wave(std::move(mel_bct), is_final, wave_bt_out, out_T_audio);
+    }
+
     Token2Wav t2w;
 
   private:
@@ -2325,3 +2371,42 @@ struct Token2WavSession {
 
 }  // namespace flow
 }  // namespace omni
+
+// ============================================================================
+// F6 C8: Thread-local Flow/Vocoder target context
+// ============================================================================
+
+struct C8FlowVocoderTargets {
+    std::atomic<int64_t>* flow_start    = nullptr;
+    std::atomic<int64_t>* flow_end      = nullptr;
+    std::atomic<int64_t>* vocoder_start = nullptr;
+    std::atomic<int64_t>* vocoder_end   = nullptr;
+    uint32_t               generation   = 0;
+    int                    depth         = 0;
+    // F6 R7: pointer to active generation ID for stale-write detection in mirror path
+    std::atomic<uint32_t>* active_gen   = nullptr;
+};
+
+extern thread_local C8FlowVocoderTargets g_c8_thread_targets;
+
+class C8ProfileScope {
+public:
+    C8ProfileScope(std::atomic<int64_t>* fs, std::atomic<int64_t>* fe,
+                   std::atomic<int64_t>* vs, std::atomic<int64_t>* ve,
+                   uint32_t gen, std::atomic<uint32_t>* active_gen = nullptr)
+        : saved_(g_c8_thread_targets)
+    {
+        g_c8_thread_targets.flow_start    = fs;
+        g_c8_thread_targets.flow_end      = fe;
+        g_c8_thread_targets.vocoder_start = vs;
+        g_c8_thread_targets.vocoder_end   = ve;
+        g_c8_thread_targets.generation    = gen;
+        g_c8_thread_targets.active_gen    = active_gen;
+        g_c8_thread_targets.depth         = saved_.depth + 1;
+    }
+    ~C8ProfileScope() { g_c8_thread_targets = saved_; }
+    C8ProfileScope(const C8ProfileScope&) = delete;
+    C8ProfileScope& operator=(const C8ProfileScope&) = delete;
+private:
+    C8FlowVocoderTargets saved_;
+};

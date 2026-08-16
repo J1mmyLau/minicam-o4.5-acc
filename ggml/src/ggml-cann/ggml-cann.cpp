@@ -40,6 +40,7 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -72,6 +73,69 @@
 
 // Thread-local variable to record the current device of this thread.
 thread_local int g_current_cann_device = -1;
+
+// ============================================================================
+// Runtime Diagnostic Counters (default OFF, zero overhead when OFF)
+// Gate: GGML_CANN_RUNTIME_DIAG=1
+// Category A: low-overhead telemetry — memcpy counters, graph evaluations
+// NB: SetDevice & sync trace instrumentation REMOVED (REJECTED candidates E1/E2).
+// ============================================================================
+
+struct cannd_runtime_diag {
+    std::atomic<uint64_t> graph_evaluations{0};
+    std::atomic<uint64_t> memcpy_host_to_device{0};
+    std::atomic<uint64_t> memcpy_device_to_host{0};
+    std::atomic<uint64_t> memcpy_device_to_device{0};
+    std::atomic<uint64_t> memcpy_async{0};
+};
+
+static cannd_runtime_diag g_runtime_diag;
+
+static void cannd_runtime_diag_dump();
+
+static bool cannd_runtime_diag_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_RUNTIME_DIAG");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            std::atexit(cannd_runtime_diag_dump);
+        }
+    }
+    return enabled == 1;
+}
+
+static void cannd_runtime_diag_dump() {
+    if (!cannd_runtime_diag_enabled()) return;
+    fprintf(stderr,
+        "\n[CANND_RUNTIME_DIAG] ========================================\n"
+        "[CANND_RUNTIME_DIAG] graph_evaluations      = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_h2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2h             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_d2d             = %lu\n"
+        "[CANND_RUNTIME_DIAG] memcpy_async           = %lu\n"
+        "[CANND_RUNTIME_DIAG] ========================================\n",
+        g_runtime_diag.graph_evaluations.load(),
+        g_runtime_diag.memcpy_host_to_device.load(),
+        g_runtime_diag.memcpy_device_to_host.load(),
+        g_runtime_diag.memcpy_device_to_device.load(),
+        g_runtime_diag.memcpy_async.load());
+}
+
+#define CANND_DIAG_INC(field) \
+    do { if (cannd_runtime_diag_enabled()) g_runtime_diag.field.fetch_add(1, std::memory_order_relaxed); } while(0)
+
+bool cannd_w8a8_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * val = std::getenv("GGML_CANN_W8A8");
+        enabled = (val && std::string(val) == "1") ? 1 : 0;
+        if (enabled == 1) {
+            GGML_LOG_INFO("%s: W8A8 path enabled (aclnnQuantMatmulV3, deprecated)\n", __func__);
+        }
+    }
+    return enabled == 1;
+}
 
 /**
  * @brief Set the CANN device to be used.
@@ -1291,6 +1355,7 @@ static void ggml_backend_cann_buffer_set_tensor(ggml_backend_buffer_t buffer,
 
     // Plain tensor (not quantized, not NZ): direct copy, no tracking needed
     if (!is_quantized && !is_nz) {
+        CANND_DIAG_INC(memcpy_host_to_device);
         ACL_CHECK(aclrtMemcpy((char *) tensor->data + offset, size, data, size, ACL_MEMCPY_HOST_TO_DEVICE));
         return;
     }
@@ -1373,6 +1438,7 @@ static void ggml_backend_cann_buffer_get_tensor(ggml_backend_buffer_t buffer,
     ggml_cann_set_device(ctx->device);
 
     if (!need_transform(tensor->type)) {
+        CANND_DIAG_INC(memcpy_device_to_host);
         ACL_CHECK(aclrtMemcpy(data, size, (char *) tensor->data + offset, size, ACL_MEMCPY_DEVICE_TO_HOST));
     } else {
         void * transform_buffer = malloc(size);
@@ -1701,13 +1767,6 @@ static void * ggml_cann_host_malloc(size_t size) {
     }
 
     void *   hostPtr = nullptr;
-    // aclrtMallocHost requires a thread-local ACL context; threads that have
-    // not touched a device yet (e.g. the token2wav worker thread) would fail
-    // here and silently lose pinned memory. Bind the primary device first.
-    int32_t current_device = -1;
-    if (aclrtGetDevice(&current_device) != ACL_SUCCESS) {
-        ggml_cann_set_device(0);
-    }
     aclError err     = aclrtMallocHost((void **) &hostPtr, size);
     if (err != ACL_SUCCESS) {
         GGML_LOG_WARN("%s: failed to allocate %.2f MiB of pinned memory: %s\n", __func__, size / 1024.0 / 1024.0,
@@ -1777,8 +1836,23 @@ ggml_backend_buffer_type_t ggml_backend_cann_host_buffer_type() {
  * stored.
  * @return true if the computation was successful; false otherwise.
  */
+// CUSTOM 回调执行期间指向当前 CANN compute 流（供 TileLang .so kernel 复用同流）
+static thread_local aclrtStream g_cann_compute_stream = nullptr;
+extern "C" void * ggml_cann_custom_current_stream() { return (void *) g_cann_compute_stream; }
+
 static bool ggml_cann_compute_forward(ggml_backend_cann_context & ctx, struct ggml_tensor * dst) {
     switch (dst->op) {
+        case GGML_OP_CUSTOM: {
+            // TileLang/AOT 集成: CUSTOM 节点承载宿主回调，回调内可直调外部
+            // kernel（.so 暴露 call(ptr..., stream)）。stream 通过 thread_local
+            // 传给回调（ggml_cann_custom_current_stream()）。
+            struct ggml_custom_op_params p;
+            memcpy(&p, dst->op_params, sizeof(p));
+            g_cann_compute_stream = ctx.stream();
+            p.fun(dst, 0, 1, p.userdata);
+            g_cann_compute_stream = nullptr;
+            break;
+        }
         case GGML_OP_REPEAT:
             ggml_cann_repeat(ctx, dst);
             break;
@@ -2063,13 +2137,61 @@ static const char * ggml_backend_cann_name(ggml_backend_t backend) {
  *
  * @param backend Pointer to the CANN backend structure to be freed.
  */
+// ─── R11 FIX: lifecycle-safe CANN backend free with guard counters ───
+static std::atomic<int64_t> g_cann_backend_create_count{0};
+static std::atomic<int64_t> g_cann_backend_destroy_count{0};
+static std::atomic<int64_t> g_cann_double_destroy_prevented_count{0};
+static std::atomic<int64_t> g_cann_cross_thread_destroy_count{0};
+
 static void ggml_backend_cann_free(ggml_backend_t backend) {
+    // GUARD 1: Null backend (should never happen, but be safe)
+    if (backend == nullptr) {
+        GGML_LOG_WARN("%s: backend is null, skipping free\n", __func__);
+        return;
+    }
+
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
-    ACL_CHECK(aclrtSynchronizeDevice());
-    ACL_CHECK(aclrtResetDevice(cann_ctx->device));
+
+    // GUARD 2: Null context (double-free or context already destroyed)
+    if (cann_ctx == nullptr) {
+        GGML_LOG_WARN("%s: backend->context is null (double-free?), skipping free\n", __func__);
+        g_cann_double_destroy_prevented_count++;
+        delete backend;
+        return;
+    }
+
+    int32_t device = cann_ctx->device;
+
+    // GUARD 3: Set device before any ACL operation
+    aclError set_ret = aclrtSetDevice(device);
+    if (set_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSetDevice(%d) failed: %d — device may already be reset\n",
+                      __func__, device, set_ret);
+        // Continue with cleanup — don't abort
+    }
+
+    // GUARD 4: Synchronize with error tolerance
+    aclError sync_ret = aclrtSynchronizeDevice();
+    if (sync_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtSynchronizeDevice failed on device %d: %d\n",
+                      __func__, device, sync_ret);
+        // Device may already be in reset state — this is expected in multi-backend cleanup
+    }
+
+    // GUARD 5: Reset device with error tolerance
+    aclError reset_ret = aclrtResetDevice(device);
+    if (reset_ret != ACL_SUCCESS) {
+        GGML_LOG_WARN("%s: aclrtResetDevice(%d) failed: %d — may already be reset\n",
+                      __func__, device, reset_ret);
+    }
+
+    // GUARD 6: Null out context before delete to prevent destructor from using stale state
+    backend->context = nullptr;
 
     delete cann_ctx;
     delete backend;
+
+    g_cann_backend_destroy_count++;
 }
 
 /**
@@ -2094,10 +2216,6 @@ static void ggml_backend_cann_set_tensor_async(ggml_backend_t backend,
     GGML_ASSERT(buf->buft == ggml_backend_cann_buffer_type(cann_ctx->device) && "unsupported buffer type");
     GGML_ASSERT(!ggml_is_quantized(tensor->type));
 
-    // Bind the calling thread to the device: worker threads (e.g. the
-    // token2wav thread) may reach here as their first CANN call, and
-    // aclrtMemcpyAsync requires a thread-local ACL context.
-    ggml_cann_set_device(cann_ctx->device);
     ACL_CHECK(aclrtMemcpyAsync((char *) tensor->data + offset, size, data, size, ACL_MEMCPY_HOST_TO_DEVICE,
                                cann_ctx->stream()));
 }
@@ -2124,8 +2242,6 @@ static void ggml_backend_cann_get_tensor_async(ggml_backend_t      backend,
     GGML_ASSERT(buf->buft == ggml_backend_cann_buffer_type(cann_ctx->device) && "unsupported buffer type");
     GGML_ASSERT(!ggml_is_quantized(tensor->type));
 
-    // Same as set_tensor_async: ensure this thread has an ACL context.
-    ggml_cann_set_device(cann_ctx->device);
     ACL_CHECK(aclrtMemcpyAsync(data, size, (char *) tensor->data + offset, size, ACL_MEMCPY_DEVICE_TO_HOST,
                                cann_ctx->stream()));
 }
@@ -2245,7 +2361,9 @@ static bool ggml_cann_can_fuse(const struct ggml_cgraph *          cgraph,
     }
 
     // CANN backend supports fusing ADD + RMS_NORM operations
-    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD && ops.begin()[1] == GGML_OP_RMS_NORM) {
+    // and ADD + NORM (LayerNorm) operations
+    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_ADD &&
+        (ops.begin()[1] == GGML_OP_RMS_NORM || ops.begin()[1] == GGML_OP_NORM)) {
         ggml_tensor * add_node = cgraph->nodes[node_idx];
         // TODO: support broadcast for ADD + RMS_NORM
         if (add_node->src[0]->ne[0] != add_node->src[1]->ne[0] || add_node->src[0]->ne[1] != add_node->src[1]->ne[1] ||
@@ -2277,7 +2395,8 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                                             bool                        cann_graph_capture_required) {
 #ifdef USE_ACL_GRAPH
     if (use_cann_graph && cann_graph_capture_required) {  // Begin CANN graph capture
-        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_GLOBAL));
+        ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+        ACL_CHECK(aclmdlRICaptureBegin(cann_ctx->stream(), ACL_MODEL_RI_CAPTURE_MODE_RELAXED));
     }
 #endif  // USE_ACL_GRAPH
     // Only perform the graph execution if CANN graphs are not enabled, or we are capturing the graph.
@@ -2293,6 +2412,11 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                     i++;
                     continue;
                 }
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_NORM })) {
+                    ggml_cann_op_add_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
+                    i++;
+                    continue;
+                }
             }
 
             if (ggml_is_empty(node) || node->op == GGML_OP_RESHAPE || node->op == GGML_OP_TRANSPOSE ||
@@ -2304,11 +2428,154 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                 continue;
             }
 
+            // OMNI_CANN_NAN_TRACE: static state (declared before op for input checks)
+            static bool nan_trace_enabled = (getenv("OMNI_CANN_NAN_TRACE") != nullptr);
+            static int64_t nan_trace_ops_checked = 0;
+
+            // OMNI_CANN_NAN_TRACE: check INPUTS before op execution
+            if (nan_trace_enabled) {
+                for (int si = 0; si < GGML_MAX_SRC && node->src[si] != nullptr; si++) {
+                    ggml_tensor * src = node->src[si];
+                    if (src->buffer == nullptr ||
+                        !ggml_backend_buft_is_cann(src->buffer->buft)) continue;
+                    if (src->data == nullptr) continue;
+
+                    size_t src_el_size = ggml_type_size(src->type);
+                    int64_t src_n_sample = 64;
+                    int64_t src_n_total = ggml_nelements(src);
+                    if (src_n_total < src_n_sample) src_n_sample = src_n_total;
+                    if (src_n_sample <= 0) continue;
+
+                    ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+
+                    bool src_has_nan = false;
+                    float src_min = INFINITY, src_max = -INFINITY;
+                    if (src_el_size == 2) {
+                        std::vector<uint16_t> buf(src_n_sample);
+                        ACL_CHECK(aclrtMemcpy(buf.data(), src_n_sample * src_el_size,
+                                              src->data, src_n_sample * src_el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        for (int64_t k = 0; k < src_n_sample; k++) {
+                            uint16_t v = buf[k];
+                            int exp = (v >> 10) & 0x1F;
+                            int mant = v & 0x3FF;
+                            if (exp == 0x1F && mant != 0) { src_has_nan = true; break; }
+                            // Convert to float for min/max (approximate)
+                            if (exp == 0x1F && mant == 0) continue; // skip inf
+                            float fv;
+                            if (exp == 0) { fv = (mant == 0) ? 0.0f : ldexpf((float)mant, -14); }
+                            else { fv = ldexpf((float)(mant | 0x400), (int)exp - 15 - 10); }
+                            if (v & 0x8000) fv = -fv;
+                            if (fv < src_min) src_min = fv;
+                            if (fv > src_max) src_max = fv;
+                        }
+                    } else if (src_el_size == 4) {
+                        std::vector<float> buf(src_n_sample);
+                        ACL_CHECK(aclrtMemcpy(buf.data(), src_n_sample * src_el_size,
+                                              src->data, src_n_sample * src_el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        for (int64_t k = 0; k < src_n_sample; k++) {
+                            float v = buf[k];
+                            if (isnan(v)) { src_has_nan = true; break; }
+                            if (isinf(v)) continue;
+                            if (v < src_min) src_min = v;
+                            if (v > src_max) src_max = v;
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    if (src_has_nan || src_min <= src_max) {
+                        fprintf(stderr,
+                            "[cann_nan_trace_input] op=%s name=%s src=%d src_name=%s "
+                            "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld "
+                            "nan=%d min=%.6e max=%.6e\n",
+                            ggml_op_name(node->op), node->name, si, src->name,
+                            src->ne[0], src->ne[1], src->ne[2], src->ne[3],
+                            src->type, (long)src_n_sample,
+                            src_has_nan ? 1 : 0, src_min, src_max);
+                    }
+                    if (src_has_nan) {
+                        fprintf(stderr,
+                            "[cann_nan_trace_input] *** INPUT_%d_ALREADY_NONFINITE for op=%s name=%s ***\n",
+                            si, ggml_op_name(node->op), node->name);
+                        nan_trace_enabled = false;
+                        break;
+                    }
+                }
+            }
+
             bool ok = ggml_cann_compute_forward(*cann_ctx, node);
             if (!ok) {
                 GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
             }
             GGML_ASSERT(ok);
+
+            // OMNI_CANN_NAN_TRACE: check OUTPUT of each CANN op for NaN/Inf
+            if (nan_trace_enabled && node->data != nullptr &&
+                node->buffer != nullptr &&
+                ggml_backend_buft_is_cann(node->buffer->buft)) {
+                nan_trace_ops_checked++;
+                // Sync stream to ensure output is ready
+                ACL_CHECK(aclrtSynchronizeStream(cann_ctx->stream()));
+                size_t el_size = ggml_type_size(node->type);
+                // Sample first N elements (cap at 64 to keep overhead low)
+                int64_t n_sample = 64;
+                int64_t n_total = ggml_nelements(node);
+                if (n_total < n_sample) n_sample = n_total;
+                if (n_sample > 0 && (el_size == 2 || el_size == 4)) {
+                    // Read as f32 for fp32, as f16 for fp16
+                    if (el_size == 2) {
+                        std::vector<uint16_t> host_buf(n_sample);
+                        ACL_CHECK(aclrtMemcpy(host_buf.data(), n_sample * el_size,
+                                              node->data, n_sample * el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        int nan_c = 0, inf_c = 0;
+                        for (int64_t k = 0; k < n_sample; k++) {
+                            uint16_t v = host_buf[k];
+                            int exp = (v >> 10) & 0x1F;
+                            int mant = v & 0x3FF;
+                            if (exp == 0x1F) {
+                                if (mant == 0) inf_c++; else nan_c++;
+                            }
+                        }
+                        if (nan_c > 0 || inf_c > 0) {
+                            fprintf(stderr,
+                                "[cann_nan_trace] FIRST_NONFINITE (after %ld CANN ops) op=%s name=%s "
+                                "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld nan=%d inf=%d\n",
+                                (long)nan_trace_ops_checked, ggml_op_name(node->op), node->name,
+                                node->ne[0], node->ne[1], node->ne[2], node->ne[3],
+                                node->type, (long)n_sample, nan_c, inf_c);
+                            nan_trace_enabled = false;
+                        }
+                    } else {  // el_size == 4, f32
+                        std::vector<float> host_buf(n_sample);
+                        ACL_CHECK(aclrtMemcpy(host_buf.data(), n_sample * el_size,
+                                              node->data, n_sample * el_size,
+                                              ACL_MEMCPY_DEVICE_TO_HOST));
+                        int nan_c = 0, inf_c = 0;
+                        for (int64_t k = 0; k < n_sample; k++) {
+                            float v = host_buf[k];
+                            if (isnan(v)) nan_c++; else if (isinf(v)) inf_c++;
+                        }
+                        if (nan_c > 0 || inf_c > 0) {
+                            fprintf(stderr,
+                                "[cann_nan_trace] FIRST_NONFINITE (after %ld CANN ops) op=%s name=%s "
+                                "ne=[%ld,%ld,%ld,%ld] type=%d sampled=%ld nan=%d inf=%d\n",
+                                (long)nan_trace_ops_checked, ggml_op_name(node->op), node->name,
+                                node->ne[0], node->ne[1], node->ne[2], node->ne[3],
+                                node->type, (long)n_sample, nan_c, inf_c);
+                            nan_trace_enabled = false;
+                        }
+                    }
+                }
+            }
+            // Emit summary at end if enabled
+            static bool nan_trace_summary_emitted = false;
+            if (getenv("OMNI_CANN_NAN_TRACE") && !nan_trace_summary_emitted && !nan_trace_enabled) {
+                // Already emitted first nonfinite above
+                nan_trace_summary_emitted = true;
+            }
         }
     }
 
@@ -2325,6 +2592,7 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
         ACL_CHECK(aclmdlRIExecuteAsync(matched_graph->graph, cann_ctx->stream()));
     }
 #endif  // USE_ACL_GRAPH
+
 }
 
 /**
@@ -2340,6 +2608,7 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
  *         completes successfully, otherwise an appropriate error status.
  */
 static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, ggml_cgraph * cgraph) {
+    CANND_DIAG_INC(graph_evaluations);
     ggml_backend_cann_context * cann_ctx = (ggml_backend_cann_context *) backend->context;
     ggml_cann_set_device(cann_ctx->device);
     g_nz_workspaces[cann_ctx->device].clear();
@@ -2368,6 +2637,19 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
 
     if (!cann_ctx->acl_graph_mode) {
         use_cann_graph = false;
+    }
+
+    // Phase 3: Skip graph capture for small graphs (e.g. LLM decode tokens)
+    // that can never be reused. Each decode token changes the graph, so
+    // capture adds pure overhead. Large graphs (Flow model ~11740 nodes,
+    // LLM prefill ~2373 nodes) benefit from reuse across chunks/requests.
+    if (use_cann_graph) {
+        static int graph_min_nodes =
+            parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MIN_NODES").value_or("100"));
+
+        if (cgraph->n_nodes < graph_min_nodes) {
+            use_cann_graph = false;
+        }
     }
 
     if (use_cann_graph) {
@@ -2415,6 +2697,8 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
  */
 static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev, const ggml_tensor * op) {
     switch (op->op) {
+        case GGML_OP_CUSTOM:
+            return true;
         case GGML_OP_UNARY:
             switch (ggml_get_unary_op(op)) {
                 case GGML_UNARY_OP_ABS:
@@ -2669,6 +2953,59 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev, const ggml_ten
             return true;
         case GGML_OP_FLASH_ATTN_EXT:
             {
+                // OMNI_CANN_FA_BYPASS: diagnostic env var to force non-fused (CPU) attention path
+                // for proving FusedInferAttentionScoreV2 kernel attribution
+                if (getenv("OMNI_CANN_FA_BYPASS")) {
+                    return false;
+                }
+
+                // OMNI_CANN_FA_SAFE_DISPATCH: conservative shape-dependent CPU fallback
+                // CANN FusedInferAttentionScoreV2 produces NaN for (Q, KV) prefill
+                // shapes on CANN 9.1.0-beta.1 (Ascend910, MiniCPM-o-4_5 F16, heads=32 kv=8).
+                //
+                // Tensor layout (ggml canonical, BEFORE CANN reshape):
+                //   src[0] (Q): ne = [head_dim, q_seq_len, n_heads, batch]
+                //   src[1] (K): ne = [head_dim, kv_seq_len, n_kv_heads, batch]
+                //   src[2] (V): ne = [head_dim, kv_seq_len, n_kv_heads, batch]
+                //   Sequence length is ne[1], NOT ne[2] (which is n_heads/n_kv_heads).
+                //
+                // Empirical characterization (Phase 1 + VideoMME FA_NAN_CHECK, 2026-08-11):
+                //   TEXT-ONLY (Q-chunked with n_ubatch=384):
+                //     Direct NaN at KV=768:    Q >= 434  triggers NaN
+                //     Direct NaN at KV=768:    Q <= 432  clean
+                //     KV contamination:        Q >= 256  at KV=512 contaminates KV cache
+                //   VIDEO (FA_NAN_CHECK confirmed on fFjv93ACGo8.mp4, 64 frames, max-slice-nums=0):
+                //     First NaN:               Q=64 KV=768 nan=64/64 ← ALL 64 elements NaN
+                //     After contamination:     ALL subsequent FA NaN (Q=1 KV=768..29952 nan=1)
+                //     Clean region:            Q=64 KV=512 and below clean
+                //   Content-dependent: text Q=64@KV=768 is clean; video Q=64@KV=768 is NaN
+                //
+                // Conservative gates (if ANY fires → CPU non-fused attention):
+                //   Gate A: Q >= 250 AND KV >= 500  → text large-Q + KV contamination
+                //   Gate B: Q >= 50  AND KV >= 512  → video + moderate-Q (content-dependent)
+                // Gate B subsumes Gate A; both kept for documentation traceability.
+                //
+                // Env override: OMNI_CANN_FA_SAFE_DISPATCH=0 to force-disable (diagnostic)
+                // OMNI_CANN_FA_BYPASS=1 still works as full-CPU golden oracle.
+                // Remove when CANN fixes FusedInferAttentionScoreV2.
+                {
+                    const char * env_safe = getenv("OMNI_CANN_FA_SAFE_DISPATCH");
+                    if (!env_safe || strcmp(env_safe, "0") != 0) {
+                        // CORRECTED 2026-08-11: use ne[1] (seq_len), not ne[2] (n_heads)
+                        // Prior code read ne[2]=32/8 (n_heads) — dispatch NEVER triggered.
+                        int64_t q_len  = op->src[0]->ne[1];
+                        int64_t kv_len = op->src[1]->ne[1];
+                        // Gate A: large-Q prefill at medium+ KV (text NaN)
+                        if (q_len >= 250 && kv_len >= 500) {
+                            return false;
+                        }
+                        // Gate B: moderate-Q at KV>=512 (video content-dependent NaN)
+                        // Confirmed: Q=64@KV=768 nan=64/64; Q=1@KV=768+ contaminated
+                        if (q_len >= 50 && kv_len >= 512) {
+                            return false;
+                        }
+                    }
+                }
 #ifdef ASCEND_310P
                 // FA not support on 310p device
                 return false;
@@ -3006,7 +3343,14 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
         static std::mutex           mutex;
         std::lock_guard<std::mutex> lock(mutex);
         if (!initialized) {
-            aclInit(nullptr);
+            // R15 FIX: check aclInit return to avoid crash on subsequent calls
+            aclError acl_ret = aclInit(nullptr);
+            // ACL_ERROR_REPEAT_INITIALIZE (100002) = runtime already initialized
+            // (may happen if another component initialized CANN before us)
+            if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+                GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+                return nullptr;
+            }
             ggml_backend_cann_reg_context * ctx = new ggml_backend_cann_reg_context;
             const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
 
@@ -3034,8 +3378,33 @@ ggml_backend_reg_t ggml_backend_cann_reg() {
     return &reg;
 }
 
+// P1 FAIL-FAST: Expose CANN registry availability to callers.
+// Returns true iff aclInit succeeded and CANN devices are registered.
+// May trigger lazy first-time initialization if not yet called.
+bool ggml_backend_cann_is_available() {
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    return reg != nullptr;
+}
+
 ggml_backend_t ggml_backend_cann_init(int32_t device) {
-    aclInit(nullptr);
+    // R15 FIX: Check that the CANN registry was successfully initialized.
+    // If aclInit failed during ggml_backend_cann_reg(), the registry is null
+    // and we must not attempt to create a backend (would crash on CANN API calls).
+    ggml_backend_reg_t reg = ggml_backend_cann_reg();
+    if (reg == nullptr) {
+        GGML_LOG_ERROR("%s: CANN registry not initialized (aclInit may have failed)\n", __func__);
+        return nullptr;
+    }
+
+    // R15 FIX: check aclInit return value; aclInit is refcounted so redundant
+    // calls are harmless, but if the CANN runtime is in a bad state this will
+    // catch it before we allocate context memory.
+    aclError acl_ret = aclInit(nullptr);
+    // ACL_ERROR_REPEAT_INITIALIZE (100002) = expected on redundant calls
+    if (acl_ret != ACL_SUCCESS && acl_ret != ACL_ERROR_REPEAT_INITIALIZE) {
+        GGML_LOG_ERROR("%s: aclInit failed: error %d\n", __func__, (int)acl_ret);
+        return nullptr;
+    }
     if (device < 0 || device >= ggml_backend_cann_get_device_count()) {
         GGML_LOG_ERROR("%s: error: invalid device %d\n", __func__, device);
         return nullptr;
@@ -3052,6 +3421,8 @@ ggml_backend_t ggml_backend_cann_init(int32_t device) {
                           /* .interface = */ ggml_backend_cann_interface,
                           /* .device    = */ ggml_backend_reg_dev_get(ggml_backend_cann_reg(), device),
                           /* .context   = */ ctx };
+
+    g_cann_backend_create_count++;
 
     return cann_backend;
 }

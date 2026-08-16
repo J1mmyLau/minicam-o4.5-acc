@@ -29,6 +29,20 @@ void handle_ws_backend(httplib::ws::WebSocket & ws,
                        std::mutex & octx_mutex);
 
 // ============================================================================
+// Shared session cleanup helpers — used by both WS handler (cleanup path)
+// and HTTP close endpoint (server-omni.cpp) to ensure consistent lifecycle.
+// ============================================================================
+
+// Clear KV cache + reset n_past for the given omni_context.
+// Safe to call after omni_prepare_for_reuse (threads joined).
+void ws_cleanup_kv_cache_for_reuse(omni_context * octx);
+
+// Transition context_state from ACTIVE → DRAINING → REUSABLE.
+// Advances T2W generation counters for text-only sessions.
+// Call before omni_prepare_for_reuse (first call) and after KV clear (second call).
+void ws_finalize_context_reusable(omni_context * octx);
+
+// ============================================================================
 // Helpers: base64 audio/JPEG → temp files
 // ============================================================================
 

@@ -37,6 +37,17 @@ extern "C" {
 GGML_BACKEND_API ggml_backend_reg_t ggml_backend_cann_reg(void);
 
 /**
+ * @brief Check whether the CANN backend registry is available.
+ *
+ * Returns true if aclInit() succeeded and CANN devices are registered.
+ * Safe to call from any thread at any time; triggers lazy first-time
+ * initialization of the CANN registry if it hasn't been called yet.
+ *
+ * @return true if CANN backend is available, false otherwise.
+ */
+GGML_BACKEND_API bool ggml_backend_cann_is_available(void);
+
+/**
  * @brief Initializes the CANN backend for a specified device.
  *
  * This function initializes the CANN backend for the given device.

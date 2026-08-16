@@ -2,6 +2,7 @@
 #include "llama.h"
 #include "tts-condition-graph.h"
 
+#include <climits>
 #include <thread>
 #include <memory>
 #include <vector>
@@ -28,6 +29,14 @@ namespace flow {
 class Token2WavSession;
 }
 }
+
+// =======================================================================
+// F6 A1: File-scope GLOBAL atomics in omni.cpp — NOT context-scoped.
+// These are declared extern so the server instrumentation can read them
+// while still reporting them as GLOBAL_* to prevent misattribution.
+// =======================================================================
+extern std::atomic<bool> prefill_done;
+extern std::atomic<bool> t2w_thread_running;
 
 // 🔧 [Duplex Pipeline] 仅在 duplex_mode=true 时分配；
 // 定义在 omni.cpp 的 "===== DUPLEX PIPELINE (Stage 1) =====" 区域，
@@ -72,12 +81,148 @@ struct LLMThreadInfo {
     LLMThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
 
+// ============================================================================
+// P7.3 T2W Drain State Machine
+// ============================================================================
+
+// T2W worker lifecycle states
+enum T2WDrainState {
+    T2W_DRAIN_IDLE = 0,           // No active request
+    T2W_DRAIN_RUNNING = 1,        // Processing audio tokens
+    T2W_DRAIN_EOS_SIGNALED = 2,   // EOS received, worker draining
+    T2W_DRAIN_COMPLETE = 3,       // All output produced, drain finished
+    T2W_DRAIN_FAILED = 4,         // Error during processing/drain
+};
+
+// Terminal output classification for each request
+// Distinguishes "expected no-audio" from silent failures
+enum T2WTerminalOutput {
+    T2W_TERMINAL_UNKNOWN        = 0,
+    T2W_AUDIO_SUCCESS           = 1,  // ≥1 WAV produced
+    T2W_VALID_NO_SPEECH         = 2,  // LLM legitimately produced no audio tokens
+    T2W_OUTPUT_BLOCKED          = 3,  // WAV write failed (disk full, permissions, etc.)
+    T2W_DRAIN_TIMEOUT           = 4,  // Drain did not complete within timeout
+    T2W_PIPELINE_FAILURE        = 5,  // feed_window() failed repeatedly
+    T2W_GENERATION_FAILURE      = 6,  // Upstream failure (LLM/TTS did not produce)
+};
+
+// =======================================================================
+// F6 A5: Context lifecycle state machine — generation-based request isolation.
+// All cross-request CV predicates MUST check generation, not global bools.
+// =======================================================================
+enum OmniContextState {
+    CTX_STATE_REUSABLE     = 0,  // Idle, ready for next request
+    CTX_STATE_ACTIVE       = 1,  // Request in progress (stream_decode running)
+    CTX_STATE_DRAINING     = 2,  // T2W drain in progress (outside stream_decode)
+    CTX_STATE_NOT_REUSABLE = 3,  // Drain failed or critical error — reject next request
+};
+
+// F6 R10: Request state machine — tracks each HTTP request through its lifecycle.
+// Separate from OmniContextState (which tracks the omni_context reuse lifecycle).
+// Valid transitions:
+//   IDLE → VALIDATING → DECODING → TTS_PENDING → DRAINING → RESPONDING → IDLE
+//   any non-IDLE state → ERROR → IDLE
+enum OmniRequestState {
+    REQ_IDLE        = 0,  // No active request
+    REQ_VALIDATING  = 1,  // Request received, validating input / context guard
+    REQ_DECODING    = 2,  // stream_decode in progress (LLM generating tokens)
+    REQ_TTS_PENDING = 3,  // LLM done, TTS producing audio, waiting for is_final
+    REQ_DRAINING    = 4,  // T2W drain in progress (waiting for worker to dequeue is_final)
+    REQ_RESPONDING  = 5,  // Drain complete, building HTTP response
+    REQ_ERROR       = 6,  // Error state — returning error response, then → IDLE
+};
+
+// Human-readable names for request state diagnostic logging
+static inline const char * req_state_name(OmniRequestState s) {
+    switch (s) {
+        case REQ_IDLE:        return "IDLE";
+        case REQ_VALIDATING:  return "VALIDATING";
+        case REQ_DECODING:    return "DECODING";
+        case REQ_TTS_PENDING: return "TTS_PENDING";
+        case REQ_DRAINING:    return "DRAINING";
+        case REQ_RESPONDING:  return "RESPONDING";
+        case REQ_ERROR:       return "ERROR";
+        default:              return "UNKNOWN";
+    }
+}
+
+struct E2EStageTiming;  // forward decl for T2WOut::profile_handle (F6 C8)
+
 struct T2WOut {
     std::vector<llama_token> audio_tokens;  // Audio token IDs (25 tokens per chunk)
     bool is_final = false;  // Whether this is the final chunk (turn end)
     bool is_chunk_end = false;  // Whether this is the end of a TTS chunk (flush buffer, but not final)
     int round_idx = -1;  // 🔧 [修复目录同步] 轮次索引，由 TTS 线程设置，T2W 线程使用此值确定输出目录
+    int chunk_seq_min = -1;  // F6 causal: earliest chunk_seq whose tokens are in this task (PURE OBSERVABILITY)
+    int chunk_seq_max = -1;  // F6 causal: latest chunk_seq whose tokens are in this task (PURE OBSERVABILITY)
+    uint32_t generation_id = 0;  // F6 W5: generation at TTS submit time for correct W0 attribution
+    int request_index = 0;  // F6 W5: request_index at submit time for audio profile file naming
+    E2EStageTiming *profile_handle = nullptr;  // F6 C8: request-scoped profile for Flow/Vocoder
     std::chrono::steady_clock::time_point enqueue_time = std::chrono::steady_clock::now();
+    // F6 Phase 1b: Per-task timing decomposition (OMNI_T2W_QUEUE_DIAG=1).
+    // enqueue_ts = enqueue_time (already captured at construction, which is immediately before push).
+    uint64_t dequeue_ts_ns = 0;   // Set at worker pop
+    uint64_t complete_ts_ns = 0;  // Set after Flow+Vocoder+WAV write
+};
+
+// ========================================================================
+// F6 Phase 4: Flow ∥ Vocoder Pipeline — MelTask handoff
+//
+// MelTask carries Flow output (mel spectrogram) from the Flow worker
+// to the Vocoder worker.  The mel_bct vector is moved (not copied)
+// across the queue boundary.  Vocoder cache state (voc_mel_cache_bct_,
+// voc_cache_source_bt1_, voc_Tc_, voc_speech_cache_bt_) lives inside
+// the Vocoder worker and is NOT carried on MelTask.
+// ========================================================================
+struct MelTask {
+    std::vector<float> mel_bct;   // Flow output: 80×T_mel float, moved
+    bool               is_final       = false;
+    bool               is_last_window = false;
+    int                round_idx      = -1;
+    int                wav_idx        = 0;
+    int                chunk_seq_max  = -1;  // F6 RTF: src_cnt (frame number) for wav naming + t2w event
+    double             flow_ms        = 0.0; // F6 RTF: Flow-only inference time (set by T2W thread, summed with vocoder ms)
+    uint32_t           generation_id  = 0;
+    E2EStageTiming *   profile_handle = nullptr;
+};
+
+// ========================================================================
+// F6 Phase 4: VocoderThreadInfo — mel queue + Vocoder worker state
+//
+// Separate from T2WThreadInfo because the two stages have independent
+// queues, atomics, and drain predicates.  The mel queue is bounded
+// (capacity default 2, configurable via OMNI_MEL_QUEUE_CAPACITY)
+// to provide natural backpressure: Flow blocks when Vocoder can't
+// keep up, preventing unbounded intermediate queue growth.
+// ========================================================================
+struct VocoderThreadInfo {
+    // Mel queue: Flow producer → Vocoder consumer
+    static constexpr size_t DEFAULT_MEL_QUEUE_CAPACITY = 2;
+    size_t mel_queue_capacity = DEFAULT_MEL_QUEUE_CAPACITY;
+    std::queue<MelTask*> mel_queue;
+    std::mutex mtx;
+    std::condition_variable cv;
+
+    // Per-stage active tracking (mirrors T2WThreadInfo pattern)
+    std::atomic<uint32_t> active_vocoder_generation{0};
+    std::atomic<uint32_t> final_vocoder_processed_generation{0};
+
+    // Diagnostic counters (gated behind OMNI_T2W_QUEUE_DIAG=1)
+    std::atomic<uint64_t> diag_mel_enqueued{0};
+    std::atomic<uint64_t> diag_mel_dequeued{0};
+
+    // WAV file counter (per-round, reset on round switch)
+    std::atomic<int> wav_count{0};
+
+    VocoderThreadInfo() {
+        const char * cap_str = getenv("OMNI_MEL_QUEUE_CAPACITY");
+        if (cap_str) {
+            int cap = std::atoi(cap_str);
+            if (cap >= 1 && cap <= 16) {
+                mel_queue_capacity = (size_t) cap;
+            }
+        }
+    }
 };
 
 struct T2WThreadInfo {
@@ -87,6 +232,114 @@ struct T2WThreadInfo {
     std::condition_variable cv;
     std::chrono::steady_clock::time_point start;
     std::chrono::steady_clock::time_point end;
+
+    // ========================================================================
+    // P7.3 Drain State Machine — per-request lifecycle tracking
+    // ========================================================================
+
+    // Worker drain state (written by T2W worker, read by main thread)
+    std::atomic<int> drain_state{T2W_DRAIN_IDLE};
+
+    // EOS signal from main thread → T2W worker
+    std::atomic<bool> eos_received{false};
+
+    // Set by worker after is_final fully processed and all WAVs written
+    std::atomic<bool> is_final_processed{false};
+
+    // WAV files written for current request (resets per round)
+    std::atomic<int> wav_count{0};
+
+    // Terminal output classification (set after drain)
+    std::atomic<int> terminal_output{T2W_TERMINAL_UNKNOWN};
+
+    // Number of feed_window failures in this request
+    std::atomic<int> feed_window_errors{0};
+
+    // CV for main thread to wait on drain completion
+    std::mutex drain_mtx;
+    std::condition_variable drain_cv;
+
+    // F6 A1: atomic counters for lock-free queue depth readout
+    // These replace unsafe queue.size() calls in instrumentation paths.
+    std::atomic<size_t> queued_t2w_task_count{0};   // items waiting in queue for T2W worker (global)
+    std::atomic<size_t> active_t2w_task_count{0};   // items currently being processed (legacy: 0 or 1)
+
+    // ========================================================================
+    // F6 A6: Generation-scoped T2W drain protocol (R13: per-generation active)
+    //
+    // Drain completion for generation N requires:
+    //   1. tts_producer_done_generation >= N  (no more tasks will be enqueued)
+    //   2. queued_t2w_task_count == 0          (all items dequeued — global,
+    //      safe under octx_mutex serialization; per-gen TODO)
+    //   3. active_t2w_generation == 0          (worker idle)
+    //      OR active_t2w_generation > N        (worker processing LATER gen;
+    //      gen N is fully done — do NOT block)
+    //   4. final_processed_generation >= N     (is_final fully processed)
+    //
+    // R13 CORRECTION: active_t2w_task_count (global 0/1) is replaced by
+    // active_t2w_generation (per-generation) for drain predicates.
+    // active_t2w_task_count is retained for backwards-compat diagnostics only.
+    //
+    // The heuristic timeout is a SAFETY NET only — the drain predicate above
+    // determines actual completion.  Expanding the timeout to "fix" a drain
+    // failure is a category error; the drain must satisfy the state predicate.
+    // ========================================================================
+
+    // F6 R13: Per-generation active tracking.
+    // Set to the maximum generation ID of tasks currently being processed
+    // by the T2W worker, or 0 if the worker is idle.
+    // Drain predicate for gen N: active_t2w_generation == 0 (worker idle)
+    // OR active_t2w_generation > N (worker busy with a later gen).
+    // Only block when 0 < active_t2w_generation <= N (worker still on gen N
+    // or earlier — gen N not yet fully done).
+    std::atomic<uint32_t> active_t2w_generation{0};
+
+    // Set by TTS thread when all text chunks for this generation (including the
+    // is_final marker) have been converted to T2W tasks and enqueued.
+    std::atomic<uint32_t> tts_producer_done_generation{0};
+
+    // F6 R12: Authoritative completion — set by T2W worker ONLY after the
+    // is_final task for this generation has been fully processed:
+    //   Flow complete → Vocoder complete → WAV written → bookkeeping done.
+    // This is the ONLY field the drain predicate trusts for "is this gen done?".
+    // It MUST NOT be set at dequeue time (see final_dequeued_generation below).
+    std::atomic<uint32_t> final_processed_generation{0};
+
+    // F6 R12: Diagnostic counter — set at DEQUEUE time when the worker pops
+    // the is_final item from the queue.  Exists purely for observability;
+    // NEVER used in drain/completion predicates.
+    std::atomic<uint32_t> final_dequeued_generation{0};
+
+    // F6 R12: Per-generation item accounting (monotonically increasing).
+    // Invariant: enqueue_count == completion_count + cancelled_count.
+    // Used to detect leaks and cross-generation contamination.
+    std::atomic<uint32_t> generation_enqueue_count{0};   // items TTS has enqueued
+    std::atomic<uint32_t> generation_dequeue_count{0};   // items worker has dequeued
+    std::atomic<uint32_t> generation_complete_count{0};  // items worker has finished processing
+    std::atomic<uint32_t> generation_final_enqueued{0};  // gen of last is_final enqueued by TTS
+    std::atomic<uint32_t> generation_final_dequeued{0};  // gen of last is_final dequeued by worker
+    std::atomic<uint32_t> generation_final_completed{0}; // gen of last is_final fully processed
+
+    // Set when the is_final task for this generation is enqueued (diagnostic).
+    std::atomic<uint32_t> final_enqueued_generation{0};
+
+    // F6 R12: Polling overhead instrumentation.
+    // drain_notify_wakes: count of wait_for returns from drain_cv.notify_one()
+    // drain_poll_wakes:   count of wait_for returns from timeout expiry (500ms polls)
+    // A healthy system should be >90% notify-driven; excessive poll wakes indicate
+    // lost notifications or predicate churn.
+    std::atomic<uint32_t> drain_notify_wake_count{0};
+    std::atomic<uint32_t> drain_poll_wake_count{0};
+    // Timestamp (ns) of the last drain predicate satisfaction.
+    std::atomic<uint64_t> drain_predicate_satisfied_ns{0};
+    // Latency (ns) from predicate satisfaction to wait_for return.
+    std::atomic<uint64_t> drain_wake_latency_ns{0};
+
+    // F6 Phase 1: T2W queue diagnostic counters.
+    // Incremented unconditionally (atomic fetch_add ~= 1-2 ns, negligible vs NPU ops).
+    // Emission gated behind OMNI_T2W_QUEUE_DIAG=1.
+    std::atomic<uint64_t> diag_enqueued_total{0};
+    std::atomic<uint64_t> diag_dequeued_total{0};
 
     T2WThreadInfo(int maxQueueSize) : MAX_QUEUE_SIZE(maxQueueSize) {}
 };
@@ -157,6 +410,432 @@ struct projector_model {
 // is_final: true if this is the last chunk of the current generation
 // ============================================================================
 using audio_output_cb_t = std::function<void(const float * samples, int n_samples, int sample_rate, bool is_final)>;
+
+// ============================================================================
+// E2E Stage Profiler — lightweight monotonic-clock timestamps
+// Controlled by OMNI_E2E_PROFILE=1 (default off, zero overhead)
+// Timestamps use std::chrono::steady_clock (monotonic, cross-thread safe)
+// ============================================================================
+enum E2EStage : int {
+    STAGE_request_received = 0,
+    STAGE_prompt_processing_start,
+    STAGE_llm_first_token,
+    STAGE_speak_token,
+    STAGE_talker_start,
+    STAGE_talker_first_audio_token,
+    STAGE_talker_token_28,
+    STAGE_t2w_submit,
+    STAGE_t2w_dequeue,
+    STAGE_flow_start,
+    STAGE_flow_end,
+    STAGE_vocoder_start,
+    STAGE_vocoder_end,
+    STAGE_wav_ready,
+    STAGE_client_first_audio,
+    STAGE_request_done,
+    // F6: decode→first-speak instrumentation (S9)
+    STAGE_decode_loop_begin,           // 16 — D0: decode loop begins after prefill complete
+    STAGE_llm_first_decode_step,       // 17 — D1: first autoregressive llama_decode call
+    STAGE_tts_wake,                    // 18 — G0: TTS thread wakes from cv.wait
+    STAGE_tts_first_decode,            // 19 — G2: first TTS llama_decode call
+    // F6 C8: request-scoped Flow/Vocoder decomposition
+    STAGE_t2w_preprocess_end,          // 20 — Q2: T2W preprocessing completed, Flow input ready
+    STAGE_COUNT
+};
+
+// ============================================================================
+// F6 Phase 3 (P9): Talker Per-Step Instrumentation
+// ============================================================================
+// Low-overhead ring buffer for recording per-step Talker decode statistics.
+// All fields are non-atomic — accessed only by the TTS thread.
+// Enabled via F6_PHASE3_TALKER_STATS=1 (default off, zero overhead).
+
+#define TALKER_MAX_STEPS 500  // matches max_audio_tokens
+
+struct TalkerStepRecord {
+    int16_t  step_index;              // 0-based step within current chunk
+    int64_t  step_start_ns;           // absolute clock (steady_clock epoch)
+    int64_t  step_compute_end_ns;     // after llama_decode returns
+    int64_t  step_sample_end_ns;      // after sampling
+    int32_t  sampled_token_id;        // absolute audio token ID
+    int16_t  token_type;              // 0=audio, 1=EOS, 2=text_eos
+    int16_t  is_audio_token;          // 1 if this step produced an audio token
+    int16_t  audio_token_count_before; // accumulated before this step
+    int16_t  audio_token_count_after;  // accumulated after this step
+    int32_t  backend_cpu_op_count;     // CPU backend ops (placeholder)
+    int32_t  backend_cann_op_count;    // CANN backend ops (placeholder)
+    int16_t  allocation_count;         // allocations this step (placeholder)
+    int32_t  allocation_bytes;         // bytes allocated (placeholder)
+    int64_t  stream_sync_ns;           // time in stream synchronize
+    int64_t  queue_wait_ns;            // time waiting for queue/condition
+};
+
+struct TalkerStepSummary {
+    int     steps_before_first_audio_token;   // G3 step index (0-based)
+    int     steps_G3_to_threshold;            // G3 → A1 (25-token accumulation)
+    int64_t first_step_ns;                    // step 0 compute duration
+    int64_t steady_step_median_ns;            // p50 of steps 1..N compute
+    int64_t steady_step_p95_ns;               // p95 of steps 1..N compute
+    int64_t total_talker_compute_ns;          // sum of all step compute
+    int64_t total_sampling_ns;                // sum of all sampling durations
+    int64_t total_sync_ns;                    // sum of stream sync
+    int64_t total_allocation_ns;              // sum of allocation overhead
+    int64_t total_wait_ns;                    // sum of queue/CV wait
+    int     total_steps;
+    int     total_audio_tokens;
+    int     total_cpu_ops;
+    int     total_cann_ops;
+    int     total_allocations;
+    int64_t total_allocation_bytes;
+    bool    truncated;                        // true if > TALKER_MAX_STEPS
+    bool    valid;                            // false if no steps recorded
+};
+
+struct TalkerStepBuffer {
+    TalkerStepRecord steps[TALKER_MAX_STEPS];
+    int count = 0;
+    bool truncated = false;
+    mutable std::atomic<uint32_t> active_generation{0};
+    mutable std::atomic<bool>     finalized{false};
+    mutable std::atomic<uint32_t> late_write_rejected{0};
+    mutable std::atomic<uint32_t> write_after_finalize{0};
+    mutable std::atomic<uint32_t> invalid_generation_write{0};
+
+    bool record_step(const TalkerStepRecord &rec, uint32_t generation) {
+        if (finalized.load(std::memory_order_acquire)) {
+            write_after_finalize.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        uint32_t current_gen = active_generation.load(std::memory_order_acquire);
+        if (generation != current_gen) {
+            if (generation < current_gen)
+                late_write_rejected.fetch_add(1, std::memory_order_relaxed);
+            else
+                invalid_generation_write.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (count < TALKER_MAX_STEPS) { steps[count++] = rec; }
+        else { truncated = true; }
+        return true;
+    }
+
+    void record_step_unchecked(const TalkerStepRecord &rec) {
+        uint32_t gen = active_generation.load(std::memory_order_acquire);
+        (void)record_step(rec, gen);
+    }
+
+    void reset() {
+        active_generation.fetch_add(1, std::memory_order_release);
+        finalized.store(false, std::memory_order_relaxed);
+        count = 0;
+        truncated = false;
+    }
+
+    void finalize() const {
+        finalized.store(true, std::memory_order_release);
+    }
+
+    uint32_t capture_generation() const {
+        return active_generation.load(std::memory_order_acquire);
+    }
+
+    TalkerStepSummary summarize() const;
+};
+
+// Dump mode: controls per-request JSON output vs aggregate-only
+enum E2EDumpMode : int {
+    E2E_DUMP_DISABLED = 0,  // No timing, zero overhead
+    E2E_DUMP_FULL     = 1,  // Per-request e2e_XXXX.json (file I/O overhead ~5%)
+    E2E_DUMP_SUMMARY  = 2,  // In-memory aggregate only, no per-request I/O (<1% overhead)
+};
+
+struct E2EStageTiming {
+    bool enabled = false;
+    int dump_mode = E2E_DUMP_DISABLED;  // E2EDumpMode: 0=off, 1=full, 2=summary
+    int request_index = 0;
+    std::string prompt_id;
+    int seed = 0;
+    std::atomic<int64_t> timestamps_ns[STAGE_COUNT] = {};  // 0 = not recorded
+    int talker_token_count = 0;
+    bool no_speech = false;
+    int cannerror = 0;
+    int crash = 0;
+
+    // F6 Phase 3 (P9): Talker per-step ring buffer
+    // Non-atomic — accessed only by TTS thread during decode, read at dump time
+    TalkerStepBuffer talker_step_buffer;
+    bool talker_stats_enabled = false;  // F6_PHASE3_TALKER_STATS=1
+
+    // Non-atomic — accessed only by the owning thread.
+    uint32_t tts_thread_generation = 0;
+    uint32_t t2w_thread_generation = 0;
+    int      t2w_request_index = 0;  // F6 W5: request_index from T2W queue for audio profile naming
+    // Monotonically increasing per-request epoch.
+    // Bumped by reset(). Workers snapshot this after their per-request wake-up.
+    // record() rejects writes whose generation does not match active_generation_id.
+    std::atomic<uint32_t> active_generation_id{0};
+
+    // Counters for stale-write detection (accumulate across requests, never reset).
+    std::atomic<uint32_t> stale_write_count{0};
+    std::atomic<uint32_t> cross_request_write_count{0};
+
+    // Summary mode: aggregate statistics (non-atomic, only written at dump time from HTTP thread)
+    int summary_request_count = 0;
+    int64_t summary_stage_latency_sum_ns[STAGE_COUNT] = {};
+    int summary_stage_count[STAGE_COUNT] = {};
+    int64_t summary_total_decode_ns = 0;  // sum of (D3 - R0) across all requests
+
+    // Accumulate one request's data into summary counters
+    void summary_accumulate() {
+        summary_request_count++;
+        int64_t t0 = t0_ns();
+        if (t0 <= 0) return;
+        for (int i = 0; i < STAGE_COUNT; i++) {
+            int64_t elapsed = elapsed_ms(static_cast<E2EStage>(i), t0);
+            if (elapsed >= 0) {
+                summary_stage_latency_sum_ns[i] += elapsed * 1'000'000;
+                summary_stage_count[i]++;
+            }
+        }
+        // total decode latency (R0 → last recorded stage)
+        int64_t t_last = 0;
+        for (int i = STAGE_COUNT - 1; i >= 0; i--) {
+            t_last = timestamps_ns[i].load(std::memory_order_relaxed);
+            if (t_last > 0) break;
+        }
+        if (t_last > 0 && t0 > 0) {
+            summary_total_decode_ns += (t_last - t0);
+        }
+    }
+
+    // Generation-safe record.
+    // Returns true if timestamp was stored, false if generation mismatch (stale).
+    // generation_id: the epoch this caller believes is current.
+    //   Must be obtained from active_generation_id AFTER the caller's per-request
+    //   synchronisation point (e.g. after cv.wait return for worker threads,
+    //   or after reset() for the HTTP handler thread).
+    bool record(E2EStage stage, uint32_t generation_id) {
+        if (!enabled || stage < 0 || stage >= STAGE_COUNT) return false;
+
+        // Acquire: pairs with release in reset() so caller sees cleared timestamps.
+        uint32_t current_gen = active_generation_id.load(std::memory_order_acquire);
+        if (generation_id != current_gen) {
+            stale_write_count.fetch_add(1, std::memory_order_relaxed);
+            // If the caller's generation is behind, this is a cross-request late write.
+            if (generation_id < current_gen) {
+                cross_request_write_count.fetch_add(1, std::memory_order_relaxed);
+            }
+            // Write sentinel to prevent once-guard (load==0 check) from retrying.
+            // Without this, the once-guard would pass on every loop iteration after
+            // reset() clears timestamps, causing stale_count to explode (e.g. 400+
+            // per request from a single worker retrying 8 stages × 50 iterations).
+            // -1 is a sentinel that the once-guard (load==0) treats as "already done".
+            // reset() clears all timestamps to 0, overwriting this sentinel for the
+            // next valid request.
+            timestamps_ns[stage].store(-1, std::memory_order_relaxed);
+            return false;
+        }
+
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        // Release: pairs with acquire in elapsed_ms() / t0_ns() so the summary
+        // reader sees the complete timestamp after load != 0.
+        timestamps_ns[stage].store(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
+            std::memory_order_release);
+        return true;
+    }
+
+    // Legacy record without generation guard.
+    // Uses the current generation at call time (racy for worker threads).
+    // Prefer record(stage, generation_id) when a stable epoch is available.
+    void record_unsafe(E2EStage stage) {
+        uint32_t gen = active_generation_id.load(std::memory_order_acquire);
+        (void)record(stage, gen);
+    }
+
+    // Snapshot the active generation for this caller.
+    // Call ONCE per request per thread after the thread's synchronisation point.
+    uint32_t capture_generation() const {
+        return active_generation_id.load(std::memory_order_acquire);
+    }
+
+    // Reset all timestamps for a new request.
+    // Bumps active_generation_id (release) to invalidate any in-flight record()
+    // calls from the previous generation.
+    // Must be called at the request boundary (start of stream_decode).
+    void reset() {
+        // Release: pairs with acquire in record() so late workers see the new generation.
+        active_generation_id.fetch_add(1, std::memory_order_release);
+        // After releasing the new generation, clear timestamps.
+        for (int i = 0; i < STAGE_COUNT; i++) {
+            timestamps_ns[i].store(0, std::memory_order_relaxed);
+        }
+        talker_token_count = 0;
+        no_speech = false;
+        cannerror = 0;
+        crash = 0;
+        talker_step_buffer.reset();
+    }
+
+    // Returns elapsed ms from stream_decode_start (t0) to given stage, or -1 if not recorded
+    int64_t elapsed_ms(E2EStage stage, int64_t t0_ns) const {
+        int64_t ts = timestamps_ns[stage].load(std::memory_order_acquire);
+        // 0 = not yet recorded (initial state, or cleared by reset()).
+        // <0 = sentinel (rejected stale write, or other negative marker).
+        if (ts <= 0) return -1;
+        return (ts - t0_ns) / 1'000'000;
+    }
+
+    // decode_loop_begin -> client_first_audio (ms), or -1 if either stage not recorded
+    int64_t decode_to_first_audio_ms() const {
+        int64_t t0 = timestamps_ns[STAGE_decode_loop_begin].load(std::memory_order_acquire);
+        if (t0 <= 0) return -1;
+        return elapsed_ms(STAGE_client_first_audio, t0);
+    }
+
+    // Get t0 reference (request_received timestamp in ns)
+    int64_t t0_ns() const {
+        return timestamps_ns[STAGE_request_received].load(std::memory_order_acquire);
+    }
+
+    const char* stage_name(E2EStage s) const {
+        switch (s) {
+            case STAGE_request_received:         return "request_received";
+            case STAGE_prompt_processing_start:   return "prompt_processing_start";
+            case STAGE_llm_first_token:           return "llm_first_token";
+            case STAGE_speak_token:               return "speak_token";
+            case STAGE_talker_start:              return "talker_start";
+            case STAGE_talker_first_audio_token:  return "talker_first_audio_token";
+            case STAGE_talker_token_28:           return "talker_token_28";
+            case STAGE_t2w_submit:                return "t2w_submit";
+            case STAGE_t2w_dequeue:               return "t2w_dequeue";
+            case STAGE_flow_start:                return "flow_start";
+            case STAGE_flow_end:                  return "flow_end";
+            case STAGE_vocoder_start:             return "vocoder_start";
+            case STAGE_vocoder_end:               return "vocoder_end";
+            case STAGE_wav_ready:                 return "wav_ready";
+            case STAGE_client_first_audio:        return "client_first_audio";
+            case STAGE_request_done:              return "request_done";
+            case STAGE_decode_loop_begin:         return "decode_loop_begin";
+            case STAGE_llm_first_decode_step:     return "llm_first_decode_step";
+            case STAGE_tts_wake:                  return "tts_wake";
+            case STAGE_tts_first_decode:          return "tts_first_decode";
+            case STAGE_t2w_preprocess_end:        return "t2w_preprocess_end";
+            default: return "unknown";
+        }
+    }
+};
+
+// ============================================================================
+// Pipeline Trace — lightweight ring-buffer event recording
+// Controlled by OMNI_PIPELINE_TRACE=1 (default off, zero overhead)
+// Ring buffer: 8,192 entries × 32 bytes = 256KB, atomic push, no lock
+// Dump: per-request CSV at request completion (alongside E2E JSON)
+// ============================================================================
+
+enum PipelineEvent : uint8_t {
+    PE_DECODE_BEGIN       = 0,  // T2: LLM decode loop entered
+    PE_TOKEN_GENERATED    = 1,  // each LLM token produced (counter only)
+    PE_FIRST_SPEAK_TOKEN  = 2,  // first speak token detected
+    PE_TTS_QUEUE_PUSH     = 3,  // token batch pushed to TTS→T2W queue
+    PE_TTS_QUEUE_POP      = 4,  // token batch popped by T2W thread
+    PE_T2W_SUBMIT         = 5,  // T2W window submitted for processing
+    PE_T2W_COMPLETE       = 6,  // T2W window processing complete
+    PE_VOCODER_BEGIN      = 7,  // vocoder started
+    PE_VOCODER_COMPLETE   = 8,  // vocoder completed
+    PE_FIRST_AUDIO_READY  = 9,  // first WAV file ready
+    PE_FIRST_AUDIO_EMIT   = 10, // first audio emitted to client
+    PE_THREAD_WAIT_BEGIN  = 11, // thread about to wait on cv/queue
+    PE_THREAD_WAIT_END    = 12, // thread woke up from cv/queue
+    PE_COUNT
+};
+
+struct PipelineTraceEntry {
+    int64_t  timestamp_ns;   //  8 bytes — steady_clock monotonic timestamp
+    uint32_t sequence_id;    //  4 bytes — global sequence number
+    uint32_t data;           //  4 bytes — queue_depth, token_count, or duration_ms
+    uint16_t thread_id;      //  2 bytes — hashed thread id
+    uint16_t queue_id;       //  2 bytes — queue identifier (0=main, 1=tts, 2=t2w)
+    uint8_t  event_type;     //  1 byte  — PipelineEvent enum
+    uint8_t  request_id;     //  1 byte  — request index (low byte)
+    uint8_t  stage;          //  1 byte  — associated E2EStage context
+    uint8_t  reason_code;    //  1 byte  — event-specific reason
+    uint8_t  _pad[6];        //  6 bytes — padding (total = 32 bytes)
+};
+
+static_assert(sizeof(PipelineTraceEntry) == 32, "PipelineTraceEntry must be 32 bytes");
+
+// Thread wait reason codes (used as reason_code for PE_THREAD_WAIT_BEGIN/END)
+enum ThreadWaitReason : uint8_t {
+    WAIT_INPUT        = 0,  // waiting for upstream data
+    WAIT_QUEUE_EMPTY  = 1,  // waiting for queue to be non-empty
+    WAIT_QUEUE_FULL   = 2,  // waiting for queue to have space
+    WAIT_CONDVAR      = 3,  // generic condition variable wait
+    WAIT_JOIN         = 4,  // waiting for thread to join
+    WAIT_NPU          = 5,  // waiting for NPU completion
+    WAIT_UNKNOWN      = 99,
+};
+
+struct PipelineTraceBuffer {
+    static constexpr size_t kMaxEntries = 8192;
+    PipelineTraceEntry entries[kMaxEntries] = {};
+    std::atomic<uint32_t> write_index{0};
+    bool enabled = false;
+
+    void record(PipelineEvent event, uint8_t request_id, uint16_t thread_id,
+                uint32_t data = 0, uint16_t queue_id = 0,
+                uint8_t stage = 0, uint8_t reason = 0) {
+        if (!enabled) return;
+        uint32_t idx = write_index.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= kMaxEntries) return;  // silent drop — ring buffer full
+        auto now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+        entries[idx] = {
+            now_ns, idx, data, thread_id, queue_id,
+            (uint8_t)event, request_id, stage, reason,
+            {0, 0, 0, 0, 0, 0}
+        };
+    }
+
+    // Get current count (for dump range check)
+    uint32_t count() const {
+        uint32_t idx = write_index.load(std::memory_order_relaxed);
+        return idx <= kMaxEntries ? idx : kMaxEntries;
+    }
+
+    // Reset for next request (called after dump)
+    void reset() {
+        write_index.store(0, std::memory_order_relaxed);
+    }
+
+    // Dump to CSV file
+    void dump_csv(const std::string &dir, int request_index) const;
+};
+
+extern PipelineTraceBuffer g_pipeline_trace;
+
+// Helper: hash thread id to uint16_t for compact recording
+inline uint16_t pipeline_thread_hash() {
+    static thread_local uint16_t cached = 0;
+    if (cached == 0) {
+        std::hash<std::thread::id> hasher;
+        cached = (uint16_t)(hasher(std::this_thread::get_id()) & 0xFFFF);
+        if (cached == 0) cached = 1;  // reserve 0 for "unknown"
+    }
+    return cached;
+}
+
+const char* pipeline_event_name(PipelineEvent e);
+
+// Environment variable to enable profiling: OMNI_E2E_PROFILE=1
+// Output directory for per-request JSON: OMNI_E2E_PROFILE_DIR (default: base_output_dir/e2e_profile)
+extern bool g_e2e_profile_enabled;
+
+// Global atomics for flow/vocoder stage timestamps (written by token2wav-impl.cpp, read by omni.cpp)
+// These are recorded per-request and consumed by E2EStageTiming::dump.
+extern std::atomic<int64_t> g_e2e_flow_start_ns;
+extern std::atomic<int64_t> g_e2e_flow_end_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_start_ns;
+extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
 
 struct omni_context {
     struct vision_ctx * ctx_vision = NULL;
@@ -239,9 +918,11 @@ struct omni_context {
     std::thread llm_thread;
     std::thread tts_thread;
     std::thread t2w_thread;
+    std::thread vocoder_thread;          // F6 Phase 4: Vocoder worker (pipeline mode)
     struct LLMThreadInfo *llm_thread_info = NULL;
     struct TTSThreadInfo *tts_thread_info = NULL;
     struct T2WThreadInfo *t2w_thread_info = NULL;
+    struct VocoderThreadInfo *vocoder_thread_info = NULL;  // F6 Phase 4
 
     // 🔧 [Duplex Pipeline - Stage 1]
     // 仅在 duplex_mode=true && async=true 时由 omni_init / stream_prefill(index=0) 分配。
@@ -258,8 +939,8 @@ struct omni_context {
     // omni_free 时若仍存在，会被强制 session_end 释放。
     DuplexSession * duplex_session = NULL;
     
-    volatile bool need_speek = false;
-    volatile bool speek_done = true;
+    std::atomic<bool> need_speek{false};
+    std::atomic<bool> speek_done{true};
     
     // 预热标志：第一轮对话视为预热（例如音色克隆参考音频），完成后设为 true
     std::atomic<bool> warmup_done{false};
@@ -286,22 +967,23 @@ struct omni_context {
     // 与 ended_with_listen 不同：不在 stream_decode 开头重置，
     // 只由 decode 的实际输出驱动（LISTEN→true, SPEAK→false）
     std::atomic<bool> slide_last_was_listen{true};
-
-    // 🔧 [双工三态] 本帧是否是 IDLE：轮次已经通过 turn_eos 结束、且本帧没有产出
-    // 任何有效 TTS token。这种帧语义上等价于 LISTEN（说完了、在等用户），
-    // 但模型并没有采样出 <|listen|>，所以 ended_with_listen 仍是 false、
-    // 会被当成 SPEAK 上报，污染 speak 轮次划分和端到端延迟统计。
-    //
-    // 判据必须看 chunk_token_ids 是否为空，*不能* 看 response 是否为空：
-    // 存在 "response 被清理成空、但确实产出了 TTS token 并合成了音频" 的帧。
-    //
-    // 每次 duplex decode 开头重置，与 ended_with_listen 同生命周期。
-    std::atomic<bool> duplex_frame_idle{false};
     
     // 🔧 [与 Python 对齐] LLM 生成结束标志
     // 当 LLM 检测到 end token 时设置为 true
     // TTS 线程检查此标志来决定是否添加 text_eos_embed
     std::atomic<bool> llm_generation_done{false};
+
+    // ===================================================================
+    // F6 A5: Generation-based request lifecycle (replaces bool-only CV preds)
+    // request_generation increments with each stream_decode entry.
+    // CV waits use ">= my_gen" so they cannot be satisfied by stale state.
+    // ===================================================================
+    std::atomic<uint32_t> request_generation{0};          // monotonically increasing per-request id
+    std::atomic<uint32_t> prefill_ready_generation{0};    // gen for which prefill is done
+    std::atomic<uint32_t> speak_requested_generation{0};  // gen for which speak was requested
+    std::atomic<uint32_t> drain_complete_generation{0};   // gen for which T2W drain completed
+    std::atomic<int>        context_state{CTX_STATE_REUSABLE};  // lifecycle FSM state
+    std::atomic<int>        request_state{REQ_IDLE};           // per-request lifecycle FSM state
     
     // ==================== 双工模式参数 ====================
     // 每个 chunk 最大生成 token 数（用于限制单次 speak 长度，便于及时响应打断）
@@ -371,24 +1053,6 @@ struct omni_context {
     bool text_streaming = false;
     bool text_done_flag = false;
 
-    // Last completed duplex chunk stage timings (set by llm_thread after decode).
-    // Protected by stage_timings_mtx; read by HTTP SSE after text_done.
-    std::mutex stage_timings_mtx;
-    struct {
-        int    index = 0;
-        double vpm_ms = 0.0;
-        double apm_ms = 0.0;
-        double llm_prefill_ms = 0.0;
-        double llm_decode_ms = 0.0;
-        double tts_ms = 0.0;
-        double token2wav_ms = 0.0;
-        bool   valid = false;
-    } last_chunk_timings;
-    // Accumulators for async TTS/t2w of the current SPEAK turn (written by t2w thread).
-    double speak_tts_ms_acc = 0.0;
-    double speak_t2w_ms_acc = 0.0;
-    int    speak_timing_index = -1;
-
     // llama inference mutex - 保护 ctx_llama 的推理操作
     std::mutex llama_mtx;
     
@@ -444,14 +1108,40 @@ struct omni_context {
     // Python: self._token_buffer 是类成员变量，用于累积 audio token
     // 只有满足 chunk_size (25) 才会 yield，不足的保留到下一个 text chunk
     std::vector<int32_t> tts_token_buffer;
-    
+    int tts_first_chunk_seq = -1;  // F6 causal: simplex_round_idx when first token was added to empty buffer
+    int tts_causal_chunk_seq_min = INT_MAX;  // F6 causal: min chunk_seq in current TTS accumulation batch (simplex)
+    int tts_causal_chunk_seq_max = -1;       // F6 causal: max chunk_seq in current TTS accumulation batch (simplex)
+
     // Timestamp for stream_decode start (used for WAV file naming)
     std::chrono::high_resolution_clock::time_point stream_decode_start_time;
+
+    // P7.3 P10: request-level clock — set before stream_prefill() by the caller.
+    // Measures full user-facing latency from request boundary to first audio.
+    // Defaults to epoch (0) if not set; the WAV writer uses this as the
+    // authoritative request start when available.
+    std::chrono::high_resolution_clock::time_point request_start_time;
+
+    // E2E stage profiling (OMNI_E2E_PROFILE=1)
+    E2EStageTiming e2e_stage;
     
     // C++ Token2Wav session for audio synthesis
     std::unique_ptr<omni::flow::Token2WavSession> token2wav_session;
     bool token2wav_initialized = false;
     std::string token2wav_model_dir;  // Directory containing token2wav GGUF models
+    bool token2wav_defer_worker_init = false;  // CANN: defer init to worker thread
+
+    // F6 Phase 4: Flow ∥ Vocoder pipeline overlap
+    bool t2w_pipeline_overlap = false;  // OMNI_T2W_PIPELINE_OVERLAP=1
+
+    // ── P1 FAIL-FAST: CANN availability tracking ──────────────────
+    // Populated at omni_init() time. Used by the worker thread to
+    // decide whether to fail-fast (exit non-zero) vs silently fall
+    // back to CPU when the canonical CANN candidate is unavailable.
+    bool cann_registry_available       = false;  // aclInit succeeded, devices registered
+    bool cann_backend_init_success     = false;  // ggml_backend_cann_init(device) returned non-null
+    bool cann_backend_init_failure     = false;  // ggml_backend_cann_init(device) returned null
+    bool cann_requested_but_unavailable = false;  // OMNI_T2W_DEVICE=cann-flow-only but CANN missing
+    int  cpu_fallback_count            = 0;      // incremented each time a CANN→CPU fallback occurs
     
     // 🔧 [Python Token2Wav] 使用 Python stepaudio2 库实现的 Token2Wav
     // 设置为 true 时使用 Python 实现（精度更高），false 时使用 C++ 实现
@@ -483,7 +1173,29 @@ struct omni_context {
     
     // 🔧 [单工模式] 当前轮次索引（用于创建 round_000、round_001 等子目录）
     int simplex_round_idx = 0;
-    
+
+    // ========================================================================
+    // F6 RTF: stage_timing.jsonl + SSE metrics emission.
+    // The official judge (eval_duplex_e2e_latency.py) reads two server-side
+    // artifacts to compute per-frame RTF:
+    //   1. SSE `metrics` event (encode/llm_prefill/llm_decode) — set by
+    //      duplex_llm_thread_func after decode, read by the HTTP SSE handler.
+    //   2. stage_timing.jsonl `tts`/`t2w` events — written by the TTS/T2W
+    //      threads asynchronously (via append_stage_timing_jsonl).
+    // last_chunk_timings.index = packet->index = the prefill cnt (frame number),
+    // which the client echoes back as `cnt`; it must equal the t2w/tts src_cnt
+    // (which is llm_out->chunk_seq = cnt propagated through the TTS/T2W chain).
+    // ========================================================================
+    std::mutex stage_timings_mtx;
+    struct {
+        int    index = 0;
+        double vpm_ms = 0.0;
+        double apm_ms = 0.0;
+        double llm_prefill_ms = 0.0;
+        double llm_decode_ms = 0.0;
+        bool   valid = false;
+    } last_chunk_timings;
+
     // ==================== 特殊 Token ID ====================
     // 在 omni_init 时从词表查找并缓存
     llama_token special_token_speak = -1;        // <|speak|>: 模型开始说话
@@ -496,7 +1208,52 @@ struct omni_context {
     llama_token tts_bos_token_id = -1;           // <|tts_bos|>: TTS 开始（用于双工强制继续说话）
     llama_token special_token_unit_end = -1;     // </unit>: unit 结束标记（双工 chunk 边界）
     llama_token special_token_tts_pad = -1;      // <|tts_pad|>: TTS 填充（双工模式下禁止采样）
+
+    // ========================================================================
+    // F6 S13: Per-request runtime evidence for runaway generation diagnosis.
+    // These fields are reset at the start of each stream_decode() call and
+    // populated during the decode loop.  The HTTP handler reads them after
+    // decode completes to include diagnostic fields in the response.
+    // ========================================================================
+
+    // Stop reason: why the decode loop exited this request
+    int stop_reason = 0;   // 0=EOS, 1=MAX_TOKENS, 2=WALL_TIMEOUT, 3=CLIENT_DISCONNECT, 4=ERROR
+
+    // Token accounting
+    int generated_token_count = 0;         // Total LLM tokens generated this request (includes filtered)
+    int request_sliding_window_count = 0;  // KV sliding window events during this request
+    bool eos_detected = false;             // True if EOS/<|tts_eos|> was sampled during decode
+
+    // Per-request limits (set by HTTP handler before stream_decode)
+    int cli_n_predict = 0;           // CLI -n at omni_init time (saved before any overwrite)
+    int request_max_tokens = 0;      // Per-request token cap (0 = use n_predict)
+    int request_wall_timeout_ms = 0; // Per-request wall-time safety (0 = no limit)
+
+    // Wall-time request start (set by stream_decode entry)
+    int64_t request_start_wall_ns = 0;
 };
+
+// ========================================================================
+// F6 S13: Stop reason codes for per-request decode diagnostics.
+// ========================================================================
+enum OmniStopReason {
+    OMNI_STOP_EOS              = 0,  // Natural end: <|tts_eos|>, </s>, or is_end_token()
+    OMNI_STOP_MAX_TOKENS       = 1,  // Reached max_tokens limit (n_predict or request_max_tokens)
+    OMNI_STOP_WALL_TIMEOUT     = 2,  // Wall-time safety limit exceeded
+    OMNI_STOP_CLIENT_DISCONNECT = 3, // Client disconnected mid-request
+    OMNI_STOP_ERROR            = 4,  // Error during generation (nullptr, etc.)
+};
+
+static inline const char * omni_stop_reason_name(int reason) {
+    switch (reason) {
+        case OMNI_STOP_EOS:              return "eos";
+        case OMNI_STOP_MAX_TOKENS:       return "max_tokens";
+        case OMNI_STOP_WALL_TIMEOUT:     return "wall_timeout";
+        case OMNI_STOP_CLIENT_DISCONNECT: return "client_disconnect";
+        case OMNI_STOP_ERROR:            return "error";
+        default:                          return "unknown";
+    }
+}
 
 //
 // omni embed
@@ -576,11 +1333,7 @@ struct OmniDuplexFrameResult {
     int64_t  user_seq = 0;          // 与 OmniDuplexFrame.user_seq 一致
     int64_t  frame_id = -1;         // 内部分配的递增 id（1, 2, 3, ...）
     bool     ok = false;            // false = prefill 或 decode 失败
-    bool     is_speak = false;      // false = LISTEN，true = SPEAK（含 IDLE，见 is_idle）
-    // 轮次已 turn_eos 结束、本帧零 TTS token 产出。此时 is_speak 仍为 true
-    // （模型没采样出 <|listen|>），但语义上等价于 LISTEN，不应计入 speak 轮次
-    // 或端到端延迟统计。真正"在说话"的判据是 is_speak && !is_idle。
-    bool     is_idle = false;
+    bool     is_speak = false;      // false = LISTEN，true = SPEAK
     std::string text;               // 该帧 SPEAK 时生成的文本片段（已剔除控制 token）
     int      n_past_after = 0;      // 帧处理完成时的 ctx_llama n_past（调试用）
     double   ms_prefill_submit = 0; // push_frame → prefill_worker 完成提交（不等编码）
@@ -640,8 +1393,7 @@ bool prefill_with_emb_tts(struct omni_context* ctx_omni, common_params* params, 
 llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past_tts, const std::vector<llama_token> * all_generated_tokens = nullptr, const std::vector<llama_token> * chunk_generated_tokens = nullptr, int token_index_in_chunk = 0, bool force_no_eos = false, bool is_final_text_chunk = false);
 
 // ==================== TTS Eval 辅助函数声明 ====================
-// 从 omni.cpp 暴露的函数，供 omni-tts-eval.cpp 使用（原 diff-master.patch 内容，
-// 随框架重构重新导出：仅去掉 static，默认参数保留在此声明中）
+// 从 omni.cpp 暴露的函数，供 omni-tts-eval.cpp 使用
 bool eval_tokens(struct omni_context* ctx_omni, common_params* params,
                  std::vector<llama_token> tokens, int n_batch, int * n_past, bool get_emb = false);
 bool eval_tokens_with_hidden(struct omni_context* ctx_omni, common_params* params,

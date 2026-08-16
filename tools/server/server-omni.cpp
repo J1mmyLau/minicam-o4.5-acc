@@ -3,6 +3,76 @@
 
 #include "omni.h"
 #include "llama.h"
+
+// UTF-8 stream sanitizer — buffers partial multi-byte sequences across fragments
+// and replaces invalid bytes with U+FFFD.  Mirrors ws_handler.cpp::sanitize_utf8_stream.
+static inline bool utf8_cont(unsigned char c) { return (c & 0xC0) == 0x80; }
+
+static std::string sanitize_utf8_stream(std::string & pending,
+                                        const std::string & fragment,
+                                        bool flush = false) {
+    static const std::string replacement = "\xEF\xBF\xBD";
+    std::string input = pending + fragment;
+    pending.clear();
+
+    std::string out;
+    size_t i = 0;
+    while (i < input.size()) {
+        const unsigned char c = static_cast<unsigned char>(input[i]);
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+            i++;
+            continue;
+        }
+
+        int need = 0;
+        if (c >= 0xC2 && c <= 0xDF) {
+            need = 1;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            need = 2;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            need = 3;
+        } else {
+            out += replacement;
+            i++;
+            continue;
+        }
+
+        if (i + need >= input.size()) {
+            pending = input.substr(i);
+            break;
+        }
+
+        bool ok = true;
+        for (int j = 1; j <= need; ++j) {
+            ok = ok && utf8_cont(static_cast<unsigned char>(input[i + j]));
+        }
+        if (ok && c == 0xE0) {
+            ok = static_cast<unsigned char>(input[i + 1]) >= 0xA0;
+        } else if (ok && c == 0xED) {
+            ok = static_cast<unsigned char>(input[i + 1]) < 0xA0;
+        } else if (ok && c == 0xF0) {
+            ok = static_cast<unsigned char>(input[i + 1]) >= 0x90;
+        } else if (ok && c == 0xF4) {
+            ok = static_cast<unsigned char>(input[i + 1]) < 0x90;
+        }
+
+        if (!ok) {
+            out += replacement;
+            i++;
+            continue;
+        }
+
+        out.append(input, i, need + 1);
+        i += need + 1;
+    }
+
+    if (flush && !pending.empty()) {
+        out += replacement;
+        pending.clear();
+    }
+    return out;
+}
 #include "common.h"
 #include "log.h"
 #include "arg.h"
@@ -10,14 +80,128 @@
 #include "session.h"
 #include "ws_handler.h"
 
-#include <atomic>
-#include <memory>
 #include <mutex>
+#include <memory>
 #include <thread>
 #include <queue>
 #include <condition_variable>
 #include <fstream>
 #include <string>
+#include <chrono>
+#include <sstream>
+#include <unistd.h>
+
+// ============================================================================
+// F6 LIFECYCLE INSTRUMENTATION — provides nanosecond-precision handler events
+// to distinguish (A) drain hang, (B) handler/mutex block, (C) context reuse race.
+// Events go to stderr (unbuffered) to avoid mixing with server.log.
+// ============================================================================
+static uint64_t _f6_ns_now() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static void _f6_event(const char *event, int req_id, const omni_context *ctx) {
+    uint64_t ns = _f6_ns_now();
+    uint64_t ctx_ptr = reinterpret_cast<uint64_t>(ctx);
+    size_t   tid     = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    fprintf(stderr, "F6_EVENT|%lu|%s|req=%d|ctx=0x%lx|tid=0x%zx\n",
+            ns, event, req_id, ctx_ptr, tid);
+}
+static void _f6_event_ctx_state(int req_id, const omni_context *ctx) {
+    if (!ctx) return;
+    uint64_t ns = _f6_ns_now();
+    // F6 A1: use atomic counters for lock-free reads of T2W queue depth.
+    // queue.size() is UNSAFE without holding t2w_thread_info->mtx.
+    // GLOBAL_ prefix on prefill_done and t2w_thread_running: these are
+    // file-scope atomics in omni.cpp, NOT per-omni_context fields.
+    size_t queued = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->queued_t2w_task_count.load() : (size_t)0;
+    size_t active = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->active_t2w_task_count.load() : (size_t)0;
+    uint32_t req_gen  = ctx->request_generation.load();
+    uint32_t drain_gen = ctx->drain_complete_generation.load();
+    int      ctx_state = ctx->context_state.load();
+    int      req_state = ctx->request_state.load();
+    // F6 R12: per-generation accounting counters
+    uint32_t final_dequeued  = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->final_dequeued_generation.load() : (uint32_t)0;
+    uint32_t final_completed = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->final_processed_generation.load() : (uint32_t)0;
+    uint32_t gen_dequeue   = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->generation_dequeue_count.load() : (uint32_t)0;
+    uint32_t gen_complete  = ctx->t2w_thread_info
+        ? ctx->t2w_thread_info->generation_complete_count.load() : (uint32_t)0;
+    fprintf(stderr, "F6_CTXSTATE|%lu|req=%d|ctx=0x%lx|t2w_joinable=%d|"
+            "queued=%zu|active=%zu|need_speek=%d|speek_done=%d|"
+            "n_past=%d|llm_gen_done=%d|"
+            "req_gen=%u|drain_gen=%u|ctx_state=%d|req_state=%d(%s)|"
+            "final_dequeued=%u|final_completed=%u|gen_deq=%u|gen_cmp=%u|"
+            "GLOBAL_prefill_done=%d|GLOBAL_t2w_thread_running=%d\n",
+            ns, req_id, reinterpret_cast<uint64_t>(ctx),
+            ctx->t2w_thread.joinable() ? 1 : 0,
+            queued, active,
+            ctx->need_speek.load() ? 1 : 0,
+            ctx->speek_done.load() ? 1 : 0,
+            ctx->n_past,
+            ctx->llm_generation_done.load() ? 1 : 0,
+            req_gen, drain_gen, ctx_state, req_state, req_state_name((OmniRequestState)req_state),
+            final_dequeued, final_completed, gen_dequeue, gen_complete,
+            prefill_done.load() ? 1 : 0,
+            t2w_thread_running.load() ? 1 : 0);
+}
+
+// F6 R10: Request state machine — validates and logs state transitions.
+// Returns true if the transition is legal, false if illegal (logged as ERROR).
+static bool _f6_transition_req_state(omni_context *ctx, OmniRequestState new_state,
+                                      int req_id, const char *label) {
+    if (!ctx) {
+        fprintf(stderr, "F6_REQSTATE|%lu|req=%d|(null)→%s|label=%s|SKIP_NULL_CTX\n",
+                _f6_ns_now(), req_id, req_state_name(new_state), label ? label : "?");
+        return false;
+    }
+    int old_val = ctx->request_state.load(std::memory_order_relaxed);
+    OmniRequestState old_state = (OmniRequestState)old_val;
+
+    // Transition validity matrix — sparse: only specific (old→new) pairs allowed.
+    bool legal = false;
+    switch (old_state) {
+    case REQ_IDLE:
+        legal = (new_state == REQ_VALIDATING);
+        break;
+    case REQ_VALIDATING:
+        legal = (new_state == REQ_DECODING || new_state == REQ_ERROR);
+        break;
+    case REQ_DECODING:
+        legal = (new_state == REQ_TTS_PENDING || new_state == REQ_DRAINING || new_state == REQ_RESPONDING || new_state == REQ_ERROR);
+        break;
+    case REQ_TTS_PENDING:
+        legal = (new_state == REQ_DRAINING || new_state == REQ_ERROR);
+        break;
+    case REQ_DRAINING:
+        legal = (new_state == REQ_RESPONDING || new_state == REQ_ERROR);
+        break;
+    case REQ_RESPONDING:
+        legal = (new_state == REQ_IDLE);
+        break;
+    case REQ_ERROR:
+        legal = (new_state == REQ_IDLE);
+        break;
+    default:
+        legal = false;
+        break;
+    }
+
+    ctx->request_state.store((int)new_state, std::memory_order_release);
+
+    uint64_t ns = _f6_ns_now();
+    fprintf(stderr, "F6_REQSTATE|%lu|req=%d|%s→%s|label=%s|%s\n",
+            ns, req_id,
+            req_state_name(old_state), req_state_name(new_state),
+            label ? label : "?",
+            legal ? "OK" : "ILLEGAL");
+
+    return legal;
+}
 
 #include "httplib.h"
 #include <nlohmann/json.hpp>
@@ -86,6 +270,8 @@ struct omni_server_state {
     omni_context * octx = nullptr;    // WS backend uses this as shared_octx
     std::mutex octx_mutex;            // protects omni_context lifecycle + prefill/decode entry
     SessionManager session_mgr;       // WS backend session management
+    int server_pid = 0;               // F6 R11: port ownership guard — set at startup
+    int bound_port = 0;               // F6 R11: port this server bound to
 };
 
 int main(int argc, char ** argv) {
@@ -115,38 +301,44 @@ int main(int argc, char ** argv) {
         LOG_INF("Using explicit omni model paths from args\n");
     }
 
-    // HTTP server setup. OpenSSL support being compiled in does not mean TLS
-    // should be enabled; an SSLServer constructed with empty certificate paths
-    // is invalid and every listen attempt fails.
-    std::unique_ptr<httplib::Server> svr;
+    // HTTP server setup
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-    if (!params.ssl_file_cert.empty() && !params.ssl_file_key.empty()) {
-        LOG_INF("Omni HTTP server using TLS\n");
-        svr = std::make_unique<httplib::SSLServer>(
-            params.ssl_file_cert.c_str(), params.ssl_file_key.c_str());
-    }
+    httplib::SSLServer svr(params.ssl_file_cert.c_str(), params.ssl_file_key.c_str());
+#else
+    httplib::Server svr;
 #endif
-    if (!svr) {
-        svr = std::make_unique<httplib::Server>();
-    }
 
     omni_server_state state;
 
-    // GET /health
-    svr->Get("/health", [&](const httplib::Request &, httplib::Response & res) {
-        json health = {{"status", "ok"}, {"engine", "comni"}};
+    // GET /health — includes PID for port ownership verification
+    svr.Get("/health", [&](const httplib::Request &, httplib::Response & res) {
+        json health = {
+            {"status", "ok"},
+            {"engine", "comni"},
+            {"pid", state.server_pid},
+            {"port", state.bound_port},
+        };
         res.set_header("X-Engine", "comni");
+        res.set_header("X-Server-PID", std::to_string(state.server_pid));
         res_ok(res, health);
     });
 
-    svr->Get("/v1/health", [&](const httplib::Request &, httplib::Response & res) {
-        json health = {{"status", "ok"}, {"engine", "comni"}};
+    svr.Get("/v1/health", [&](const httplib::Request &, httplib::Response & res) {
+        json health = {
+            {"status", "ok"},
+            {"engine", "comni"},
+            {"pid", state.server_pid},
+            {"port", state.bound_port},
+        };
         res.set_header("X-Engine", "comni");
+        res.set_header("X-Server-PID", std::to_string(state.server_pid));
         res_ok(res, health);
     });
 
     // POST /v1/stream/omni_init
-    svr->Post("/v1/stream/omni_init", [&](const httplib::Request & req, httplib::Response & res) {
+    svr.Post("/v1/stream/omni_init", [&](const httplib::Request & req, httplib::Response & res) {
+        _f6_event("OMNI_INIT_HANDLER_ENTER", -1, state.octx);
+        try {
         json data = json::parse(req.body);
 
         if (!data.contains("msg_type") && !data.contains("media_type")) {
@@ -191,24 +383,18 @@ int main(int argc, char ** argv) {
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             if (state.octx) {
+                _f6_event("OMNI_FREE_BEGIN", -1, state.octx);
                 omni_free(state.octx);
+                _f6_event("OMNI_FREE_END", -1, nullptr);
                 state.octx = nullptr;
             }
         }
 
-        // Sampling knobs must land in params BEFORE omni_init: it builds the LLM and
-        // TTS samplers from params->sampling, so anything applied afterwards silently
-        // misses them and only affects the per-chunk samplers created later.
-        if (data.contains("temperature") && data.at("temperature").is_number()) {
-            params.sampling.temp = data.at("temperature").get<float>();
-        }
-        if (data.contains("seed") && data.at("seed").is_number_integer()) {
-            params.sampling.seed = data.at("seed").get<uint32_t>();
-        }
-
+        _f6_event("OMNI_INIT_BEGIN", -1, nullptr);
         omni_context * octx = omni_init(&params, media_type, use_tts, params.tts_bin_dir, tts_gpu_layers,
                                          token2wav_device, duplex_mode,
                                          /*existing_model=*/nullptr, /*existing_ctx=*/nullptr, output_dir);
+        _f6_event("OMNI_INIT_END", -1, octx);
         if (!octx) {
             res_error(res, format_error_response("omni_init failed"));
             return;
@@ -217,40 +403,30 @@ int main(int argc, char ** argv) {
         // voice clone / assistant prompt
         if (data.contains("voice_clone_prompt")) octx->omni_voice_clone_prompt = data["voice_clone_prompt"];
         if (data.contains("assistant_prompt")) octx->omni_assistant_prompt = data["assistant_prompt"];
-
-        // duplex sampling knobs (align with ws_handler::apply_session_config)
-        if (data.contains("listen_prob_scale") && data.at("listen_prob_scale").is_number()) {
-            octx->listen_prob_scale = data.at("listen_prob_scale").get<float>();
-        }
-        if (data.contains("force_listen_count") && data.at("force_listen_count").is_number_integer()) {
-            octx->force_listen_count = data.at("force_listen_count").get<int>();
-            octx->force_listen_used = 0;
-        }
-        if (data.contains("max_new_speak_tokens_per_chunk") && data.at("max_new_speak_tokens_per_chunk").is_number_integer()) {
-            octx->max_new_speak_tokens_per_chunk = data.at("max_new_speak_tokens_per_chunk").get<int>();
-        }
-        if (data.contains("tts_temperature") && data.at("tts_temperature").is_number()) {
-            octx->tts_temperature = data.at("tts_temperature").get<float>();
-        }
-        LOG_INF("omni_init: listen_prob_scale=%.3f force_listen_count=%d temp=%.3f seed=%u\n",
-                octx->listen_prob_scale, octx->force_listen_count, params.sampling.temp,
-                (unsigned) params.sampling.seed);
+        // K2: propagate voice_audio to ref_audio_path for KV cache key safety.
+        // The cache key includes ctx_omni->ref_audio_path unconditionally.
+        // Without this propagation, different voice_audio values produce identical
+        // cache keys (always falling through to default_ref_audio.wav), causing
+        // false cache HITs across different voice clones.
+        if (!voice_audio.empty()) octx->ref_audio_path = voice_audio;
 
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             state.octx = octx;
         }
 
-        res_ok(res, {
-            {"success", true},
-            {"listen_prob_scale", octx->listen_prob_scale},
-            {"force_listen_count", octx->force_listen_count},
-            {"seed", params.sampling.seed},
-        });
+        res_ok(res, {{"success", true}});
+        } catch (const std::exception & e) {
+            LOG_ERR("omni_init exception: %s\n", e.what());
+            res_error(res, format_error_response(std::string("omni_init failed: ") + e.what()));
+        } catch (...) {
+            LOG_ERR("omni_init unknown exception\n");
+            res_error(res, format_error_response("omni_init failed: unknown exception"));
+        }
     });
 
     // POST /v1/stream/prefill
-    svr->Post("/v1/stream/prefill", [&](const httplib::Request & req, httplib::Response & res) {
+    svr.Post("/v1/stream/prefill", [&](const httplib::Request & req, httplib::Response & res) {
         json data = json::parse(req.body);
 
         if (!data.contains("audio_path_prefix") || !data.at("audio_path_prefix").is_string()) {
@@ -291,7 +467,9 @@ int main(int argc, char ** argv) {
     });
 
     // POST /v1/stream/decode (SSE)
-    svr->Post("/v1/stream/decode", [&](const httplib::Request & req, httplib::Response & res) {
+    svr.Post("/v1/stream/decode", [&](const httplib::Request & req, httplib::Response & res) {
+        _f6_event("HANDLER_ENTER", -1, state.octx);
+        _f6_transition_req_state(state.octx, REQ_VALIDATING, -1, "handler_enter");
         json data = json::parse(req.body);
 
         {
@@ -306,6 +484,21 @@ int main(int argc, char ** argv) {
         bool stream = data.value("stream", true);
         int round_idx = data.value("round_idx", -1);
 
+        // F6 S13: Per-request token cap and wall-time safety.
+        // Effective max_tokens = min(request_max_tokens, server hard cap).
+        // If max_tokens not provided: effective = server default (CLI -n or n_predict).
+        // If wall_timeout_ms not provided: 0 = no limit.
+        int request_max_tokens = 0;
+        int request_wall_timeout_ms = 0;
+        if (data.contains("max_tokens") && data.at("max_tokens").is_number()) {
+            request_max_tokens = data.at("max_tokens").get<int>();
+            if (request_max_tokens < 0) request_max_tokens = 0;  // negative → use server default
+        }
+        if (data.contains("wall_timeout_ms") && data.at("wall_timeout_ms").is_number()) {
+            request_wall_timeout_ms = data.at("wall_timeout_ms").get<int>();
+            if (request_wall_timeout_ms < 0) request_wall_timeout_ms = 0;
+        }
+
         // length_penalty
         if (data.contains("length_penalty") && data.at("length_penalty").is_number()) {
             float lp = data.at("length_penalty").get<float>();
@@ -317,46 +510,271 @@ int main(int argc, char ** argv) {
 
         if (!stream) {
             bool ok = false;
+
+            // F6 LIFECYCLE: acquire octx_mutex for stream_decode
+            _f6_event("OCTX_LOCK_WAIT_BEGIN", round_idx, state.octx);
             {
                 std::lock_guard<std::mutex> lock(state.octx_mutex);
+                _f6_event("OCTX_LOCK_ACQUIRED", round_idx, state.octx);
+                _f6_event("STREAM_DECODE_BEGIN", round_idx, state.octx);
+                _f6_event_ctx_state(round_idx, state.octx);
+
+                // F6 A5: reject if context is not in a reusable state.
+                // Attempt recovery if NOT_REUSABLE: the old generation's T2W worker
+                // may have finished processing after the drain timed out.
+                int ctx_state = state.octx->context_state.load();
+                if (ctx_state == CTX_STATE_NOT_REUSABLE) {
+                    // F6 A6: Check if old gen's drain quietly completed using
+                    // generation-scoped predicate.  active_t2w_task_count is
+                    // intentionally excluded — final_processed_generation is set
+                    // at dequeue time, not process-complete time.
+                    uint32_t req_gen = state.octx->request_generation.load(std::memory_order_relaxed);
+                    // F6 R12: Recovery requires full completion (Flow+Vocoder done),
+                    // not just dequeue.  final_processed_generation is now set ONLY
+                    // after WAV write; active==0 prevents recovery during in-flight
+                    // processing.
+                    // F6 R13: Use per-generation active check for recovery.
+                    uint32_t active_gen = state.octx->t2w_thread_info
+                        ? state.octx->t2w_thread_info->active_t2w_generation.load(std::memory_order_relaxed) : 0;
+                    bool old_drain_done = state.octx->t2w_thread_info
+                        && state.octx->t2w_thread_info->final_processed_generation.load(std::memory_order_acquire) >= req_gen
+                        && state.octx->t2w_thread_info->queued_t2w_task_count.load() == 0
+                        && (active_gen == 0 || active_gen > req_gen);
+                    if (old_drain_done) {
+                        uint32_t completed_gen = state.octx->request_generation.load();
+                        state.octx->drain_complete_generation.store(completed_gen);
+                        state.octx->context_state.store(CTX_STATE_REUSABLE);
+                        LOG_INF("Context recovered: old gen %u drain completed, state→REUSABLE\n",
+                                completed_gen);
+                        _f6_event("RECOVERY_DRAIN_COMPLETE", round_idx, state.octx);
+                        // fall through to proceed normally
+                    } else {
+                        _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "ctx_not_reusable");
+                        LOG_ERR("Context state=NOT_REUSABLE, old drain still pending (queued=%zu) — "
+                                "rejecting request\n",
+                                state.octx->t2w_thread_info
+                                    ? state.octx->t2w_thread_info->queued_t2w_task_count.load() : (size_t)0);
+                        _f6_event("HANDLER_RETURN_BUSY", round_idx, state.octx);
+                        res_error(res, format_error_response(
+                            "Context not ready — previous drain may have timed out, retry later"));
+                        _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "busy_response_sent");
+                        return;
+                    }
+                } else if (ctx_state != CTX_STATE_REUSABLE && ctx_state != CTX_STATE_DRAINING) {
+                    _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "bad_ctx_state");
+                    LOG_ERR("Context state=%d (not REUSABLE/DRAINING) — rejecting request\n", ctx_state);
+                    _f6_event("HANDLER_RETURN_BUSY", round_idx, state.octx);
+                    res_error(res, format_error_response(
+                        "Context not ready — previous drain may have timed out, retry later"));
+                    _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "busy_response_sent");
+                    return;
+                }
+
+                _f6_transition_req_state(state.octx, REQ_DECODING, round_idx, "stream_decode_begin");
+
+                // F6 S13: Set per-request limits on octx before decode.
+                // These are read by stream_decode() for token cap and wall-time safety.
+                state.octx->request_max_tokens = request_max_tokens;
+                state.octx->request_wall_timeout_ms = request_wall_timeout_ms;
+
                 ok = stream_decode(state.octx, debug_dir, round_idx);
+
+                _f6_event("STREAM_DECODE_END", round_idx, state.octx);
+
+                // F6 R10: transition to TTS_PENDING or RESPONDING based on whether
+                // T2W drain is needed.  For non-TTS requests or when TTS wasn't
+                // active, skip straight to RESPONDING.
+                if (state.octx->use_tts) {
+                    _f6_transition_req_state(state.octx, REQ_TTS_PENDING, round_idx, "decode_done_tts");
+                } else {
+                    _f6_transition_req_state(state.octx, REQ_RESPONDING, round_idx, "decode_done_no_tts");
+                }
+
+                // F6 R8: Drain T2W audio INSIDE the octx_mutex to prevent a race
+                // where request B acquires the lock, increments request_generation,
+                // and invalidates request A's drain between OCTX_UNLOCKED and
+                // T2W_DRAIN_BEGIN.  The drain holds drain_mtx (not octx_mutex),
+                // so stream_decode for the next request is still blocked by the
+                // outer lock_guard but the internal CV wait won't deadlock.
+                if (state.octx->use_tts) {
+                    _f6_transition_req_state(state.octx, REQ_DRAINING, round_idx, "drain_begin");
+                    _f6_event("T2W_DRAIN_BEGIN", round_idx, state.octx);
+                    _f6_event_ctx_state(round_idx, state.octx);
+                    bool drained = omni_duplex_drain_tts_audio(state.octx);
+                    _f6_event("T2W_DRAIN_END", round_idx, state.octx);
+
+                    if (!drained) {
+                        _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "drain_failed");
+                        LOG_ERR("T2W drain FAILED — context state is stale, "
+                                "rejecting request to prevent hang\n");
+                        _f6_event("HANDLER_RETURN_DRAIN_FAILED", round_idx, state.octx);
+                        res_error(res, format_error_response(
+                            "T2W drain timed out — context busy, retry later"));
+                        _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "error_response_sent");
+                        return;
+                    }
+                    _f6_transition_req_state(state.octx, REQ_RESPONDING, round_idx, "drain_complete");
+                }
+
+                // F6 T9: non-TTS decode leaves context_state=ACTIVE and never advances
+                // drain_complete_generation — stream_decode's REUSABLE reset /
+                // drain-complete tracking only happen inside omni_duplex_drain_tts_audio
+                // (use_tts only).  Without this, a persistent use_tts=False session
+                // (e.g. text-only Daily-Omni evaluation) is rejected on the next decode
+                // by the generation-scoped guard (drain_gen < request_gen).  Advance
+                // both here, equivalent to a successful drain of this generation.
+                if (ok && !state.octx->use_tts) {
+                    state.octx->drain_complete_generation.store(
+                        state.octx->request_generation.load(std::memory_order_relaxed));
+                    state.octx->context_state.store(CTX_STATE_REUSABLE);
+                }
             }
+            _f6_event("OCTX_UNLOCKED", round_idx, state.octx);
+
             if (!ok) {
+                _f6_transition_req_state(state.octx, REQ_ERROR, round_idx, "decode_failed");
                 res_error(res, format_error_response("stream_decode failed"));
+                _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "error_response_sent");
                 return;
             }
-            res_ok(res, {{"success", true}});
+
+            _f6_event("HANDLER_RETURN", round_idx, state.octx);
+
+            // F6 T9: Expose the decoded text transcript in the non-streaming
+            // response (was F7-2: no text field).  stream_decode pushes the
+            // generated text to text_queue under text_mtx unconditionally,
+            // regardless of stream mode (omni.cpp stream_decode duplex loop).
+            // Drain it here and strip the duplex control markers so text-based
+            // quality evaluation (e.g. Daily-Omni answer letters) can consume it.
+            //
+            // F6 T10: gate this drain to use_tts==false only.  The use_tts=true
+            // simplex path (T6 regression) never read text_queue post-decode in the
+            // validated binary; the unconditional drain exposed an unrelated TTS
+            // KV-overflow heap corruption (n_past_tts=4096) as an uncaught exception
+            // → silent HTTP 500 (httplib has no exception_handler).  Gating restores
+            // byte-identical behavior for the TTS path; try/catch keeps the text path
+            // exception-safe (returns empty text instead of failing the request).
+            std::string response_text;
+            if (!state.octx->use_tts) {
+                try {
+                    std::lock_guard<std::mutex> lock(state.octx->text_mtx);
+                    for (const auto & frag : state.octx->text_queue) {
+                        if (frag == "__IS_LISTEN__" || frag == "__END_OF_TURN__") continue;
+                        response_text += frag;
+                    }
+                    state.octx->text_queue.clear();
+                } catch (const std::exception & e) {
+                    LOG_ERR("F6 T10: text_queue drain failed (%s) — returning empty text\n", e.what());
+                    response_text.clear();
+                } catch (...) {
+                    LOG_ERR("F6 T10: text_queue drain failed (unknown exception) — returning empty text\n");
+                    response_text.clear();
+                }
+            }
+
+            // F6 S13: Include runtime evidence in response for runaway generation diagnosis
+            json resp = {
+                {"success", true},
+                {"text", response_text},
+                {"stop_reason", omni_stop_reason_name(state.octx->stop_reason)},
+                {"stop_reason_code", state.octx->stop_reason},
+                {"generated_token_count", state.octx->generated_token_count},
+                {"eos_detected", state.octx->eos_detected},
+                {"sliding_window_count", state.octx->request_sliding_window_count},
+                {"cli_n_predict", state.octx->cli_n_predict},
+                {"request_max_tokens", request_max_tokens},
+                {"effective_max_tokens", state.octx->request_max_tokens > 0
+                    ? state.octx->request_max_tokens
+                    : state.octx->cli_n_predict},
+                // F6 T3: request-level correlation evidence (client binds send->decode->T2W->W0 by round_idx)
+                {"round_idx", round_idx},
+                {"generation_id", state.octx->e2e_stage.capture_generation()},
+                {"wav_count", state.octx->t2w_thread_info
+                    ? state.octx->t2w_thread_info->wav_count.load(std::memory_order_relaxed)
+                    : -1},
+                {"decode_to_first_audio_ms", state.octx->e2e_stage.decode_to_first_audio_ms()},
+            };
+            res_ok(res, resp);
+            _f6_transition_req_state(state.octx, REQ_IDLE, round_idx, "response_sent");
             return;
         }
 
         // SSE streaming
-        // cpp-httplib calls ContentProviderWithoutLength in a loop until sink.done()
-        // or the provider returns false. Returning true after a non-empty write WITHOUT
-        // sink.done() re-enters this lambda and starts another stream_decode (burns
-        // force_listen 1/2/3 in ~1ms, then runaway SPEAK).
-        auto decode_once = std::make_shared<std::atomic<bool>>(false);
+        // F6 T9: Fix SSE text streaming (F7-1 crash, std::bad_alloc in the
+        // content-provider callback).
+        // Root cause: the old code created the decode worker thread INSIDE the
+        // provider callback and returned `true` after writing [DONE] WITHOUT
+        // sink.done().  httplib's write_content_chunked keeps re-invoking the
+        // provider while data_available stays true, so a SECOND stream_decode
+        // started on the same omni context → concurrent generation → corrupted
+        // text_queue string → bad_alloc in the callback lambda.
+        // Fix: (a) create the decode worker exactly ONCE per request; (b)
+        // terminate the chunked loop with sink.done(); (c) hold the worker and
+        // per-request args (debug_dir/round_idx are handler locals, and the
+        // provider runs AFTER the handler returns) in a shared_ptr captured by
+        // value so their lifetime outlives the handler frame.
+        struct sse_decode_state {
+            std::thread worker;
+            bool started = false;
+            std::string debug_dir;
+            int round_idx = -1;
+        };
+        auto sse = std::make_shared<sse_decode_state>();
+        sse->debug_dir = debug_dir;
+        sse->round_idx = round_idx;
+
         res.set_chunked_content_provider("text/event-stream",
-            [&, debug_dir, round_idx, decode_once](size_t, httplib::DataSink & sink) -> bool {
-                if (decode_once->exchange(true)) {
-                    sink.done();
-                    return false;
+            [&, sse](size_t, httplib::DataSink & sink) -> bool {
+                if (!sse->started) {
+                    sse->started = true;
+                    // reset per-request text state
+                    {
+                        std::lock_guard<std::mutex> lock(state.octx->text_mtx);
+                        state.octx->text_queue.clear();
+                        state.octx->text_done_flag = false;
+                        state.octx->text_streaming = true;
+                    }
+                    // run decode once, on a dedicated thread (octx_mutex serializes
+                    // against other requests; the provider only reads text_queue
+                    // under text_mtx, so no deadlock)
+                    sse->worker = std::thread([&, sse]() {
+                        std::lock_guard<std::mutex> lock(state.octx_mutex);
+                        bool dec_ok = stream_decode(state.octx, sse->debug_dir, sse->round_idx);
+                        // F6 T9: ensure the polling callback terminates even if
+                        // stream_decode was rejected (an early-return false leaves
+                        // text_done_flag false → the callback would poll forever).
+                        {
+                            std::lock_guard<std::mutex> tl(state.octx->text_mtx);
+                            state.octx->text_done_flag = true;
+                            state.octx->text_streaming = false;
+                            state.octx->text_cv.notify_all();
+                        }
+                        // F6 lifecycle: reset context_state after decode so the next
+                        // request is not rejected. Two cases:
+                        //  - non-TTS: stream_decode leaves context_state=ACTIVE and never
+                        //    advances drain_complete_generation. Advance both directly.
+                        //  - TTS (duplex): mirror the non-streaming path — drain T2W audio
+                        //    via omni_duplex_drain_tts_audio(), which advances
+                        //    drain_complete_generation AND context_state→REUSABLE when the
+                        //    generation's T2W work (if any) is done. Without this the SSE
+                        //    duplex path leaves context_state=ACTIVE forever, so every
+                        //    subsequent decode is rejected (RTS SPEAK=0 root cause).
+                        // Holding octx_mutex is safe here: the drain waits on drain_mtx
+                        // (not octx_mutex), identical to the non-streaming handler.
+                        if (dec_ok) {
+                            if (state.octx->use_tts) {
+                                (void) omni_duplex_drain_tts_audio(state.octx);
+                            } else {
+                                state.octx->drain_complete_generation.store(
+                                    state.octx->request_generation.load(std::memory_order_relaxed));
+                                state.octx->context_state.store(CTX_STATE_REUSABLE);
+                            }
+                        }
+                    });
                 }
 
-                // reset state
-                {
-                    std::lock_guard<std::mutex> lock(state.octx->text_mtx);
-                    state.octx->text_queue.clear();
-                    state.octx->text_done_flag = false;
-                    state.octx->text_streaming = true;
-                }
-
-                // start decode in background thread
-                std::thread worker([&](std::string dd, int ri) {
-                    std::lock_guard<std::mutex> lock(state.octx_mutex);
-                    (void) stream_decode(state.octx, dd, ri);
-                }, debug_dir, round_idx);
-
-                // poll text queue
+                // poll text queue until generation finishes
+                std::string sse_utf8_pending;
                 while (true) {
                     std::unique_lock<std::mutex> lk(state.octx->text_mtx);
                     state.octx->text_cv.wait_for(lk, std::chrono::milliseconds(200), [&]{
@@ -368,74 +786,89 @@ int main(int argc, char ** argv) {
                         state.octx->text_queue.pop_front();
                         lk.unlock();
 
+                        // P0-3: sanitize UTF-8 in SSE path (mirrors ws_handler.cpp)
                         json ev;
                         if (frag == "__IS_LISTEN__") {
                             ev = {{"content", ""}, {"stop", false}, {"is_listen", true}, {"end_of_turn", true}};
-                        } else if (frag == "__TURN_IDLE__") {
-                            // 轮次已 turn_eos 结束、本帧零 TTS token 产出：语义上等价于
-                            // LISTEN。为了不破坏老客户端，is_listen/end_of_turn 保持与
-                            // __END_OF_TURN__ 一致，只额外带一个 turn_idle 标志。
-                            ev = {{"content", ""}, {"stop", true}, {"is_listen", false},
-                                  {"end_of_turn", true}, {"turn_idle", true}};
                         } else if (frag == "__END_OF_TURN__") {
                             ev = {{"content", ""}, {"stop", true}, {"is_listen", false}, {"end_of_turn", true}};
                         } else {
-                            ev = {{"content", frag}, {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
+                            std::string safe = sanitize_utf8_stream(sse_utf8_pending, frag);
+                            ev = {{"content", safe}, {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
                         }
 
                         if (!server_sent_event(sink, ev)) {
-                            if (worker.joinable()) worker.join();
-                            sink.done();
+                            // client disconnected → cancel decode; the releaser joins
                             return false;
                         }
+                        lk.lock();
+                    }
+                    // flush pending partial UTF-8 at end of stream
+                    if (state.octx->text_done_flag && !sse_utf8_pending.empty()) {
+                        lk.unlock();
+                        json ev = {{"content", sanitize_utf8_stream(sse_utf8_pending, "", true)},
+                                   {"stop", false}, {"is_listen", false}, {"end_of_turn", false}};
+                        if (!server_sent_event(sink, ev)) return false;
                         lk.lock();
                     }
 
                     if (state.octx->text_done_flag) break;
                 }
 
-                if (worker.joinable()) worker.join();
-
-                // Emit stage metrics for the chunk just decoded (VPM/APM/prefill/decode).
+                // F6 RTF: emit the `metrics` event carrying this chunk's encode/prefill/decode
+                // timings. duplex.py reads event=="metrics" and forwards
+                // vpm_ms/apm_ms/llm_prefill_ms/cost_llm_ms into the e2e chunk event, which
+                // the judge joins against stage_timing.jsonl tts/t2w by src_cnt.
+                // last_chunk_timings is set by duplex_llm_thread_func before
+                // decode_req->done (guaranteed here because text_done_flag is only set
+                // after stream_decode → duplex_decode returns on done=true).
                 {
-                    json metrics = {{"event", "metrics"}};
+                    int    cnt = 0;
+                    double vpm = 0.0, apm = 0.0, prefill = 0.0, decode = 0.0;
+                    bool   have = false;
                     {
-                        std::lock_guard<std::mutex> lock(state.octx->stage_timings_mtx);
-                        if (state.octx->last_chunk_timings.valid) {
-                            metrics["cnt"] = state.octx->last_chunk_timings.index;
-                            metrics["vpm_ms"] = state.octx->last_chunk_timings.vpm_ms;
-                            metrics["apm_ms"] = state.octx->last_chunk_timings.apm_ms;
-                            metrics["llm_prefill_ms"] = state.octx->last_chunk_timings.llm_prefill_ms;
-                            metrics["cost_llm_ms"] = state.octx->last_chunk_timings.llm_decode_ms;
-                            if (state.octx->last_chunk_timings.tts_ms > 0.0) {
-                                metrics["cost_tts_ms"] = state.octx->last_chunk_timings.tts_ms;
-                            }
-                            if (state.octx->last_chunk_timings.token2wav_ms > 0.0) {
-                                metrics["cost_token2wav_ms"] = state.octx->last_chunk_timings.token2wav_ms;
-                            }
-                        }
+                        std::lock_guard<std::mutex> lk(state.octx->stage_timings_mtx);
+                        have    = state.octx->last_chunk_timings.valid;
+                        cnt     = state.octx->last_chunk_timings.index;
+                        vpm     = state.octx->last_chunk_timings.vpm_ms;
+                        apm     = state.octx->last_chunk_timings.apm_ms;
+                        prefill = state.octx->last_chunk_timings.llm_prefill_ms;
+                        decode  = state.octx->last_chunk_timings.llm_decode_ms;
                     }
-                    if (!server_sent_event(sink, metrics)) {
-                        sink.done();
-                        return false;
+                    if (have) {
+                        json metrics_ev = {
+                            {"event", "metrics"},
+                            {"cnt", cnt},
+                            {"vpm_ms", vpm},
+                            {"apm_ms", apm},
+                            {"llm_prefill_ms", prefill},
+                            {"cost_llm_ms", decode},
+                        };
+                        server_sent_event(sink, metrics_ev);
                     }
                 }
 
+                // send done
                 static const std::string ev_done = "data: [DONE]\n\n";
                 sink.write(ev_done.data(), ev_done.size());
-                sink.done();
-                return false;
+                sink.done();  // F6 T9: terminate the chunked loop (prevents re-invocation)
+                return true;
+            },
+            [&, sse](bool) {
+                // F6 T9: join the decode worker on success AND on client disconnect.
+                // stream_decode is bounded by request_wall_timeout_ms, so join() won't
+                // hang indefinitely.
+                if (sse->worker.joinable()) {
+                    sse->worker.join();
+                }
             });
     });
 
     // POST /v1/stream/update_session_config
-    // Lightweight: update sampling knobs only. Do NOT clear KV / re-prefill system.
-    svr->Post("/v1/stream/update_session_config", [&](const httplib::Request & req, httplib::Response & res) {
+    svr.Post("/v1/stream/update_session_config", [&](const httplib::Request & req, httplib::Response & res) {
         json data = json::parse(req.body);
         int media_type = data.value("media_type", -1);
 
-        float listen_prob_scale = -1.0f;
-        int force_listen_count = -1;
         {
             std::lock_guard<std::mutex> lock(state.octx_mutex);
             if (state.octx == nullptr) {
@@ -445,46 +878,21 @@ int main(int argc, char ** argv) {
             if (media_type > 0) {
                 state.octx->media_type = media_type;
             }
-            if (data.contains("listen_prob_scale") && data.at("listen_prob_scale").is_number()) {
-                state.octx->listen_prob_scale = data.at("listen_prob_scale").get<float>();
-            }
-            if (data.contains("force_listen_count") && data.at("force_listen_count").is_number_integer()) {
-                state.octx->force_listen_count = data.at("force_listen_count").get<int>();
-                state.octx->force_listen_used = 0;
-            }
-            if (data.contains("max_new_speak_tokens_per_chunk") && data.at("max_new_speak_tokens_per_chunk").is_number_integer()) {
-                state.octx->max_new_speak_tokens_per_chunk = data.at("max_new_speak_tokens_per_chunk").get<int>();
-            }
-            if (data.contains("tts_temperature") && data.at("tts_temperature").is_number()) {
-                state.octx->tts_temperature = data.at("tts_temperature").get<float>();
-            }
-            if (data.contains("temperature") && data.at("temperature").is_number()) {
-                params.sampling.temp = data.at("temperature").get<float>();
-            }
-            listen_prob_scale = state.octx->listen_prob_scale;
-            force_listen_count = state.octx->force_listen_count;
         }
 
-        LOG_INF("update_session_config: listen_prob_scale=%.3f force_listen_count=%d (no KV reset)\n",
-                listen_prob_scale, force_listen_count);
-
-        res_ok(res, {
-            {"success", true},
-            {"listen_prob_scale", listen_prob_scale},
-            {"force_listen_count", force_listen_count},
-        });
+        res_ok(res, {{"success", true}});
     });
 
     //
     // Backend Protocol (WebSocket + HTTP unary)
     //
-    svr->WebSocket("/backend", [&](const httplib::Request &, httplib::ws::WebSocket & ws) {
+    svr.WebSocket("/backend", [&](const httplib::Request &, httplib::ws::WebSocket & ws) {
         handle_ws_backend(ws, state.session_mgr, params,
                           /*model*/nullptr, /*ctx*/nullptr,
                           state.octx, state.octx_mutex);
     });
 
-    svr->Post("/sessions/:session_id/close", [&](const httplib::Request & req, httplib::Response & res) {
+    svr.Post("/sessions/:session_id/close", [&](const httplib::Request & req, httplib::Response & res) {
         std::string session_id = req.path_params.at("session_id");
         LOG_INF("Close session requested: %s\n", session_id.c_str());
 
@@ -495,14 +903,29 @@ int main(int argc, char ** argv) {
             return;
         }
 
-        state.session_mgr.request_transport_close(session_id);
-
-        // close is a completion primitive: do not return until inference
-        // threads are stopped and the shared omni_context is safe to reuse.
+        // F6 Session Lifecycle: atomically close the session AND extract
+        // the WS close callback. This prevents a critical race:
+        //
+        // BEFORE (old code):
+        //   1. take_close_callback() → session still ACTIVE
+        //   2. [worker reconnects here → session_mgr.allocate() sees ACTIVE → FAIL]
+        //   3. session_mgr.close() → too late, worker already rejected
+        //
+        // AFTER (atomic close+extract):
+        //   close_and_take_callback() marks session CLOSED, clears active_,
+        //   and extracts close_ws all under one lock → no window for the
+        //   worker to see a stale ACTIVE session.
+        //
+        // The octx cleanup must happen BEFORE the atomic close because
+        // close_and_take_callback frees the octx (omni_free).
         {
             std::lock_guard<std::mutex> octx_lock(state.octx_mutex);
             auto * closing = state.session_mgr.get(session_id);
             if (closing && closing->octx) {
+                // 1) Advance T2W drain generations BEFORE omni_prepare_for_reuse
+                //    so t2w_drain_signal_and_wait fast-paths for text-only.
+                ws_finalize_context_reusable(closing->octx);
+
                 closing->octx->break_event = true;
                 {
                     std::lock_guard<std::mutex> lk(closing->octx->text_mtx);
@@ -511,9 +934,22 @@ int main(int argc, char ** argv) {
                 }
                 closing->octx->text_cv.notify_all();
                 omni_prepare_for_reuse(closing->octx);
-            }
 
-            state.session_mgr.close(session_id);
+                // 2) Clear KV cache + n_past after threads are joined.
+                ws_cleanup_kv_cache_for_reuse(closing->octx);
+
+                // 3) Complete context_state → REUSABLE.
+                ws_finalize_context_reusable(closing->octx);
+            }
+        }
+
+        // Atomic: mark CLOSED + clear active_ + extract close_ws + free octx.
+        // After this returns, active_ is null — worker reconnect will succeed.
+        auto close_ws = state.session_mgr.close_and_take_callback(session_id);
+
+        // Now safe to close the transport.
+        if (close_ws) {
+            close_ws();
         }
 
         json resp;
@@ -523,16 +959,12 @@ int main(int argc, char ** argv) {
         res_ok(res, resp);
     });
 
+    // F6 R11: set PID and port for ownership verification in health endpoint
+    state.server_pid = (int)getpid();
+    state.bound_port = params.port;
+
     // start server
-    LOG_INF("Omni HTTP server listening on %s:%d\n", params.hostname.c_str(), params.port);
-    if (!svr->listen(params.hostname, params.port)) {
-        LOG_ERR(
-            "Omni HTTP server failed to bind or listen on %s:%d\n",
-            params.hostname.c_str(),
-            params.port);
-        llama_backend_free();
-        return 1;
-    }
+    svr.listen("0.0.0.0", params.port);
 
     // cleanup
     {

@@ -71,7 +71,8 @@ static void show_usage(const char * prog_name) {
         "                        Use 'auto' to auto-discover CoreML model in model dir\n"
         "  --vision-batch-encode  Enable batched encoding of same-size vision slices\n"
         "                          (off by default; helps large / high-res / high-refresh images)\n"
-        "  --test <prefix> <n> Run test case with data prefix and count\n"
+        "  --test <prefix> <n> Run test cases with data prefix, count, starting from --test-start (default 0)\n"
+        "  --test-start <n>   Starting index for --test (default: 0). Use --test p 1 --test-start 15 for single case\n"
         "  --bench-vision <img> Benchmark serial vs batched vision encoding\n"
         "  -h, --help          Show this help message\n\n"
         "Example:\n"
@@ -162,14 +163,22 @@ static void print_model_paths(const OmniModelPaths & paths) {
     printf("===================\n");
 }
 
-void test_case(struct omni_context *ctx_omni, common_params& params, std::string data_path_prefix, int cnt){
+void test_case(struct omni_context *ctx_omni, common_params& params, std::string data_path_prefix, int cnt, int start_idx = 0){
     // 🔧 单工模式：先 prefill 所有输入，然后 decode 一次生成完整回复
     // 使用同步模式 prefill，避免 async 模式下的竞态条件
     ctx_omni->system_prompt_initialized = false;
     bool orig_async = ctx_omni->async;
     ctx_omni->async = false;  // 使用同步模式 prefill，确保所有数据被处理
-    
-    for (int il = 0; il < cnt; ++il) {
+
+    // P4 KV Cache consistency: use case 0 audio as ref_audio for all test cases
+    // so the system prompt (and KV cache) is identical across all --test-start indices
+    std::string saved_ref_audio_path = ctx_omni->ref_audio_path;
+    char idx0[16];
+    snprintf(idx0, sizeof(idx0), "%04d", 0);
+    std::string case0_audio = data_path_prefix + idx0 + ".wav";
+    ctx_omni->ref_audio_path = case0_audio;
+
+    for (int il = start_idx; il < start_idx + cnt; ++il) {
         char idx_str[16];
         snprintf(idx_str, sizeof(idx_str), "%04d", il);  // 格式化为4位数字，如 0000, 0001
         std::string aud_fname = data_path_prefix + idx_str + ".wav";
@@ -181,7 +190,11 @@ void test_case(struct omni_context *ctx_omni, common_params& params, std::string
             img_fname = img_candidate;
         }
 
-        auto t0 = std::chrono::high_resolution_clock::now();
+        // P7.3 P10: set request-level clock before stream_prefill for
+        // request_to_first_audio_ms measurement (full user-facing latency).
+        ctx_omni->request_start_time = std::chrono::high_resolution_clock::now();
+
+        auto t0 = ctx_omni->request_start_time;
         // index 从 0 开始，第一次 prefill (index=0) 初始化系统 prompt
         // 后续 prefill 在同步模式下直接添加到 KV cache
         stream_prefill(ctx_omni, aud_fname, img_fname, il);
@@ -199,6 +212,7 @@ void test_case(struct omni_context *ctx_omni, common_params& params, std::string
     // 注意：同步 prefill 不会启动线程，需要用 async=true 的方式调用 decode
     // stream_decode 内部会检查 async 并启动 TTS/T2W 线程
     ctx_omni->async = orig_async;
+    ctx_omni->ref_audio_path = saved_ref_audio_path;
     stream_decode(ctx_omni, "./");
 }
 
@@ -224,6 +238,7 @@ int main(int argc, char ** argv) {
     bool vision_batch_encode = false;  // 多 slice 批量编码优化（默认关闭）
     std::string test_audio_prefix;
     int test_count = 0;
+    int test_start_idx = 0;
     
     // 解析命令行参数
     for (int i = 1; i < argc; i++) {
@@ -283,6 +298,9 @@ int main(int argc, char ** argv) {
             run_test = true;
             test_audio_prefix = argv[++i];
             test_count = std::atoi(argv[++i]);
+        }
+        else if (arg == "--test-start" && i + 1 < argc) {
+            test_start_idx = std::atoi(argv[++i]);
         }
         else if (arg == "--bench-vision" && i + 1 < argc) {
             bench_vision_image = argv[++i];
@@ -397,7 +415,7 @@ int main(int argc, char ** argv) {
     }
     
     // 🔧 Token2Wav 使用 GPU（Metal），已用 ggml_add+ggml_repeat 替代不支持的 ggml_add1
-    auto ctx_omni = omni_init(&params, media_type, use_tts, tts_bin_dir, -1, "gpu:0");
+    auto ctx_omni = omni_init(&params, media_type, use_tts, tts_bin_dir, getenv("TTS_GPU_LAYERS") ? std::atoi(getenv("TTS_GPU_LAYERS")) : 0, "gpu:0");
     if (ctx_omni == nullptr) {
         fprintf(stderr, "Error: Failed to initialize omni context\n");
         return 1;
@@ -409,7 +427,8 @@ int main(int argc, char ** argv) {
         printf("=== Running test case ===\n");
         printf("  Audio prefix: %s\n", test_audio_prefix.c_str());
         printf("  Count: %d\n", test_count);
-        test_case(ctx_omni, params, test_audio_prefix, test_count);
+        printf("  Start index: %d\n", test_start_idx);
+        test_case(ctx_omni, params, test_audio_prefix, test_count, test_start_idx);
     } else {
         // 默认测试用例
         test_case(ctx_omni, params, std::string("tools/omni/assets/test_case/audio_test_case/audio_test_case_"), 2);
@@ -430,8 +449,9 @@ int main(int argc, char ** argv) {
         omni_stop_threads(ctx_omni);
         if(ctx_omni->llm_thread.joinable()) { ctx_omni->llm_thread.join(); printf("llm thread end\n"); }
         if(ctx_omni->use_tts && ctx_omni->tts_thread.joinable()) { ctx_omni->tts_thread.join(); printf("tts thread end\n"); }
-        if(ctx_omni->use_tts && ctx_omni->t2w_thread.joinable()) { ctx_omni->t2w_thread.join(); printf("t2w thread end\n"); }
+        // P7.3: Do NOT join T2W here — omni_free() will drain+stop+join it
     }
+
 
     llama_perf_context_print(ctx_omni->ctx_llama);
 

@@ -50,6 +50,17 @@ public:
     void set_close_callback(const std::string & session_id, std::function<void()> cb);
     void request_transport_close(const std::string & session_id);
 
+    // Extract the close callback (so it can be invoked after session_mgr.close).
+    // Returns empty function if session not found.
+    std::function<void()> take_close_callback(const std::string & session_id);
+
+    // Atomically close the session AND extract its close callback.
+    // Prevents a race where the worker reconnects between take_close_callback()
+    // and close() — seeing the old session still ACTIVE.
+    // Returns the close_ws callback (may be empty); the session is CLOSED
+    // and removed from the manager when this returns.
+    std::function<void()> close_and_take_callback(const std::string & session_id);
+
     // Close and forget a session. Releases omni_context if owned.
     void close(const std::string & session_id);
 
