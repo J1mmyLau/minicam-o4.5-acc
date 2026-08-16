@@ -102,3 +102,16 @@ EVAL_CONFIG=$PWD/config-local.env ./evaluation/run_all.sh --smoke 2 --no-build
 - TileLang 教训：`T.reduce_sum` 输出经标量直读不可靠——必须沿用 fused_rmsnorm 的
   verbatim 归约链（tile.mul 平方 → reduce_sum → Parallel(1) 改写 → tile.rsqrt）；
   裸 T.copy 进出（无 tile 算子消费）结果错误；jit 装饰函数内模块级 `T=1` 会遮蔽 tilelang.language。
+
+## talker (TTS) 热循环优化 — ✅ RTF 1.084 → 0.998（2026-08-16, commits 7a42d2270 + c43fe9880）
+
+RTS tts 段 235ms 的真相：每个 audio token（~27 个/chunk）= NPU 前向 + **CPU 标量 head_code GEMV** + 采样。
+
+| 优化 | 开关 | 内容 | 效果（交错 4×4 RTS A/B） |
+|---|---|---|---|
+| head_code GEMV NEON 向量化 | 默认开启（`OMNI_TL_GEMV=scalar` 回退标量） | 6562×768 标量循环 3.3ms/token（FP 归约不可重排→不向量化）→ NEON 4×4 FMA 0.55ms（6.0×），max&#124;Δlogit&#124;=2.4e-6 | tts 段 255.8→205.7ms，e2e 1044→1020，RTF 1.084→1.043（4/4 对一致）；WER 4.545% 不变 |
+| talker norm+rope TileLang 融合 | `OMNI_TL_TTS=1` | talker=llama arch 20L/768/12H×64/θ=1e4/NEOX，前向 5.3ms/token 纯 launch 税。41 norm 位点 + 40 Q/K rope → `tltsnorm_N768`/`tltsrope_H12_D64_R768`（指纹 n_embd==768&&n_head==12，不伤其他 llama-arch 模型） | tts 段 218→174ms，e2e 1031→990，RTF 1.0654→**0.9981**（完全分离，首次 <1.0；官方基线 1.087）；WER 4.545% 不变 |
+
+**坑**：Q/K 从 build_qkv 出来是 3-D [64,12,T] view（非 2-D [768,T]，内存布局等价）；`norm_row(M,N)` 的 M 必须传 T（M=1 时 T>1 只处理首行）；RTS 单轮 RTF 方差 ±0.1（轮次形态随机），必须同二进制 env 对照臂交错 ≥4 轮看方向一致性；约 1/6 的 RTS session 会整场 0-SPEAK（主 LLM 全程 LISTEN，会话时序 flake，双臂等概率，非融合问题，剔除即可）。
+
+完整栈（QKR+norm_row+NEON GEMV+TTS 融合，见 `config-local.env`）：官方 smoke 4 任务 RC=0（Daily 2/2、WER 4.545%、videomme 0/2 均与融合前 smoke 一致），RTS RTF ~1.00-1.02。
