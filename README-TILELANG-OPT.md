@@ -49,3 +49,21 @@ OMNI_T2W_REPEAT=12 OMNI_T2W_OUT_WAV=/tmp/x.wav ./build/bin/token2wav-example
 - host 预计算权重/表缓存按**根张量指针+签名**索引，防止 galloc 地址复用竞态（见 conv 桥 `rewrite_w`）。
 - decode 当前每 token ~2.1s（llama-bench fa=1 Q6_K），瓶颈在 host 侧 launch 税
   （~1027 个 aclnn 微算子 ×30µs）+ embeddings D2H，非单个算子；单算子融合在该量级下不可见。
+
+## 官方 smoke 自测（已通过, 2026-08-16）
+
+四任务一次过的关键环境（完整见 `config-local.env.example`，通过 `EVAL_CONFIG` 加载，
+**不改动** `evaluation/`）：
+
+```bash
+EVAL_CONFIG=$PWD/config-local.env ./evaluation/run_all.sh --smoke 2 --no-build
+```
+
+| 任务 | 结果 | 关键旋钮 |
+|---|---|---|
+| Video-MME | OK | `OMNI_CANN_FA_MAX_UBATCH=16`（aclnnMm NaN 唯一可靠 workaround，缺它大 prefill 挂死） |
+| Daily-Omni | OK (smoke 2/2) | — |
+| Seed-TTS | OK (WER 4.5%) | — |
+| RTS | OK (RTF 1.1461, SPEAK→wav 1123ms) | `OMNI_T2W_DEVICE=cann-flow-only` + `OMNI_VOC_DEVICE=gpu:0` + `OMNI_T2W_PIPELINE_OVERLAP=1`（缺它们 SPEAK=0 → 无 t2w 事件 → RTF 不可用） |
+
+注意：系统 python3 读 parquet 会 core dump（环境问题），`EVAL_PYTHON` 必须指向可用 venv。
