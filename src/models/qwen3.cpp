@@ -155,7 +155,7 @@ ggml_tensor * try_rope(ggml_context * ctx, ggml_tensor * x, ggml_tensor * pos,
     else                                       { D = x->ne[0] / n_head; H = n_head; T = x->ne[1]; }  // 2-D [H*D,T]
     if (D != 128) { if (dbg) fprintf(stderr, "[TL_ROPE][dbg] reject D=%lld\n", (long long)D); return nullptr; }
     if (H != n_head) { if (dbg) fprintf(stderr, "[TL_ROPE][dbg] reject H=%lld!=%lld\n", (long long)H, (long long)n_head); return nullptr; }
-    if (T < 1 || T > 8) { if (dbg) fprintf(stderr, "[TL_ROPE][dbg] reject T=%lld\n", (long long)T); return nullptr; }
+    if (T < 1 || T > 512) { if (dbg) fprintf(stderr, "[TL_ROPE][dbg] reject T=%lld\n", (long long)T); return nullptr; }
     if (!lookup(H, T, x->type == GGML_TYPE_F32)) { if (dbg) fprintf(stderr, "[TL_ROPE][dbg] reject no-so H=%lld T=%lld\n", (long long)H, (long long)T); return nullptr; }
     ensure_tables(D / 2, theta, x->type == GGML_TYPE_F32);
     if (!g_cs) return nullptr;
@@ -316,7 +316,7 @@ ggml_tensor * try_qknorm_rope(ggml_context * ctx, ggml_tensor * Qcur, ggml_tenso
     const int64_t ROW = root->ne[0];                 // 段根: Q 4096 / K 1024 (连续, offs=0)
     const int64_t T   = root->ne[1];
     if (ROW != n_head * 128) return nullptr;             // 仅 wqkv 融合布局的段裁剪根
-    if (T < 1 || T > 8) return nullptr;
+    if (T < 1 || T > 512) return nullptr;                // AOT T=1..8,16..512
     const size_t  r0  = 0;
     if (!lookup_qkn(n_head, T, (int64_t)r0)) return nullptr;
 
