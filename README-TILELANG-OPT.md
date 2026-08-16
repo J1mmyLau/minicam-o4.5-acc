@@ -115,3 +115,7 @@ RTS tts 段 235ms 的真相：每个 audio token（~27 个/chunk）= NPU 前向 
 **坑**：Q/K 从 build_qkv 出来是 3-D [64,12,T] view（非 2-D [768,T]，内存布局等价）；`norm_row(M,N)` 的 M 必须传 T（M=1 时 T>1 只处理首行）；RTS 单轮 RTF 方差 ±0.1（轮次形态随机），必须同二进制 env 对照臂交错 ≥4 轮看方向一致性；约 1/6 的 RTS session 会整场 0-SPEAK（主 LLM 全程 LISTEN，会话时序 flake，双臂等概率，非融合问题，剔除即可）。
 
 完整栈（QKR+norm_row+NEON GEMV+TTS 融合，见 `config-local.env`）：官方 smoke 4 任务 RC=0（Daily 2/2、WER 4.545%、videomme 0/2 均与融合前 smoke 一致），RTS RTF ~1.00-1.02。
+
+### conv 融合接入 RTS 流式路径（2026-08-16 补充）
+
+`OMNI_TL_CONV=1` 在 RTS server 流式 t2w 路径（token2wav-impl 同一代码）4×4 交错 A/B：**t2w 段 234.0→224.2ms（4/4 对一致，−10ms/窗）**，e2e 净零（−4ms，方差内）；WER 4.545% 不变。保留开启（免费小赢），但不要按离线 −20% 外推——流式路径 vocoder 只占 t2w 一部分且被队列稀释。
