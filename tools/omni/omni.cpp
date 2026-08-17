@@ -1673,8 +1673,9 @@ void omni_embed_free(struct omni_embed * embed) {
 // 🔧 [高清模式] 返回分离的 chunk embeds（二维 vector）
 // 返回值: vision_chunks[0] = overview, vision_chunks[1..n] = slices
 // 当 slice 数 > 1 时，使用 batched encoding 加速
-static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threads, const vision_image_u8 * img, 
-                                            std::vector<std::vector<float>> & vision_chunks) {
+static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threads, const vision_image_u8 * img,
+                                            std::vector<std::vector<float>> & vision_chunks,
+                                            vision_ctx * ctx_vision_par = nullptr) {
     const int64_t t_img_enc_start_us = ggml_time_us();
     vision_image_f32_batch img_res_v;
     img_res_v.entries.resize(0);
@@ -1700,12 +1701,32 @@ static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threa
     const bool use_batched = vision_get_batch_encode(ctx_vision) && (n_slices > 1);
 
     // 1) encode the overview image (entry 0)
+    //
+    // [F6 perf] VPM 双编码并行: msprof 实测单次 ViT 编码 device 仅忙 ~34ms 而 wall
+    // ~68ms —— 50% 是 host launch 税 (~1120 op/encode)。overview 与 slice 两张图
+    // 完全独立, 提供第二个 vision_ctx (各自独立 CANN stream) 时, slice 编码放到
+    // 并行线程, 两路在 NPU 上重叠。数学路径不变 (同权重同输入), 输出位级一致。
+    // OMNI_VPM_PAR=1 开启 (server 启动时创建 ctx2, 见 init)。
+    bool par_ok = (ctx_vision_par != nullptr) && (n_slices > 0) && !use_batched;
+    std::thread par_thread;
+    std::vector<bool> par_ret;
+    if (par_ok) {
+        par_ret.assign(n_slices, false);
+        par_thread = std::thread([&]() {
+            for (int i = 1; i < n_total; i++) {
+                vision_chunks[i].resize(n_embd * n_tokens);
+                par_ret[i - 1] = vision_image_encode(ctx_vision_par, n_threads,
+                                                     img_res_v.entries[i].get(), vision_chunks[i].data());
+            }
+        });
+    }
     {
         const int64_t t_step_us = ggml_time_us();
         vision_chunks[0].resize(n_embd * n_tokens);
         bool encoded = vision_image_encode(ctx_vision, n_threads, img_res_v.entries[0].get(), vision_chunks[0].data());
         if (!encoded) {
             LOG_ERR("Unable to encode overview image\n");
+            if (par_thread.joinable()) par_thread.join();
             return false;
         }
         LOG_INF("%s: overview encoded in %8.2f ms\n", __func__, (ggml_time_us() - t_step_us) / 1000.0);
@@ -1738,6 +1759,17 @@ static bool encode_image_with_vision_chunks(vision_ctx * ctx_vision, int n_threa
             }
 
             LOG_INF("%s: %d slices batch-encoded in %8.2f ms\n", __func__, n_slices, (ggml_time_us() - t_batch_us) / 1000.0);
+        } else if (par_ok) {
+            // slice encode 已在并行线程 (ctx_vision_par) 完成, 只需 join 并校验
+            const int64_t t_step_us = ggml_time_us();
+            par_thread.join();
+            for (int i = 1; i < n_total; i++) {
+                if (!par_ret[i - 1]) {
+                    LOG_ERR("Unable to encode slice %d of %d (parallel ctx)\n", i, n_slices);
+                    return false;
+                }
+            }
+            LOG_INF("%s: %d slice(s) encoded in parallel ctx in %8.2f ms (joined)\n", __func__, n_slices, (ggml_time_us() - t_step_us) / 1000.0);
         } else {
             // serial path: encode every slice individually (entries[1..n_total-1])
             const int64_t t_step_us = ggml_time_us();
@@ -2043,7 +2075,8 @@ struct omni_embed * omni_image_embed_make_with_filename(struct vision_ctx * ctx_
 // 返回的 vector: [0] = overview, [1..n] = slices
 bool omni_image_embed_make_chunks_with_filename(struct vision_ctx * ctx_vision, int n_threads, 
                                                  std::string image_path, 
-                                                 std::vector<std::vector<float>> & vision_chunks) {
+                                                 std::vector<std::vector<float>> & vision_chunks,
+                                                 struct vision_ctx * ctx_vision_par) {
     unsigned char* image_bytes;
     long image_bytes_length;
     auto loaded = load_file_to_bytes(image_path.c_str(), &image_bytes, &image_bytes_length);
@@ -2061,7 +2094,7 @@ bool omni_image_embed_make_chunks_with_filename(struct vision_ctx * ctx_vision, 
     }
     free(image_bytes);
     
-    bool success = encode_image_with_vision_chunks(ctx_vision, n_threads, img, vision_chunks);
+    bool success = encode_image_with_vision_chunks(ctx_vision, n_threads, img, vision_chunks, ctx_vision_par);
     vision_image_u8_free(img);
     
     if (success) {
@@ -5776,6 +5809,22 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
         const char * vision_path = ctx_omni->params->vpm_model.c_str();
         auto * ctx_vision = vision_init(vision_path, vision_context_params{true, GGML_LOG_LEVEL_INFO, nullptr});
         ctx_omni->ctx_vision = ctx_vision;
+
+        // [F6 perf] VPM 第二实例: overview/slice 两路 ViT 编码并行 (各自独立 CANN
+        // stream)。msprof: 单编码 device 34ms / wall 68ms (50% host launch 税), 双流
+        // 重叠可省 ~60ms。+1.1GB HBM (64GB 卡余量充足)。失败自动回退串行。
+        {
+            const char * vpm_par = getenv("OMNI_VPM_PAR");
+            if (vpm_par && vpm_par[0] == '1' && ctx_vision) {
+                auto * ctx_vision2 = vision_init(vision_path, vision_context_params{true, GGML_LOG_LEVEL_INFO, nullptr});
+                if (ctx_vision2) {
+                    ctx_omni->ctx_vision2 = ctx_vision2;
+                    LOG_INF("VPM parallel ctx2 loaded (OMNI_VPM_PAR=1)\n");
+                } else {
+                    LOG_WRN("VPM ctx2 init failed, falling back to serial encode\n");
+                }
+            }
+        }
 
         // 🔧 [batch encode 开关] 由 common_params 控制（默认关闭）
         if (ctx_vision) {
@@ -13023,6 +13072,9 @@ static void duplex_encoder_thread_func(omni_context * ctx_omni, common_params * 
         // 也不会被 APM 看到。
         if (has_img && req->max_slice_nums >= 1) {
             vision_set_max_slice_nums(ctx_omni->ctx_vision, req->max_slice_nums);
+            if (ctx_omni->ctx_vision2) {
+                vision_set_max_slice_nums(ctx_omni->ctx_vision2, req->max_slice_nums);
+            }
         }
 
         // ---- VPM 任务 ----
@@ -13033,7 +13085,8 @@ static void duplex_encoder_thread_func(omni_context * ctx_omni, common_params * 
                     ctx_omni->ctx_vision,
                     params->cpuparams.n_threads,
                     req->img_fname,
-                    packet->vision_embed)) {
+                    packet->vision_embed,
+                    ctx_omni->ctx_vision2)) {
                 LOG_ERR("Duplex encoder: vision encode failed for %s\n",
                         req->img_fname.c_str());
                 packet->vision_embed.clear();
@@ -14399,7 +14452,8 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                 }
                 std::vector<std::vector<float>> vision_chunks;
                 if (!omni_image_embed_make_chunks_with_filename(ctx_omni->ctx_vision, 
-                        ctx_omni->params->cpuparams.n_threads, img_fname, vision_chunks)) {
+                        ctx_omni->params->cpuparams.n_threads, img_fname, vision_chunks,
+                        ctx_omni->ctx_vision2)) {
                     LOG_ERR("%s: failed to create vision embeddings for %s\n", __func__, img_fname.c_str());
                     return false;
                 }
@@ -14461,7 +14515,8 @@ bool stream_prefill(struct omni_context * ctx_omni, std::string aud_fname, std::
                         LOG_INF("%s: [临时] max_slice_nums=%d for this prefill\n", __func__, max_slice_nums);
                     }
                     if (!omni_image_embed_make_chunks_with_filename(ctx_omni->ctx_vision, 
-                            ctx_omni->params->cpuparams.n_threads, img_fname, omni_embeds->vision_embed)) {
+                            ctx_omni->params->cpuparams.n_threads, img_fname, omni_embeds->vision_embed,
+                            ctx_omni->ctx_vision2)) {
                         LOG_ERR("%s: failed to create vision embeddings for %s\n", __func__, img_fname.c_str());
                         delete omni_embeds;
                         return false;

@@ -839,6 +839,7 @@ extern std::atomic<int64_t> g_e2e_vocoder_end_ns;
 
 struct omni_context {
     struct vision_ctx * ctx_vision = NULL;
+    struct vision_ctx * ctx_vision2 = NULL;   // [F6 perf] VPM 双编码并行第二实例 (OMNI_VPM_PAR=1)
     struct audition_ctx * ctx_audio = NULL;
     
     struct llama_context * ctx_llama = NULL;
