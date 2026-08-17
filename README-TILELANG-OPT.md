@@ -150,3 +150,18 @@ Daily 2/2, WER 4.545% 逐位同, videomme 0/2 (与融合前一致, n=2 无统计
 （8.8ms/token, 与 ubatch 16/64/512 无关）, 与 GEMM 微基准 F32 63-73 TF 差 33×;
 但服务端 in-situ prefill 等效 ~1300 t/s —— 两条路径行为矛盾, 需 in-situ msprof
 （server 进程跑 SPEAK 时 attach）定论 prefill 187ms 的真实构成。
+
+## in-situ msprof 全景 + llama-bench 证伪（2026-08-17, task #27）
+
+llama-bench pp256 仅 110 t/s 且 84% 耗在 ScatterUpdate(1953µs/次) —— **是 bench 独有病态**
+（memory_clear 路径），in-situ ScatterUpdate 11.7µs/次占 2.2%，服务端 KV 无病。
+同二进制 llama-completion = 618 t/s 与服务端（1.27ms/token）一致。**llama-bench 不能
+用于评估主模型 pp。**
+
+in-situ 全景（9135ms device / 37 chunks）: MatMulV2 26.7% + **Cast 19.9%**（196K 次，
+≈每 mul_mat 2.5 个 F32↔F16）+ BatchMatMulV2 11.6% + Add/Mul/Transpose 17% + Im2col 4.2%
++ Softmax 3.4% + TileLang 1.6%。session duty 仅 ~12% → host/串行仍是主矛盾。
+
+**下一刀候选（按 ROI）**: ① F16 激活化（吃 Cast 全税 + GEMM 2-3×, device −40% 潜力,
+需全量精度重验）; ② host 税结构治理（VPM 双流范式推广到 prefill/decode/t2w 段）;
+③ flow CFM 融合（t2w 尾巴 111ms/窗）。
