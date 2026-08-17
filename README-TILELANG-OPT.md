@@ -119,3 +119,34 @@ RTS tts 段 235ms 的真相：每个 audio token（~27 个/chunk）= NPU 前向 
 ### conv 融合接入 RTS 流式路径（2026-08-16 补充）
 
 `OMNI_TL_CONV=1` 在 RTS server 流式 t2w 路径（token2wav-impl 同一代码）4×4 交错 A/B：**t2w 段 234.0→224.2ms（4/4 对一致，−10ms/窗）**，e2e 净零（−4ms，方差内）；WER 4.545% 不变。保留开启（免费小赢），但不要按离线 −20% 外推——流式路径 vocoder 只占 t2w 一部分且被队列稀释。
+
+## VPM (视觉编码) 197 → 125ms — ✅ RTF 0.99 → 0.911（2026-08-17, commit f22d69f70）
+
+重新 profile 发现 VPM 197ms 是墙内最大单项 (29% of SPEAK wall)。三层分解:
+
+1. **bicubic_resize 死写修正**（位级一致, 免费）: 上游实现的垂直插值多项式放在 jj
+   tap 循环**内部** —— C[0..3] 每填一个就完整算一次垂直 poly 并写 dst, 每像素 4 次
+   垂直 poly 其中 3 次死写 (~3/4 浮点工作量白做)。重排为填满 C[0..3] 再做一次;
+   浮点表达式逐字保留 (含 `-1.0/3` double 字面量) → 服务端代码级校验 **0/592704
+   字节差异**。独立基准 540×960→336×588: 30.5→11.2ms (2.7×)。VPM stage
+   189.4→166.3ms (4/4 对一致)。`OMNI_TL_BICUBIC=orig` 可切回对照。
+
+2. **msprof 破案**: ViT 单次编码 device 34ms / wall 68ms —— **50% 是 host launch 税**
+   (~1120 op/encode: Add 281 + Cast 339 + Transpose 114 + LN 58 + Mul 86...)。
+   BatchMatMulV2 才 8.8ms、MatMulV2 7.1ms。不是算不快, 是发不完。
+
+3. **双 ctx 双流并行**（`OMNI_VPM_PAR=1`）: overview 与 slice 两张图完全独立, 第二个
+   vision_ctx（各自独立 CANN stream, +1.1GB HBM/64GB）让 slice 编码在并行线程跑,
+   NPU 上重叠。同权重同输入同数学 → 输出位级一致。失败自动回退串行。
+   交错 4×4 A/B: RTF 1.021→**0.911**, e2e 1020.7→946.9ms, **4/4 对完全分离**
+   (ON 全 <0.94, OFF 全 >0.98)。VPM stage → ~125ms。
+
+完整栈 smoke (`run_all --smoke 2`, RC=0): RTS **0.8831** (encode 份额 0.200→0.125),
+Daily 2/2, WER 4.545% 逐位同, videomme 0/2 (与融合前一致, n=2 无统计力)。
+累计: 1.084 → 1.043 (NEON GEMV) → 0.998 (talker 融合) → **0.911** (VPM)。
+官方基线 1.087, 现低 16%。
+
+**遗留线索（下轮）**: llama-bench 主模型 pp256 仅 ~110 t/s ≈ 1.9 TFLOPS 有效算力
+（8.8ms/token, 与 ubatch 16/64/512 无关）, 与 GEMM 微基准 F32 63-73 TF 差 33×;
+但服务端 in-situ prefill 等效 ~1300 t/s —— 两条路径行为矛盾, 需 in-situ msprof
+（server 进程跑 SPEAK 时 attach）定论 prefill 187ms 的真实构成。
