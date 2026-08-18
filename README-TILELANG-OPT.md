@@ -227,3 +227,27 @@ RTS 交错 4×4: RTF 0.9082→0.8931(对内 2-2 噪声主导), SPEAK→wav wall 
 902.1/900.2 (−84ms)。构成: prefill +9% t/s (955→1097, 2/2) + ViT Mul −66% + flow
 NORM 融合（t2w 在 RTF 分子内，eager 图 508 处）。
 累计: 1.084 → 1.043 → 0.998 → 0.911 → **~0.855**（官方基线 1.087, 现低 ~21%）。
+
+## TileLang vs aclnn（norm 仿射重写对比）— ❌ TileLang 全面劣势（2026-08-18, task #31）
+
+把 aclnn 融合的 LN/RMS 仿射用 TileLang 重写（ln_affine_row / rms_affine_row，
+qknorm 范式: T.Kernel(M) 每核一行 + 块状 N + tile op 标量 + broadcast epilogue），
+NPU event 计时 + F64 CPU 参考对比：
+
+| 形状 | TileLang | aclnn 单核 | 精度(TL) | 精度(aclnn) |
+|---|---|---|---|---|
+| LN 1008×1152 (ViT) | 144µs | **20-38µs (4-7×快)** | mean 2.0e-3 | **1.4e-7** |
+| RMS 144×4096 | 35µs | ~96µs(组合)/单核更快 | 2.1e-3 | ~1e-7 |
+
+**判决：两种轴都输** ——
+1. 精度：该 fork 的 tile-op F32 原语内部按 ~F16 精度计算（**生产版 norm_row 同样
+   mean_rel≈1.3e-3**，非新 kernel bug；decode 路径 E2E 精度门能过，但 ViT 特征
+   喂 LLM 没必要吃这 4 个数量级）。
+2. 带宽：TL 每核一行的 T.copy 流水只到 ~120GB/s，aclnn LayerNormV3 ~450GB/s。
+   block_N=全行/384 无差别。
+
+**分工结论（已验证的经验法则）**：TileLang 赢在小 M、launch-bound 的多算子链融合
+（decode 的 QKR/norm_row，3+ 次 aclnn launch → 1 kernel，+25~66% decode）；aclnn 赢在
+大形状带宽 bound 的单算子融合（本回合 LayerNormV3）。两者不可互换。
+其余融合候选复查：ViT bias-ADD(281/encode) 需 4-D aclnnMatmul-with-bias（语义险）；
+flow 的 CONT/PERMUTE/CONCAT 布局链(3600+) = zcat2 已试过负结果(DO_NOT_PROMOTE)。
