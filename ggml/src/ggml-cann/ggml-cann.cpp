@@ -38,6 +38,8 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <map>
 #include <optional>
 #include <queue>
 #include <string>
@@ -2353,11 +2355,39 @@ static void ggml_backend_cann_synchronize(ggml_backend_t backend) {
  * @return true if the operations can be fused
  * @return false if the operations cannot be fused
  */
+// row-vector operand (norm gain/bias) of a MUL/ADD node, or nullptr
+static ggml_tensor * ggml_cann_row_vec_src(ggml_tensor * node) {
+    auto is_row_vec = [](const ggml_tensor * w, int64_t ne0) {
+        return w != nullptr && (w->type == GGML_TYPE_F32 || w->type == GGML_TYPE_F16) && w->ne[0] == ne0 &&
+               w->ne[1] == 1 && w->ne[2] == 1 && w->ne[3] == 1;
+    };
+    if (node->src[1] && is_row_vec(node->src[1], node->src[0]->ne[0])) return node->src[1];
+    if (node->src[0] && is_row_vec(node->src[0], node->src[1]->ne[0])) return node->src[0];
+    return nullptr;
+}
+
 static bool ggml_cann_can_fuse(const struct ggml_cgraph *          cgraph,
                                int                                 node_idx,
                                std::initializer_list<enum ggml_op> ops) {
     if (!ggml_can_fuse(cgraph, node_idx, ops)) {
         return false;
+    }
+
+    // NORM -> MUL(gain) -> ADD(bias): one aclnnLayerNorm with real affine params
+    if ((ops.size() == 3) && ops.begin()[0] == GGML_OP_NORM && ops.begin()[1] == GGML_OP_MUL &&
+        ops.begin()[2] == GGML_OP_ADD) {
+        ggml_tensor * norm_node = cgraph->nodes[node_idx];
+        ggml_tensor * mul_node  = cgraph->nodes[node_idx + 1];
+        ggml_tensor * add_node  = cgraph->nodes[node_idx + 2];
+        return mul_node->src[0] == norm_node && add_node->src[0] == mul_node &&
+               ggml_cann_row_vec_src(mul_node) != nullptr && ggml_cann_row_vec_src(add_node) != nullptr;
+    }
+
+    // RMS_NORM -> MUL(gain): one aclnnRmsNorm with the real gamma
+    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
+        ggml_tensor * rms_node = cgraph->nodes[node_idx];
+        ggml_tensor * mul_node = cgraph->nodes[node_idx + 1];
+        return mul_node->src[0] == rms_node && ggml_cann_row_vec_src(mul_node) != nullptr;
     }
 
     // CANN backend supports fusing ADD + RMS_NORM operations
@@ -2407,6 +2437,16 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
         for (int i = 0; i < cgraph->n_nodes; i++) {
             ggml_tensor * node = cgraph->nodes[i];
             if (opt_fusion) {
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_NORM, GGML_OP_MUL, GGML_OP_ADD })) {
+                    ggml_cann_op_norm_affine_fused(*cann_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
+                    i += 2;
+                    continue;
+                }
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL })) {
+                    ggml_cann_op_rms_norm_affine_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
+                    i += 1;
+                    continue;
+                }
                 if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_ADD, GGML_OP_RMS_NORM })) {
                     ggml_cann_op_add_rms_norm_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
                     i++;
@@ -2618,6 +2658,22 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
 
     bool graph_capture_required = false;
 #ifdef USE_ACL_GRAPH
+    // One-shot per-distinct-size op histogram: shows what each graph is made of
+    // (decode / talker / vision), for fusion candidate hunting.
+    static bool ops_dbg  = std::getenv("OMNI_GRAPH_OPS_DBG") != nullptr;
+    static std::mutex ops_dbg_mu;
+    static std::set<int> ops_dbg_seen;
+    if (ops_dbg) {
+        std::lock_guard<std::mutex> lk(ops_dbg_mu);
+        if (ops_dbg_seen.insert(cgraph->n_nodes).second) {
+            std::map<ggml_op, int> hist;
+            for (int i = 0; i < cgraph->n_nodes; i++) hist[cgraph->nodes[i]->op]++;
+            fprintf(stderr, "[graphops] nodes=%d:", cgraph->n_nodes);
+            for (auto & kv : hist) fprintf(stderr, " %s=%d", ggml_op_name(kv.first), kv.second);
+            fprintf(stderr, "\n");
+            fflush(stderr);
+        }
+    }
     bool use_cann_graph = true;
 
     static bool prefill_use_graph = parse_bool(get_env_as_lowercase("GGML_CANN_PREFILL_USE_GRAPH").value_or(""));
@@ -2684,6 +2740,19 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
                 if (node->op == GGML_OP_ROPE) {
                     ggml_cann_rope_cache_preload(*cann_ctx, node);
                     break;
+                }
+            }
+
+            // Same constraint applies to the norm-affine weight cache: the F16
+            // gain/bias F32 copies must be allocated (and cast on-device)
+            // before capture begins.
+            static bool opt_fusion_pre = parse_bool(get_env_as_lowercase("GGML_CANN_OPERATOR_FUSION").value_or(""));
+            if (opt_fusion_pre) {
+                for (int i = 0; i < cgraph->n_nodes; i++) {
+                    ggml_tensor * node = cgraph->nodes[i];
+                    if (node->op == GGML_OP_MUL || node->op == GGML_OP_ADD) {
+                        ggml_cann_preload_norm_weight(*cann_ctx, ggml_cann_row_vec_src(node));
+                    }
                 }
             }
         }

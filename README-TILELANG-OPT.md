@@ -204,3 +204,26 @@ msprof trace(--runtime-api) 定案 host 大头（每 encode ~1400 kernel launch�
 RTS 交错 4×4: RTF 0.9082→0.8931(对内 2-2 噪声主导), SPEAK→wav wall 955.7→930.9ms
 (3/4 对更优, −2.6%)。**小幅正向 + 零精度风险**。残留 host 税: 每 encode 的 ggml 图构建
 + sched 分配(~1100 节点) 与预处理(bicubic/JPEG), 治本需图复用重构。
+
+## LayerNorm/RMSNorm 仿射融合 — ✅ RTF −8.5%（2026-08-18 晚, task #30）
+
+图算子直方图探针（OMNI_GRAPH_OPS_DBG）定下未融合簇后，把树内 GGML_CANN_OPERATOR_FUSION
+从 {ADD+RMS_NORM} 扩展出两个带真实仿射参数的模式：
+- **{NORM→MUL(gain)→ADD(bias)} → 单次 aclnnLayerNorm(x, gamma, beta)**: ViT 58 位点/encode
+  + APM 49 + flow 图部分（msprof 实证 Mul 计数 1032→348，Add −700）；
+- **{RMS_NORM→MUL(gain)} → 单次 aclnnRmsNorm(x, gamma)**: prefill 图 143 位点。
+
+工程要点：
+- 权重 F16→F32 一次性缓存（按 device 指针键），**设备侧 aclnnCast 转换**（capture 安全，
+  无 host memcpy），但 aclrtMalloc 必须在 capture 外 → 学 rope_cache_preload 在
+  aclmdlRICaptureBegin 前全图预热 row-vector MUL/ADD 操作数。
+- ⚠️ 数值非 bit 级（cos 0.9999886，个别元素经非线性放大到 |Δ|0.34）——与上午三连的
+  bit 级不同，**提交前必须全量 Daily/videomme 重验**（smoke n=2 无统计力: Daily 1/2,
+  videomme 0/2 与往轮持平; WER 4.545% 逐位同, TTS 路径不受影响）。
+- ⚠️ 探针教训：smoke/eval 期间不要并行跑其它 NPU/CPU 任务——本轮一次 0.9817 的"回归"
+  是并行 llama-completion 的 CPU 争抢假象，清场后 2×2 完全分离（ON 全 <0.86）。
+
+收益（清场 2×2 交错）: RTF 0.9272/0.9568 → **0.8553/0.8539**, SPEAK→wav 985.7/983.0 →
+902.1/900.2 (−84ms)。构成: prefill +9% t/s (955→1097, 2/2) + ViT Mul −66% + flow
+NORM 融合（t2w 在 RTF 分子内，eager 图 508 处）。
+累计: 1.084 → 1.043 → 0.998 → 0.911 → **~0.855**（官方基线 1.087, 现低 ~21%）。

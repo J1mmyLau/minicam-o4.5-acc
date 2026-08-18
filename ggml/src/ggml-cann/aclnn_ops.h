@@ -973,6 +973,20 @@ void ggml_cann_mul_mat_id(ggml_backend_cann_context & ctx, ggml_tensor * dst);
  * @param rms_norm_tensor The RMS_NORM operation node, contains the gamma weights
  *                        and epsilon parameter.
  */
+void ggml_cann_op_norm_affine_fused(ggml_backend_cann_context & ctx,
+                                    ggml_tensor *                norm_node,
+                                    ggml_tensor *                mul_node,
+                                    ggml_tensor *                add_node);
+
+void ggml_cann_op_rms_norm_affine_fused(ggml_backend_cann_context & ctx,
+                                        ggml_tensor *                rms_norm_node,
+                                        ggml_tensor *                mul_node);
+
+// Convert a row-vector norm weight (F16 or F32) to a cached F32 device buffer.
+// Must be called outside ACL graph capture (allocates); see the pre-capture
+// preload in ggml_backend_cann_graph_compute.
+void ggml_cann_preload_norm_weight(ggml_backend_cann_context & ctx, ggml_tensor * w);
+
 void ggml_cann_op_add_rms_norm_fused(ggml_backend_cann_context & ctx,
                                      ggml_tensor *               add_node,
                                      ggml_tensor *               rms_norm_node);

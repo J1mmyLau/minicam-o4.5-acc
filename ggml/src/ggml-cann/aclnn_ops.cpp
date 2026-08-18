@@ -5074,6 +5074,101 @@ void ggml_cann_ssm_conv(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
                             groups, acl_y.get(), cubeMathType);
 }
 
+// ── Norm-affine weight cache ──
+// One-time F32 device copy of a row-vector norm gain/bias. Weights are static
+// tensors with stable device addresses, so key by data pointer. Conversion runs
+// on-device via aclnnCast (capture-safe: no host memcpy), but the aclrtMalloc
+// still must not happen under capture — graph_compute preloads all row-vector
+// MUL/ADD operands right before aclmdlRICaptureBegin.
+struct norm_weight_f32_entry {
+    void *  dev = nullptr;
+    int64_t n   = 0;
+};
+static std::mutex                                          g_norm_w_mu;
+static std::unordered_map<const void *, norm_weight_f32_entry> g_norm_w_cache;
+
+static acl_tensor_ptr norm_weight_acl_f32(ggml_backend_cann_context & ctx, ggml_tensor * w) {
+    const int64_t n = w->ne[0];
+    void *        dev = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_norm_w_mu);
+        auto it = g_norm_w_cache.find(w->data);
+        if (it == g_norm_w_cache.end() || it->second.n != n) {
+            norm_weight_f32_entry e;
+            e.n = n;
+            ACL_CHECK(aclrtMalloc(&e.dev, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST));
+            int64_t ne[1] = { n };
+            size_t  wnb[1] = { (size_t) ggml_type_size(w->type) };
+            size_t  nb[1]  = { sizeof(float) };
+            acl_tensor_ptr src = ggml_cann_create_tensor(
+                w->data, ggml_cann_type_mapping(w->type), ggml_type_size(w->type), ne, wnb, 1);
+            acl_tensor_ptr dst = ggml_cann_create_tensor(e.dev, ACL_FLOAT, sizeof(float), ne, nb, 1);
+            aclnn_cast(ctx, src.get(), dst.get(), ACL_FLOAT);
+            it = g_norm_w_cache.emplace(w->data, e).first;
+        }
+        dev = it->second.dev;
+    }
+    int64_t ne[1] = { n };
+    size_t  nb[1] = { sizeof(float) };
+    return ggml_cann_create_tensor(dev, ACL_FLOAT, sizeof(float), ne, nb, 1);
+}
+
+void ggml_cann_preload_norm_weight(ggml_backend_cann_context & ctx, ggml_tensor * w) {
+    if (w == nullptr || w->data == nullptr) return;
+    if (w->type != GGML_TYPE_F16 && w->type != GGML_TYPE_F32) return;
+    if (!(w->ne[1] == 1 && w->ne[2] == 1 && w->ne[3] == 1)) return;
+    norm_weight_acl_f32(ctx, w);
+}
+
+// NORM -> MUL(gain) -> ADD(bias): one aclnnLayerNorm with the real affine params.
+// Replaces three kernels (and their intermediate memory passes) per norm site.
+void ggml_cann_op_norm_affine_fused(ggml_backend_cann_context & ctx,
+                                    ggml_tensor *                norm_node,
+                                    ggml_tensor *                mul_node,
+                                    ggml_tensor *                add_node) {
+    ggml_tensor * x = norm_node->src[0];
+
+    float eps;
+    memcpy(&eps, norm_node->op_params, sizeof(float));
+
+    acl_tensor_ptr acl_x   = ggml_cann_create_tensor(x);
+    acl_tensor_ptr acl_g   = norm_weight_acl_f32(ctx, mul_node->src[1]);
+    acl_tensor_ptr acl_b   = norm_weight_acl_f32(ctx, add_node->src[1]);
+    acl_tensor_ptr acl_out = ggml_cann_create_tensor(add_node);
+
+    std::vector<int64_t> norm_shape = { x->ne[0] };
+    acl_int_array_ptr    norm       = ggml_cann_create_int_array(norm_shape.data(), norm_shape.size());
+    GGML_CANN_CALL_ACLNN_OP(ctx, LayerNorm, acl_x.get(), norm.get(), acl_g.get(), acl_b.get(), eps, acl_out.get(),
+                            nullptr, nullptr);
+}
+
+// RMS_NORM -> MUL(gain): one aclnnRmsNorm with the real gamma.
+void ggml_cann_op_rms_norm_affine_fused(ggml_backend_cann_context & ctx,
+                                        ggml_tensor *                rms_norm_node,
+                                        ggml_tensor *                mul_node) {
+    ggml_tensor * x = rms_norm_node->src[0];
+
+    float eps;
+    memcpy(&eps, rms_norm_node->op_params, sizeof(float));
+
+    acl_tensor_ptr acl_x   = ggml_cann_create_tensor(x);
+    acl_tensor_ptr acl_g   = norm_weight_acl_f32(ctx, mul_node->src[1]);
+    acl_tensor_ptr acl_out = ggml_cann_create_tensor(mul_node); // write the MUL output directly
+
+    // rstd scratch, same contract as ggml_cann_rms_norm
+    size_t acl_rstd_nb[GGML_MAX_DIMS];
+    int64_t rstd_ne[3] = { x->ne[1], x->ne[2], x->ne[3] };
+    acl_rstd_nb[0]     = sizeof(float);
+    for (int i = 1; i < GGML_MAX_DIMS - 1; i++) {
+        acl_rstd_nb[i] = acl_rstd_nb[i - 1] * rstd_ne[i - 1];
+    }
+    acl_tensor_ptr acl_rstd = get_cache_acl_tensor(ctx, &ctx.rms_norm_zero_tensor_cache.cache,
+                                                   ctx.rms_norm_zero_tensor_cache.size, rstd_ne, acl_rstd_nb,
+                                                   GGML_TYPE_F32, GGML_MAX_DIMS - 1, 0.0f);
+
+    GGML_CANN_CALL_ACLNN_OP(ctx, RmsNorm, acl_x.get(), acl_g.get(), eps, acl_out.get(), acl_rstd.get());
+}
+
 void ggml_cann_op_add_rms_norm_fused(ggml_backend_cann_context & ctx,
                                      ggml_tensor *               add_node,
                                      ggml_tensor *               rms_norm_node) {
