@@ -165,3 +165,42 @@ in-situ 全景（9135ms device / 37 chunks）: MatMulV2 26.7% + **Cast 19.9%**�
 **下一刀候选（按 ROI）**: ① F16 激活化（吃 Cast 全税 + GEMM 2-3×, device −40% 潜力,
 需全量精度重验）; ② host 税结构治理（VPM 双流范式推广到 prefill/decode/t2w 段）;
 ③ flow CFM 融合（t2w 尾巴 111ms/窗）。
+
+## F16 激活化 — ❌ 全线负结果（2026-08-18, task #28）
+
+假设: in-situ Cast 19.9% + GEMM 微基准 F16 2-3× → F16 激活能吃双税。实测三层否决:
+
+1. **ViT 图级 cast（OMNI_VPM_F16）**: 图内 ln 输出 cast 成 F16 喂 matmul → **wall +9%**。
+   BMM(F16,F16)→F32 dst 反而慢 25%, 4-D aclnnMatmul F16 scratch 直接 aivec 崩(MTE 越界)。
+2. **aclnnMm 纯 F16 scratch 快路径**: 最小隔离测试全对(含列主序/真实 shape, maxrel 5e-4),
+   但集成层把 **stock 图里本来就有的 F16×F16（patch conv 的 im2col 输出）也吞了并产出错误
+   数据(cosine 0.65)**; 修门控后 ViT 仍慢。**GGUF 里 bias/norm 全是 F32, F16 只有 2-D 线性权重**。
+3. **主模型 mixed 路径(GGML_CANN_F16_MM=1)**: F32 act →F16 cast + 纯 F16 Mm + dst cast:
+   tg 17.5→17.6ms/token **持平**。ACL 的混合精度处理已近最优; torch 微基准差距不落此路径。
+
+结论: 196K Cast 的真实来源是 ACL 对每个 Mm 的内部处理, 显式化不省钱; 该方向关闭。
+代码保留 env 门控默认 OFF(GGML_CANN_F16_MM / OMNI_VPM_F16), stock 路径 bit 级验证
+(rms 0.931691 逐位同)。⚠️ 崩溃会毒化 die(aivec), 后续同 die 全崩——遇怪错先查僵尸进程。
+
+## VPM host 启动税三连 — ✅ 全 bit 级一致（2026-08-18, task #29）
+
+msprof trace(--runtime-api) 定案 host 大头（每 encode ~1400 kernel launch）:
+- **aclnnIm2col host 阻塞 22.5ms/次**(此 CANN 是 host 实现) + 511 次 memcpy;
+- launch 18270 次×6.6µs; 58 次 SyncStream;
+- **根因: USE_ACL_GRAPH 是 CMake 选项且本构建 OFF** → capture 机制整个被编译掉,
+  GGML_CANN_ACL_GRAPH env 一直无效(此前 on/off 的 9ms 差是噪声)。
+
+三项修复(全部逐位一致):
+1. **OMNI_VPM_PATCHMM=1**: patch conv(k=s=14 无 pad) = reshape+matmul。host 预处理顺手
+   提取 patch(替换原 HWC→CHW deinterleave, 零额外内存流量), 图内 conv→mul_mat,
+   还省掉 transpose+cont 两个节点。embedding dump **bit 级一致**。
+2. **-DUSE_ACL_GRAPH=ON 重新编译** + `GGML_CANN_GRAPH_MAX_NODES=4000`(flow 11740 节点
+   排除——Phase 7 已证 capture 对 flow 负)。ViT 图 931 节点 1 次 CAPTURE 后全程 REPLAY,
+   launch 18214→1301(只剩捕获那一次); 输出 bit 级一致。主模型 decode 图(1120 节点,
+   canonical KV 使形状逐 token 不变)也 REPLAY——但 tg 持平(decode 非 launch-bound)。
+   LRU 匹配按每节点 data 地址, vision 每 encode 重建图但 sched 分配确定性 → 命中。
+3. **GGML_CANN_OPERATOR_FUSION=1**(树内已有 ADD+RMS_NORM/ADD+NORM 融合): bench −2~5ms。
+
+RTS 交错 4×4: RTF 0.9082→0.8931(对内 2-2 噪声主导), SPEAK→wav wall 955.7→930.9ms
+(3/4 对更优, −2.6%)。**小幅正向 + 零精度风险**。残留 host 税: 每 encode 的 ggml 图构建
++ sched 分配(~1100 节点) 与预处理(bicubic/JPEG), 治本需图复用重构。

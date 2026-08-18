@@ -2646,8 +2646,15 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
     if (use_cann_graph) {
         static int graph_min_nodes =
             parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MIN_NODES").value_or("100"));
+        // Upper bound: the t2w flow graph (~11.7k nodes) measured NEGATIVE under
+        // capture (Phase 7: capture tail + CPU vocoder contention). Default fences
+        // capture to medium graphs (ViT ~0.9k nodes, main-model decode ~1.1k);
+        // set GGML_CANN_GRAPH_MAX_NODES=0 to disable the fence.
+        static int graph_max_nodes =
+            parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MAX_NODES").value_or("4000"));
 
-        if (cgraph->n_nodes < graph_min_nodes) {
+        if (cgraph->n_nodes < graph_min_nodes ||
+            (graph_max_nodes > 0 && cgraph->n_nodes > graph_max_nodes)) {
             use_cann_graph = false;
         }
     }
@@ -2655,6 +2662,12 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
     if (use_cann_graph) {
         // If no matching graph is found, the graph needs to be recaptured.
         graph_capture_required = !cann_ctx->graph_lru_cache.find_and_move_to_front(cgraph);
+        static bool g_dbg = std::getenv("OMNI_ACLGRAPH_DBG") != nullptr;
+        if (g_dbg) {
+            fprintf(stderr, "[aclgraph] dev=%d nodes=%d %s (cache=%zu)\n", cann_ctx->device, cgraph->n_nodes,
+                    graph_capture_required ? "CAPTURE" : "REPLAY", cann_ctx->graph_lru_cache.cache_list.size());
+            fflush(stderr);
+        }
 
         if (graph_capture_required) {
             // If no matching graph is found, add a new ACL graph.

@@ -31,7 +31,11 @@ string(REGEX MATCH "[0-9]+[a-zA-Z]" SOC_TYPE_MAJOR_SN "${SOC_VERSION}")
 set(SOC_TYPE_COMPILE_OPTION "ASCEND_${SOC_TYPE_MAJOR_SN}")
 string(TOUPPER ${SOC_TYPE_COMPILE_OPTION} SOC_TYPE_COMPILE_OPTION)
 message(STATUS "CANN: SOC_VERSION =  ${SOC_VERSION}")
-option(USE_ACL_GRAPH "Enable CANN graph execution (ACL graph mode)" OFF)
+# ON by default in this tree (perf/tilelang-bridge): ACL graph capture removes the
+# ~1400-launch host tax per ViT encode (bit-identical outputs, launches 18k -> 1.3k).
+# The runtime fence GGML_CANN_GRAPH_MAX_NODES (default 4000) keeps the t2w flow graph
+# (~11.7k nodes, measured NEGATIVE under capture in Phase 7) in eager mode.
+option(USE_ACL_GRAPH "Enable CANN graph execution (ACL graph mode)" ON)
 
 if(USE_ACL_GRAPH AND (SOC_TYPE_MAJOR_SN STREQUAL "310P" OR SOC_TYPE_COMPILE_OPTION STREQUAL "ASCEND_310P"))
     message(FATAL_ERROR

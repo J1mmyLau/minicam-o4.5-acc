@@ -2155,13 +2155,97 @@ static void ggml_cann_mat_mul_fp(ggml_backend_cann_context & ctx, ggml_tensor * 
     }
     acl_tensor_ptr acl_dst = ggml_cann_create_tensor(dst, bcast_dst_ne, bcast_dst_nb, n_dims);
 
+    // F16 fast path. msprof on 910C shows aclnnMm with an F32-out and F16 operands
+    // upcasts BOTH inputs to F32 internally: exactly 2 Cast kernels per MatMulV2 and
+    // cube math at F32 rate (F16 cube is ~2x faster). Two cases:
+    //  1) pure F16 (act + weight already F16): compute into an F16 scratch and
+    //     downcast once to the F32 dst. Fires only when the graph author narrowed
+    //     the activation (e.g. OMNI_VPM_F16), never changes default behavior.
+    //  2) mixed F32 act x F16 weight: opt-in via GGML_CANN_F16_MM=1 — narrow the act
+    //     to an F16 scratch first (numerics change: F16 activation), then pure path.
+    static bool f16_mm_mixed = parse_bool(get_env_as_lowercase("GGML_CANN_F16_MM").value_or("off"));
+    // Fully opt-in (both arms): stock graphs already contain F16xF16 mul_mats
+    // (patch-conv im2col), and this fast path garbles those strided ops.
+    // 2-D only: the batched (3/4-D) aclnnMatmul path crashed on an F16 scratch
+    // (aivec MTE out-of-range) and F16 batched matmul measured slower anyway.
+    const bool pure_f16 = f16_mm_mixed && n_dims == 2 && input->type == GGML_TYPE_F16 &&
+                          weight->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F32 && !weight_to_nz;
+    const bool mixed_f16 = f16_mm_mixed && input->type == GGML_TYPE_F32 && weight->type == GGML_TYPE_F16 &&
+                           dst->type == GGML_TYPE_F32 && !weight_to_nz && n_dims == 2 &&
+                           input->ne[0] == bcast_input_ne[0] && input->ne[1] == bcast_input_ne[1] &&
+                           input->ne[2] == bcast_input_ne[2] && input->ne[3] == bcast_input_ne[3];
+
+    ggml_cann_pool_alloc scratch_alloc;
+    acl_tensor_ptr       acl_in_f16;
+    acl_tensor_ptr       acl_dst_f16;
+
+    // Dedicated grow-only scratch (NOT the sched pool): pool blocks can be handed to
+    // the next op's workspace before the async Mm/Cast kernels retire.
+    static void *  g_f16_buf  = nullptr;
+    static size_t  g_f16_size = 0;
+    auto f16_scratch = [&](size_t bytes) -> void * {
+        if (g_f16_size < bytes) {
+            if (g_f16_buf) aclrtFree(g_f16_buf);
+            size_t grow = std::max(bytes, g_f16_size * 2);
+            ACL_CHECK(aclrtMalloc(&g_f16_buf, grow, ACL_MEM_MALLOC_HUGE_FIRST));
+            g_f16_size = grow;
+        }
+        return g_f16_buf;
+    };
+
+    if (pure_f16 || mixed_f16) {
+        if (mixed_f16) {
+            // narrow the F32 activation to F16 once
+            void * in16 = f16_scratch(ggml_nelements(input) * sizeof(ggml_fp16_t) +
+                                      ggml_nelements(dst) * sizeof(ggml_fp16_t));
+            int64_t in_ne[] = { input->ne[0], input->ne[1] };
+            size_t  in_nb[] = { sizeof(ggml_fp16_t), (size_t) input->ne[0] * sizeof(ggml_fp16_t) };
+            acl_in_f16 = ggml_cann_create_tensor(
+                in16, ggml_cann_type_mapping(GGML_TYPE_F16), sizeof(ggml_fp16_t), in_ne, in_nb, 2);
+            acl_tensor_ptr acl_in = ggml_cann_create_tensor(input, bcast_input_ne, bcast_input_nb, 2);
+            GGML_CANN_CALL_ACLNN_OP(
+                ctx, Cast, acl_in.get(), ggml_cann_type_mapping(GGML_TYPE_F16), acl_in_f16.get());
+        }
+
+        // F16 output scratch shaped like dst, then one downcast to the F32 dst
+        // (mixed: placed after the in16 region so Mm never reads/writes the same block)
+        size_t in_bytes = mixed_f16 ? ggml_nelements(input) * sizeof(ggml_fp16_t) : 0;
+        void * out16    = (char *) f16_scratch(in_bytes + ggml_nelements(dst) * sizeof(ggml_fp16_t)) + in_bytes;
+        int64_t out_ne[GGML_MAX_DIMS * 2];
+        size_t  out_nb[GGML_MAX_DIMS * 2];
+        for (int i = 0; i < n_dims; i++) {
+            out_ne[i] = bcast_dst_ne[i];
+            out_nb[i] = i == 0 ? sizeof(ggml_fp16_t) : out_nb[i - 1] * bcast_dst_ne[i - 1] * sizeof(ggml_fp16_t);
+        }
+        acl_dst_f16 = ggml_cann_create_tensor(
+            out16, ggml_cann_type_mapping(GGML_TYPE_F16), sizeof(ggml_fp16_t), out_ne, out_nb, n_dims);
+    }
+
+    aclTensor * mm_in  = pure_f16 ? acl_input_tensor.get() : (mixed_f16 ? acl_in_f16.get() : acl_input_tensor.get());
+    aclTensor * mm_out = pure_f16 || mixed_f16 ? acl_dst_f16.get() : acl_dst.get();
+
+    static bool f16dbg = std::getenv("OMNI_F16MM_DBG") != nullptr;
+    if (f16dbg && (pure_f16 || mixed_f16)) {
+        fprintf(stderr, "[f16mm] n_dims=%d pure=%d mixed=%d in=%d w=%d dst=%d in_ne=[%ld,%ld,%ld,%ld] w_ne=[%ld,%ld,%ld,%ld] dst_ne=[%ld,%ld,%ld,%ld] bcast_in=[%ld,%ld] bcast_dst=[%ld,%ld]\n",
+                n_dims, pure_f16, mixed_f16, input->type, weight->type, dst->type,
+                (long)input->ne[0], (long)input->ne[1], (long)input->ne[2], (long)input->ne[3],
+                (long)weight->ne[0], (long)weight->ne[1], (long)weight->ne[2], (long)weight->ne[3],
+                (long)dst->ne[0], (long)dst->ne[1], (long)dst->ne[2], (long)dst->ne[3],
+                (long)bcast_input_ne[0], (long)bcast_input_ne[1],
+                (long)bcast_dst_ne[0], (long)bcast_dst_ne[1]);
+        fflush(stderr);
+    }
+
+    static int8_t f16mm_cube = ([]() -> int8_t {
+        auto v = get_env_as_lowercase("F16MM_CUBE");
+        return v.has_value() ? (int8_t) std::stoi(v.value()) : (int8_t) 2;
+    })();
     switch (n_dims) {
         case 2:
-            GGML_CANN_CALL_ACLNN_OP(ctx, Mm, acl_input_tensor.get(), acl_weight_tensor.get(), acl_dst.get(), 2);
+            GGML_CANN_CALL_ACLNN_OP(ctx, Mm, mm_in, acl_weight_tensor.get(), mm_out, f16mm_cube);
             break;
         case 3:
-            GGML_CANN_CALL_ACLNN_OP(ctx, BatchMatMul, acl_input_tensor.get(), acl_weight_tensor.get(), acl_dst.get(),
-                                    2);
+            GGML_CANN_CALL_ACLNN_OP(ctx, BatchMatMul, mm_in, acl_weight_tensor.get(), mm_out, 2);
             break;
         default:
             // F004: cubeMathType controls Cube precision mode.
@@ -2170,8 +2254,15 @@ static void ggml_cann_mat_mul_fp(ggml_backend_cann_context & ctx, ggml_tensor * 
                 auto v = get_env_as_lowercase("F004_MATMUL_CUBE_MATH");
                 return v.has_value() ? (int8_t)std::stoi(v.value()) : 1;
             })();
-            GGML_CANN_CALL_ACLNN_OP(ctx, Matmul, acl_input_tensor.get(), acl_weight_tensor.get(), acl_dst.get(), f004_cube_math);
+            GGML_CANN_CALL_ACLNN_OP(ctx, Matmul, mm_in, acl_weight_tensor.get(), mm_out, f004_cube_math);
             break;
+    }
+
+    if (pure_f16 || mixed_f16) {
+        if (f16dbg) { fprintf(stderr, "[f16mm] tail cast -> F32 dst\n"); fflush(stderr); }
+        GGML_CANN_CALL_ACLNN_OP(
+            ctx, Cast, acl_dst_f16.get(), ggml_cann_type_mapping(GGML_TYPE_F32), acl_dst.get());
+        if (f16dbg) { fprintf(stderr, "[f16mm] tail cast done\n"); fflush(stderr); }
     }
 }
 

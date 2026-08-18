@@ -298,6 +298,26 @@ struct vision_graph {
     ggml_context * ctx0;
     ggml_cgraph * gf;
 
+    // OMNI_VPM_F16=1: feed matmul inputs as F16 so aclnnMm/BatchMatMul take the
+    // pure-F16 path instead of ACL casting F32 activations per call (in-situ msprof:
+    // Cast = 19.9% of device time). mul_mat dst stays F32, so norm/add/softmax keep
+    // full precision; only the operands crossing into cube units are narrowed.
+    bool act_f16 = false;
+
+    // OMNI_VPM_PATCHMM=1: patch-embedding conv (kernel==stride==patch_size, no pad)
+    // is algebraically a reshape + matmul. msprof shows aclnnIm2col on this CANN is
+    // a host-blocking implementation (~22.5ms per call) that also defeats ACL graph
+    // capture (~1400 kernel launches per encode). Extract patches on the host during
+    // the existing HWC->CHW deinterleave (same memory traffic) and express the embed
+    // as mul_mat, which lands as one fast 2-D GEMM and drops the im2col + transpose
+    // + cont chain entirely.
+    bool patch_mm = false;
+
+    // cast a matmul operand to F16 when the flag is on (no-op otherwise)
+    ggml_tensor * f16(ggml_tensor * t) const {
+        return act_f16 && t->type == GGML_TYPE_F32 ? ggml_cast(ctx0, t, GGML_TYPE_F16) : t;
+    }
+
     vision_graph(vision_ctx * ctx, const vision_image_f32 & img, int batch_size = 1) :
             ctx(ctx),
             model(ctx->model),
@@ -322,6 +342,9 @@ struct vision_graph {
         ctx0_ptr.reset(ggml_init(params));
         ctx0 = ctx0_ptr.get();
         gf = ggml_new_graph_custom(ctx0, ctx->max_nodes, false);
+        act_f16  = std::getenv("OMNI_VPM_F16") != nullptr;
+        patch_mm = std::getenv("OMNI_VPM_PATCHMM") != nullptr && batch_size == 1 &&
+                   img.nx % patch_size == 0 && img.ny % patch_size == 0;
     }
 
     ggml_cgraph * build_minicpmv() {
@@ -353,7 +376,7 @@ struct vision_graph {
         // resampler projector (it is just another transformer)
 
         ggml_tensor * q = model.mm_model_query;
-        ggml_tensor * v = ggml_mul_mat(ctx0, model.mm_model_kv_proj, embeddings);
+        ggml_tensor * v = ggml_mul_mat(ctx0, model.mm_model_kv_proj, f16(embeddings));
 
         // norm
         q = build_norm(q, model.mm_model_ln_q_w, model.mm_model_ln_q_b, NORM_TYPE_NORMAL, eps, -1);
@@ -369,13 +392,13 @@ struct vision_graph {
             int n_head = n_embd/d_head;
             int num_query = ctx->model.hparams.minicpmv_query_num;
             ggml_tensor * Q = ggml_add(ctx0,
-                ggml_mul_mat(ctx0, model.mm_model_attn_q_w, q),
+                ggml_mul_mat(ctx0, model.mm_model_attn_q_w, f16(q)),
                 model.mm_model_attn_q_b);
             ggml_tensor * K = ggml_add(ctx0,
-                ggml_mul_mat(ctx0, model.mm_model_attn_k_w, k),
+                ggml_mul_mat(ctx0, model.mm_model_attn_k_w, f16(k)),
                 model.mm_model_attn_k_b);
             ggml_tensor * V = ggml_add(ctx0,
-                ggml_mul_mat(ctx0, model.mm_model_attn_v_w, v),
+                ggml_mul_mat(ctx0, model.mm_model_attn_v_w, f16(v)),
                 model.mm_model_attn_v_b);
 
             Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_query);
@@ -406,7 +429,7 @@ struct vision_graph {
         embeddings = build_norm(embeddings, model.mm_model_ln_post_w, model.mm_model_ln_post_b, NORM_TYPE_NORMAL, eps, -1);
 
         // projection
-        embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, embeddings);
+        embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, f16(embeddings));
 
         // build the graph
         ggml_build_forward_expand(gf, embeddings);
@@ -763,17 +786,19 @@ private:
 
             // self-attention
             {
-                ggml_tensor * Qcur = ggml_mul_mat(ctx0, layer.q_w, cur);
+                // one shared F16 cast feeds q/k/v projections
+                ggml_tensor * cur16 = f16(cur);
+                ggml_tensor * Qcur = ggml_mul_mat(ctx0, layer.q_w, cur16);
                 if (layer.q_b) {
                     Qcur = ggml_add(ctx0, Qcur, layer.q_b);
                 }
 
-                ggml_tensor * Kcur = ggml_mul_mat(ctx0, layer.k_w, cur);
+                ggml_tensor * Kcur = ggml_mul_mat(ctx0, layer.k_w, cur16);
                 if (layer.k_b) {
                     Kcur = ggml_add(ctx0, Kcur, layer.k_b);
                 }
 
-                ggml_tensor * Vcur = ggml_mul_mat(ctx0, layer.v_w, cur);
+                ggml_tensor * Vcur = ggml_mul_mat(ctx0, layer.v_w, cur16);
                 if (layer.v_b) {
                     Vcur = ggml_add(ctx0, Vcur, layer.v_b);
                 }
@@ -861,6 +886,21 @@ private:
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches] (batch=1) or [n_embd, n_patches, batch_size] (batch>1)
     ggml_tensor * build_inp() {
+        if (patch_mm) {
+            // host-extracted patches as graph input: [patch_size*patch_size*3, n_patches],
+            // K order (kw + ps*kh + ps*ps*c) matches the flattened conv weight.
+            const int64_t k_dim = (int64_t) patch_size * patch_size * 3;
+            ggml_tensor * patches = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, k_dim, n_patches);
+            ggml_set_name(patches, "inp_raw"); // reuse the input plumbing under this name
+            ggml_set_input(patches);
+            ggml_tensor * w2d = ggml_reshape_2d(ctx0, model.patch_embeddings, k_dim, n_embd);
+            ggml_tensor * inp = ggml_mul_mat(ctx0, w2d, patches); // -> [n_embd, n_patches]
+            if (model.patch_bias) {
+                inp = ggml_add(ctx0, inp, model.patch_bias);
+                cb(inp, "patch_bias", -1);
+            }
+            return inp;
+        }
         ggml_tensor * inp_raw = build_inp_raw();
         ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
         if (batch_size > 1) {
@@ -929,7 +969,7 @@ private:
             ffn_op_type type_op,
             int il) const {
 
-        ggml_tensor * tmp = up ? ggml_mul_mat(ctx0, up, cur) : cur;
+        ggml_tensor * tmp = up ? ggml_mul_mat(ctx0, up, f16(cur)) : cur;
         cb(tmp, "ffn_up", il);
 
         if (up_b) {
@@ -938,7 +978,7 @@ private:
         }
 
         if (gate) {
-            cur = ggml_mul_mat(ctx0, gate, cur);
+            cur = ggml_mul_mat(ctx0, gate, f16(cur));
             cb(cur, "ffn_gate", il);
 
             if (gate_b) {
@@ -986,7 +1026,7 @@ private:
         }
 
         if (down) {
-            cur = ggml_mul_mat(ctx0, down, cur);
+            cur = ggml_mul_mat(ctx0, down, f16(cur));
         }
 
         if (down_b) {
@@ -1009,6 +1049,10 @@ private:
             ggml_tensor * kq_mask,
             float kq_scale,
             int il) const {
+        // NOTE: only the o-projection below is narrowed to F16 (2-D mul_mat fast
+        // path). The batched kq/kqv matmuls stay F32: F16 batched matmul measured
+        // 25% slower and the F16-scratch 4-D aclnnMatmul path is unstable.
+
         // these nodes are added to the graph together so that they are not reordered
         // by doing so, the number of splits in the graph is reduced
         ggml_build_forward_expand(gf, q_cur);
@@ -1053,7 +1097,7 @@ private:
         cb(cur, "kqv_out", il);
 
         if (wo) {
-            cur = ggml_mul_mat(ctx0, wo, cur);
+            cur = ggml_mul_mat(ctx0, wo, f16(cur));
         }
 
         if (wo_b) {
@@ -2447,22 +2491,50 @@ bool vision_image_batch_encode(vision_ctx * ctx, const int n_threads, const visi
         const int nx = imgs.entries[0]->nx;
         const int ny = imgs.entries[0]->ny;
         const int n = nx * ny;
-        std::vector<float> inp_raw(3 * n * batch_size);
 
-        for (int b = 0; b < batch_size; b++) {
-            float * batch_entry = inp_raw.data() + b * (3 * n);
-            for (int y = 0; y < ny; y++) {
-                for (int x = 0; x < nx; x++) {
-                    size_t base_src = 3 * (y * nx + x);
-                    size_t base_dst =      y * nx + x;
-                    batch_entry[          base_dst] = imgs.entries[b]->buf[base_src    ];
-                    batch_entry[1 * n + base_dst]   = imgs.entries[b]->buf[base_src + 1];
-                    batch_entry[2 * n + base_dst]   = imgs.entries[b]->buf[base_src + 2];
+        // patch-matmul path (must mirror vision_graph::patch_mm): extract 14x14x3
+        // patches on host in the conv-weight K order; replaces the HWC->CHW
+        // deinterleave below with the same memory traffic.
+        const bool patch_mm = std::getenv("OMNI_VPM_PATCHMM") != nullptr && batch_size == 1 &&
+                              nx % patch_size == 0 && ny % patch_size == 0;
+        if (patch_mm) {
+            const int  k_dim   = patch_size * patch_size * 3;
+            const int  patches = (nx / patch_size) * (ny / patch_size);
+            std::vector<float> inp_raw((size_t) k_dim * patches);
+            const int pw = nx / patch_size;
+            for (int py = 0; py < ny / patch_size; py++) {
+                for (int px = 0; px < pw; px++) {
+                    const size_t p = (size_t) px + (size_t) pw * py;
+                    for (int c = 0; c < 3; c++) {
+                        for (int kh = 0; kh < patch_size; kh++) {
+                            const float * src = imgs.entries[0]->buf.data() + 3 * ((size_t) (py * patch_size + kh) * nx + (size_t) (px * patch_size)) + c;
+                            float * dst = inp_raw.data() + (size_t) k_dim * p + ((size_t) c * patch_size + kh) * patch_size;
+                            for (int kw = 0; kw < patch_size; kw++) {
+                                dst[kw] = src[3 * kw];
+                            }
+                        }
+                    }
                 }
             }
+            set_input_f32("inp_raw", inp_raw);
+        } else {
+            std::vector<float> inp_raw(3 * n * batch_size);
+
+            for (int b = 0; b < batch_size; b++) {
+                float * batch_entry = inp_raw.data() + b * (3 * n);
+                for (int y = 0; y < ny; y++) {
+                    for (int x = 0; x < nx; x++) {
+                        size_t base_src = 3 * (y * nx + x);
+                        size_t base_dst =      y * nx + x;
+                        batch_entry[          base_dst] = imgs.entries[b]->buf[base_src    ];
+                        batch_entry[1 * n + base_dst]   = imgs.entries[b]->buf[base_src + 1];
+                        batch_entry[2 * n + base_dst]   = imgs.entries[b]->buf[base_src + 2];
+                    }
+                }
+            }
+            set_input_f32("inp_raw", inp_raw);
         }
-        set_input_f32("inp_raw", inp_raw);
-    } 
+    }
 
     // set input per projector
     switch (ctx->model.model_type) {
