@@ -251,3 +251,26 @@ NPU event 计时 + F64 CPU 参考对比：
 大形状带宽 bound 的单算子融合（本回合 LayerNormV3）。两者不可互换。
 其余融合候选复查：ViT bias-ADD(281/encode) 需 4-D aclnnMatmul-with-bias（语义险）；
 flow 的 CONT/PERMUTE/CONCAT 布局链(3600+) = zcat2 已试过负结果(DO_NOT_PROMOTE)。
+
+## TileLang fast-rsqrt 精度修复 — ✅ decode 数值质量免费提升（2026-08-19, task #32）
+
+用户质疑"tilelang 有问题"成立：前轮"平台 ~F16 特性"结论**错误**。二分定位（元素级
+x*g+g 位级精确、reduce 2.4e-7、唯 `T.tile.rsqrt` 3.3e-3）证明：
+**该 fork 的 `T.tile.rsqrt` 是快速近似内建；`1.0/T.tile.sqrt` 组合 = 1.9e-7 全精度。**
+
+修复（T.tile.fill(1.0)+sqrt+div 三连替换全部 rsqrt 位点）：
+- 生产 `norm_row`（2 处）：mean_rel 1.3e-3 → **4.6e-8**；8 个 tlnormrow .so 重建换入
+- 生产 `qknorm_strided`（7 处）：→ **2.3e-8**；44 个 tlqkn 全矩阵重建
+  （aot_qknorm_full.py：H32_R4096/H8_R1024 T1-512 + R6144 r0/r4096 段变体）
+- 实验 ln/rms_affine kernel：2e-3 → 2.2e-7 / 8.7e-8
+
+代价：**零**。decode tg 17.90ms/token（历史带 17.5-18.3 持平）；smoke RC=0
+（WER 4.545% 同，RTS 0.8952）。此前精度门一直能过是因为 decode 链误差被下游吸收——
+此修复把整条 TileLang decode 路径从 2e-3/site 拉到 1e-7/site，与 aclnn 同级。
+
+速度结论不变（aclnn LN 20.8µs ≈ 带宽极限 ~670GB/s；TL 单行每核设计 148µs ≈ 95GB/s，
+非本质但重设计也只能逼近极限）。
+
+版本调查：官方 pip tilelang（0.1.9/0.1.13）**无 NPU 支持**；gitcode 镜像 ascendc_pto
+尖端 2025-11 反而更旧；本地 /tmp 快照即最新（README 含 2026-03 条目）；wheel 在
+GitHub releases（本机不可达）。tilelang-ascend 上游 = tile-ai/tilelang-ascend。
