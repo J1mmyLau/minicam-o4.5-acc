@@ -274,3 +274,27 @@ x*g+g 位级精确、reduce 2.4e-7、唯 `T.tile.rsqrt` 3.3e-3）证明：
 版本调查：官方 pip tilelang（0.1.9/0.1.13）**无 NPU 支持**；gitcode 镜像 ascendc_pto
 尖端 2025-11 反而更旧；本地 /tmp 快照即最新（README 含 2026-03 条目）；wheel 在
 GitHub releases（本机不可达）。tilelang-ascend 上游 = tile-ai/tilelang-ascend。
+
+## Triton-Ascend 实测 — 介于两者之间，精度全对（2026-08-22, task #33）
+
+triton-ascend 3.2.0（华为云镜像 wheel, cp310）+ torch 2.12/torch_npu 2.12 + CANN 9.1-beta。
+同口径三方对比（LN 仿射 1008×1152, F64 参考精度 + NPU event 计时）：
+
+| 后端 | 耗时 | 有效带宽 | mean_rel |
+|---|---|---|---|
+| aclnn (torch/ATB) | 19-31µs | ~450-670GB/s | 1.4e-7 |
+| **Triton-Ascend 3.2.0** | **76µs** | ~185GB/s | **1.3e-7 ✓默认全精度** |
+| TileLang (ascendc_pto) | 148µs | ~96GB/s | 2e-3(rsqrt陷阱,修后2e-7) |
+
+- Triton 比 TileLang **快 2×**、且 `tl.sqrt/tl.sum` 默认 IEEE 全精度（无 fast-math 陷阱）
+- BLOCK 128→2048 全平（76-96µs）——与 TileLang 相同的"平台天花板"签名，非写法问题
+- 仍比 aclnn 慢 2.5-3×（带宽 bound 大形状上 aclnn 就是最优解）
+- ⚠️ 装机坑（本机已打 shim）：① npu_utils.cpp 的 `RT_LIMIT_TYPE_SIMT_WARP_STACK_SIZE`
+  在 9.1 改名 `SIMT_STACK_SIZE`；② torch_npu 2.12 头引用 CANN 9.1 没有的
+  `aclmdlRICondHandle/aclmdlRICondTaskParams` → AclInterface.h 加 void* typedef shim；
+  ③ num_warps 在此后端被忽略（有 WARNING）。清 `~/.triton/cache` 后生效。
+
+**判决维持并加固**：带宽 bound 大形状 → aclnn（无人能敌）；decode launch-bound 链 →
+TileLang（已验证 +25~66%）。Triton-Ascend 定位居中：开发体验最好（纯 python、默认
+全精度），若未来新算子需要快速原型或 TileLang 的 fast-math 陷阱再现时是首选备胎，
+但当前栈无必要引入（需 python runtime 桥接进 C++ server，成本大于收益）。
