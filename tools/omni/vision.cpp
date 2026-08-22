@@ -1,5 +1,6 @@
 #include "omni-impl.h"
 #include "vision.h"
+#include <chrono>
 
 #include "ggml.h"
 #include "ggml-cpp.h"
@@ -2444,9 +2445,24 @@ bool vision_image_batch_encode(vision_ctx * ctx, const int n_threads, const visi
 
     // build the inference graph
     ctx->debug_print_tensors.clear();
+    static bool vpm_dbg = std::getenv("OMNI_VPM_STAGE_DBG") != nullptr;
+    auto _tb = std::chrono::steady_clock::now();
     ggml_backend_sched_reset(ctx->sched.get());
+    auto _tr = std::chrono::steady_clock::now();
     ggml_cgraph * gf = vision_image_build_graph(ctx, imgs);
+    auto _tg = std::chrono::steady_clock::now();
     ggml_backend_sched_alloc_graph(ctx->sched.get(), gf);
+    auto _ta = std::chrono::steady_clock::now();
+    if (vpm_dbg) {
+        static thread_local int vn = 0;
+        if ((vn++ & 7) == 0) {
+            fprintf(stderr, "[vpmstage] reset=%.2f build=%.2f alloc=%.2f\n",
+                    std::chrono::duration<double, std::milli>(_tr - _tb).count(),
+                    std::chrono::duration<double, std::milli>(_tg - _tr).count(),
+                    std::chrono::duration<double, std::milli>(_ta - _tg).count());
+            fflush(stderr);
+        }
+    }
 
     // set inputs
     const auto & model   = ctx->model;
