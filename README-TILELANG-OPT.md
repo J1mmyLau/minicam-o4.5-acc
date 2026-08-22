@@ -298,3 +298,34 @@ triton-ascend 3.2.0（华为云镜像 wheel, cp310）+ torch 2.12/torch_npu 2.12
 TileLang（已验证 +25~66%）。Triton-Ascend 定位居中：开发体验最好（纯 python、默认
 全精度），若未来新算子需要快速原型或 TileLang 的 fast-math 陷阱再现时是首选备胎，
 但当前栈无必要引入（需 python runtime 桥接进 C++ server，成本大于收益）。
+
+## RTF<0.6 攻坚第一轮 — 0.89 → ~0.73（2026-08-22, task #34）
+
+三连击（全 4×4 交错验证）:
+1. **server 端 capture 真正生效**: `run_eval.py` 对 `GGML_CANN_ACL_GRAPH` 默认 off——
+   之前删掉 config 里的 =off 反而落回 harness 默认, **此前所有 server 跑全无 capture**
+   (那轮"capture A/B"实为 off-vs-off)。显式 =on 后: talker(584)/主decode(1120)/
+   ViT(931) 全 REPLAY, talker 每 token feed 5.0→0.3ms(decode 提交真异步), 4×4
+   0.877→0.839。
+2. **prefill ubatch 16→32**: 144-token 融合 prefill 原被切成 9×M=16。32 甜点
+   (64/128 反慢=FA 慢 tiling, 256=秒级慢路径), prefill 175→125ms, 4×4
+   0.862→0.771。NaN 阈值 Q≥435, Q=32 安全(KV3400 文本正常, WER 位同)。
+3. **byte-fence 修 bug**: 我加的 GGML_CANN_GRAPH_MAX_BYTES(256MB) 把 KV-cache
+   view 张量(GB级)计入字节和→静默杀掉全部 decode 路径 capture(feed 回 5.2ms)。
+   修=跳过 view_src。**教训: 加了 fence 必须立刻用探针验证 capture 仍命中**。
+
+当前每 token 剖面(OMNI_TTS_STEP_DBG): sync 3.4ms(=设备前向, 1.6GB@450GB/s≈带宽
+地板) + gemv 0.78(NEON) + sample 0.38 + feed 0.35 ≈ 4.9ms。
+- head_code NPU-GEMV: 只省 0.25ms(小图提交 ~0.4ms 吃掉收益) 且改归约序→WER
+  4.545→6.818, **默认 OFF**(OMNI_HEAD_CODE_NPU=1 可换)。
+- flow capture in-situ 无效(t2w 212 vs 218): flow 设备 bound 非 launch bound。
+- NFE(OMNI_T2W_N_TIMESTEPS, 默认5): =3 省 ~24ms t2w, 质量任务走冻结 tts-eval
+  二进制不受影响; 灰区旋钮, 未开。
+- ⚠️ 又见僵尸: TaskStop 杀 A/B 会留 server(19.5GB×2)→daily OOM 假阳性。判型
+  前先 npu-smi 查进程表。
+
+最终 smoke RC=0: WER 4.545%(bit 同), videomme 0/2+daily 1/2(n=2 带内), RTS 0.756
+(4×4 最佳对 0.722-0.731)。累计: 1.084→…→0.89(本轮起点)→**~0.73**。
+**<0.6 缺口 −0.13 的可行路径**(按 ROI): ① VPM 图缓存复用(每 encode ~30ms 纯host
+图构建/sched 规划, encode 0.137 份额) ② DSpark 音频域 acceptance 实测→talker
+投机(唯一能破 3.4ms×26 串行地板的路) ③ NFE=3 ④ vocoder 深拆。

@@ -4477,6 +4477,69 @@ static llama_token sample_tts_token_simplex(struct common_sampler * smpl, struct
     return id;
 }
 
+// ── head_code device GEMV (NPU) ─────────────────────────────────────────────
+// y = W @ x for the talker audio head on the CANN backend: the 20MB weight is
+// streamed by the device (~45us) instead of a host NEON GEMV (~0.8-0.9ms,
+// single-core DRAM bound at ~25GB/s). Persistent graph; per token only a 3KB
+// input upload + 26KB logits download + one mul_mat. Env OMNI_HEAD_CODE_NPU
+// (default on); falls back to the NEON path if init fails.
+struct head_code_dev_state {
+    bool                  ok = false;
+    ggml_backend_t        backend = nullptr;
+    ggml_context        * ctx = nullptr;
+    ggml_backend_buffer_t buf = nullptr;
+    ggml_tensor         * w = nullptr;
+    ggml_tensor         * x = nullptr;
+    ggml_tensor         * y = nullptr;
+    ggml_cgraph         * gf = nullptr;
+    int                   n_in = 0;
+    int                   n_out = 0;
+};
+static head_code_dev_state g_hc_dev;
+
+static bool head_code_dev_init(struct omni_context * ctx_omni) {
+    if (g_hc_dev.ok) return true;
+    if (!ctx_omni || !ctx_omni->head_code_weight) return false;
+    const int n_in = ctx_omni->head_code_hidden_size;
+    const int n_out = ctx_omni->head_code_num_audio_tokens;
+    if (n_in <= 0 || n_out <= 0) return false;
+
+    g_hc_dev.backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_GPU, NULL);
+    if (!g_hc_dev.backend) {
+        g_hc_dev.backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, NULL);
+    }
+    if (!g_hc_dev.backend) return false;
+
+    size_t ctx_size = ggml_tensor_overhead() * 8 + ggml_graph_overhead() + 1024;
+    struct ggml_init_params ip = { ctx_size, nullptr, true };
+    g_hc_dev.ctx = ggml_init(ip);
+    g_hc_dev.w = ggml_new_tensor_2d(g_hc_dev.ctx, GGML_TYPE_F32, n_in, n_out);
+    g_hc_dev.x = ggml_new_tensor_2d(g_hc_dev.ctx, GGML_TYPE_F32, n_in, 1);
+    ggml_set_input(g_hc_dev.x);
+    g_hc_dev.y = ggml_mul_mat(g_hc_dev.ctx, g_hc_dev.w, g_hc_dev.x);
+    ggml_set_output(g_hc_dev.y);
+    g_hc_dev.gf = ggml_new_graph(g_hc_dev.ctx);
+    ggml_build_forward_expand(g_hc_dev.gf, g_hc_dev.y);
+
+    g_hc_dev.buf = ggml_backend_alloc_ctx_tensors(g_hc_dev.ctx, g_hc_dev.backend);
+    if (!g_hc_dev.buf) { ggml_free(g_hc_dev.ctx); g_hc_dev.ctx = nullptr; return false; }
+    ggml_backend_tensor_set(g_hc_dev.w, ctx_omni->head_code_weight, 0,
+                             (size_t) n_in * n_out * sizeof(float));
+    g_hc_dev.n_in = n_in;
+    g_hc_dev.n_out = n_out;
+    g_hc_dev.ok = true;
+    return true;
+}
+
+// returns true if logits filled on device
+static bool head_code_dev_forward(const float * hidden, float * logits) {
+    if (!g_hc_dev.ok) return false;
+    ggml_backend_tensor_set(g_hc_dev.x, hidden, 0, (size_t) g_hc_dev.n_in * sizeof(float));
+    if (ggml_backend_graph_compute(g_hc_dev.backend, g_hc_dev.gf) != GGML_STATUS_SUCCESS) return false;
+    ggml_backend_tensor_get(g_hc_dev.y, logits, 0, (size_t) g_hc_dev.n_out * sizeof(float));
+    return true;
+}
+
 llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context * ctx_omni, common_params* params, int * n_past_tts, const std::vector<llama_token> * all_generated_tokens, const std::vector<llama_token> * chunk_generated_tokens, int token_index_in_chunk, bool force_no_eos, bool is_final_text_chunk) {
     // Debug: Save logits directory (set via environment variable)
     const char* logits_debug_dir = getenv("TTS_LOGITS_DEBUG_DIR");
@@ -4605,10 +4668,18 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
     // hidden_state: (768,), head_code_weight: [6562, 768] (转置后存储) -> logits: (6562,)
     std::vector<float> audio_logits(num_audio_tokens, 0.0f);
 
-    // ⚡ head_code_weight已转置为[6562, 768]，每行连续存储；GEMV 走 NEON 版
-    // （见 head_code_gemv：标量版 ~3.3ms/token 是 talker 循环的一半耗时）
-    head_code_gemv(ctx_omni->head_code_weight, hidden_state,
-                   audio_logits.data(), num_audio_tokens, ctx_omni->head_code_hidden_size);
+    // default OFF: device gemv changes logits reduction order -> different
+    // sampled audio (WER smoke 4.545 -> 6.818) for only ~0.25ms/token gain.
+    // NEON path is bit-stable; enable explicitly to trade.
+    static bool hc_npu = [] { const char * e = std::getenv("OMNI_HEAD_CODE_NPU"); return e && e[0] == '1'; }();
+    static bool hc_dev_ready = hc_npu && head_code_dev_init(ctx_omni);
+    const bool used_dev = hc_dev_ready && head_code_dev_forward(hidden_state, audio_logits.data());
+    if (!used_dev) {
+        // ⚡ head_code_weight已转置为[6562, 768]，每行连续存储；GEMV 走 NEON 版
+        // （见 head_code_gemv：标量版 ~3.3ms/token 是 talker 循环的一半耗时）
+        head_code_gemv(ctx_omni->head_code_weight, hidden_state,
+                       audio_logits.data(), num_audio_tokens, ctx_omni->head_code_hidden_size);
+    }
     if (tts_step_dbg) {
         auto _t1 = std::chrono::steady_clock::now();
         acc_gemv += std::chrono::duration_cast<std::chrono::nanoseconds>(_t1 - _t0).count();
@@ -6095,14 +6166,22 @@ struct omni_context * omni_init(struct common_params * params, int media_type, b
                 ctx_omni->token2wav_initialized = false;
                 print_with_timestamp("Token2Wav: init deferred to worker thread\n");
             } else {
+            // OMNI_T2W_N_TIMESTEPS: CFM flow inference steps (upstream default 5).
+            // Fewer steps = proportionally less flow compute; audio quality gated by WER/SIM.
+            int t2w_n_timesteps = 5;
+            if (const char * _e = std::getenv("OMNI_T2W_N_TIMESTEPS")) {
+                int _v = atoi(_e);
+                if (_v >= 1 && _v <= 10) t2w_n_timesteps = _v;
+            }
+
             init_ok = ctx_omni->token2wav_session->init_from_prompt_cache_gguf(
                     encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_cache_gguf,
-                    vocoder_gguf, device_token2mel, device_vocoder, 5, 1.0f, coreml_model_path);
+                    vocoder_gguf, device_token2mel, device_vocoder, t2w_n_timesteps, 1.0f, coreml_model_path);
             if (!init_ok && use_prompt_bundle) {
                 print_with_timestamp("Token2Wav: prompt_cache failed, fallback to prompt_bundle from %s\n", prompt_bundle_dir.c_str());
                 init_ok = ctx_omni->token2wav_session->init_from_prompt_bundle(
                         encoder_gguf, flow_matching_gguf, flow_extra_gguf, prompt_bundle_dir,
-                        vocoder_gguf, device_token2mel, device_vocoder, 5, 1.0f);
+                        vocoder_gguf, device_token2mel, device_vocoder, t2w_n_timesteps, 1.0f);
             }
             // Fallback to CPU
             if (!init_ok) {

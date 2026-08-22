@@ -2726,6 +2726,9 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
         if (use_cann_graph && graph_max_bytes > 0) {
             size_t total_bytes = 0;
             for (int i = 0; i < cgraph->n_nodes; i++) {
+                // skip views (KV-cache slices are GB-scale shared storage and
+                // would fence out every decode-path graph)
+                if (cgraph->nodes[i]->view_src) continue;
                 total_bytes += ggml_nbytes(cgraph->nodes[i]);
                 if ((int64_t) total_bytes > graph_max_bytes) break;
             }
