@@ -4567,7 +4567,16 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
     
     // 1. 获取TTS模型的最后一个位置的hidden state
     // hidden_state shape: (hidden_size=768,)
+    static bool tts_step_dbg = std::getenv("OMNI_TTS_STEP_DBG") != nullptr;
+    static thread_local int64_t acc_sync = 0, acc_gemv = 0, acc_feed = 0, acc_sample = 0;
+    static thread_local int dbg_n = 0;
+    auto _t0 = std::chrono::steady_clock::now();
     const float * hidden_state = llama_get_embeddings_ith(ctx_omni->ctx_tts_llama, -1);
+    if (tts_step_dbg) {
+        auto _t1 = std::chrono::steady_clock::now();
+        acc_sync += std::chrono::duration_cast<std::chrono::nanoseconds>(_t1 - _t0).count();
+        _t0 = _t1;
+    }
     if (hidden_state == nullptr) {
         LOG_ERR("TTS: failed to get hidden state from TTS model\n");
         return 0;
@@ -4600,6 +4609,11 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
     // （见 head_code_gemv：标量版 ~3.3ms/token 是 talker 循环的一半耗时）
     head_code_gemv(ctx_omni->head_code_weight, hidden_state,
                    audio_logits.data(), num_audio_tokens, ctx_omni->head_code_hidden_size);
+    if (tts_step_dbg) {
+        auto _t1 = std::chrono::steady_clock::now();
+        acc_gemv += std::chrono::duration_cast<std::chrono::nanoseconds>(_t1 - _t0).count();
+        _t0 = _t1;
+    }
     
     int eos_relative_idx = num_audio_tokens - 1;  // EOS token relative index: 6561
     
@@ -4783,10 +4797,26 @@ llama_token sample_tts_token(struct common_sampler * smpl, struct omni_context *
             }
         }
         
+        if (tts_step_dbg) {
+            auto _t1 = std::chrono::steady_clock::now();
+            acc_sample += std::chrono::duration_cast<std::chrono::nanoseconds>(_t1 - _t0).count();
+            _t0 = _t1;
+        }
         // Use prefill_with_emb_tts to decode with embedding instead of token ID
         if (!prefill_with_emb_tts(ctx_omni, params, audio_token_embedding.data(), 1, 1, n_past_tts)) {
             LOG_ERR("TTS: failed to decode audio token embedding\n");
             return 0;
+        }
+        if (tts_step_dbg) {
+            auto _t1 = std::chrono::steady_clock::now();
+            acc_feed += std::chrono::duration_cast<std::chrono::nanoseconds>(_t1 - _t0).count();
+            dbg_n++;
+            if (dbg_n % 26 == 0) {
+                fprintf(stderr, "[ttsstep] n=%d sync=%.2fms gemv=%.2fms sample=%.2fms feed=%.2fms (per token)\n",
+                        dbg_n, acc_sync / 1e6 / dbg_n, acc_gemv / 1e6 / dbg_n,
+                        acc_sample / 1e6 / dbg_n, acc_feed / 1e6 / dbg_n);
+                fflush(stderr);
+            }
         }
     } else {
         // Fallback: use token IDs (may fail if token ID exceeds vocab size)

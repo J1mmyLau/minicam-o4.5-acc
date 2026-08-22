@@ -2713,6 +2713,26 @@ static enum ggml_status ggml_backend_cann_graph_compute(ggml_backend_t backend, 
             (graph_max_nodes > 0 && cgraph->n_nodes > graph_max_nodes)) {
             use_cann_graph = false;
         }
+
+        // Byte fence: each captured ACL graph pins its workspace-sized pool
+        // region; variable-shape encoders (daily/videomme full-slice vision,
+        // many distinct image sizes) recapture per shape and exhaust HBM
+        // (observed aclrtMallocPhysical failure at LRU capacity 12). Skip
+        // capture for graphs whose live tensor bytes exceed the budget —
+        // small stable graphs (talker/main decode ~1.1k nodes, vocoder) still
+        // replay. GGML_CANN_GRAPH_MAX_BYTES, default 0 = unlimited.
+        static int64_t graph_max_bytes =
+            parse_integer(get_env_as_lowercase("GGML_CANN_GRAPH_MAX_BYTES").value_or("0"));
+        if (use_cann_graph && graph_max_bytes > 0) {
+            size_t total_bytes = 0;
+            for (int i = 0; i < cgraph->n_nodes; i++) {
+                total_bytes += ggml_nbytes(cgraph->nodes[i]);
+                if ((int64_t) total_bytes > graph_max_bytes) break;
+            }
+            if ((int64_t) total_bytes > graph_max_bytes) {
+                use_cann_graph = false;
+            }
+        }
     }
 
     if (use_cann_graph) {
