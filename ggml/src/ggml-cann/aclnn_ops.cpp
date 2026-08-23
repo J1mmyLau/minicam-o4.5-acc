@@ -5120,6 +5120,25 @@ void ggml_cann_preload_norm_weight(ggml_backend_cann_context & ctx, ggml_tensor 
     norm_weight_acl_f32(ctx, w);
 }
 
+// MUL(bcast) -> ADD(bcast): one aclnnAddcmul (out = bias + 1.0 * a * b).
+// The flow model's DiT-style modulation pair — 748 sites per step.
+void ggml_cann_op_mul_add_fused(ggml_backend_cann_context & ctx,
+                                ggml_tensor *               mul_node,
+                                ggml_tensor *               add_node) {
+    ggml_tensor * a = mul_node->src[0];
+    ggml_tensor * b = mul_node->src[1];
+    ggml_tensor * bias = (add_node->src[0] == mul_node) ? add_node->src[1] : add_node->src[0];
+
+    acl_tensor_ptr acl_a    = ggml_cann_create_tensor(a);
+    acl_tensor_ptr acl_b    = ggml_cann_create_tensor(b);
+    acl_tensor_ptr acl_bias = ggml_cann_create_tensor(bias);
+    acl_tensor_ptr acl_out  = ggml_cann_create_tensor(add_node);
+
+    float one_v = 1.0f;
+    acl_scalar_ptr one = ggml_cann_create_scalar(&one_v, aclDataType::ACL_FLOAT);
+    GGML_CANN_CALL_ACLNN_OP(ctx, Addcmul, acl_bias.get(), acl_a.get(), acl_b.get(), one.get(), acl_out.get());
+}
+
 // NORM -> MUL(gain) -> ADD(bias): one aclnnLayerNorm with the real affine params.
 // Replaces three kernels (and their intermediate memory passes) per norm site.
 void ggml_cann_op_norm_affine_fused(ggml_backend_cann_context & ctx,

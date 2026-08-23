@@ -2383,6 +2383,31 @@ static bool ggml_cann_can_fuse(const struct ggml_cgraph *          cgraph,
                ggml_cann_row_vec_src(mul_node) != nullptr && ggml_cann_row_vec_src(add_node) != nullptr;
     }
 
+    // MUL(bcast) -> ADD(bcast): one aclnnAddcmul (out = bias + a*b), the DiT-style
+    // modulation pair; 748 sites per flow step (OMNI_T2W_PRINT_GRAPH pair scan).
+    if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_MUL && ops.begin()[1] == GGML_OP_ADD) {
+        ggml_tensor * mul_node = cgraph->nodes[node_idx];
+        ggml_tensor * add_node = cgraph->nodes[node_idx + 1];
+        if (add_node->src[0] != mul_node) return false;
+        // both ops must be binary broadcasts of a full tensor against a smaller one
+        auto bcast_operand = [](ggml_tensor * node, ggml_tensor * full) -> ggml_tensor * {
+            for (int s = 0; s < 2; s++) {
+                ggml_tensor * o = node->src[s];
+                if (o == nullptr) continue;
+                bool smaller = true;
+                for (int d = 0; d < GGML_MAX_DIMS; d++) {
+                    if (o->ne[d] != full->ne[d] && o->ne[d] != 1) { smaller = false; break; }
+                }
+                if (smaller && o != full) return o;
+            }
+            return nullptr;
+        };
+        ggml_tensor * mul_a = mul_node->src[0], * mul_b = mul_node->src[1];
+        ggml_tensor * add_bias = bcast_operand(add_node, mul_node);
+        if (add_bias == nullptr) return false;
+        return mul_a != nullptr && mul_b != nullptr;
+    }
+
     // RMS_NORM -> MUL(gain): one aclnnRmsNorm with the real gamma
     if ((ops.size() == 2) && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
         ggml_tensor * rms_node = cgraph->nodes[node_idx];
@@ -2440,6 +2465,11 @@ static void evaluate_and_capture_cann_graph(ggml_backend_cann_context * cann_ctx
                 if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_NORM, GGML_OP_MUL, GGML_OP_ADD })) {
                     ggml_cann_op_norm_affine_fused(*cann_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
                     i += 2;
+                    continue;
+                }
+                if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_MUL, GGML_OP_ADD })) {
+                    ggml_cann_op_mul_add_fused(*cann_ctx, node, cgraph->nodes[i + 1]);
+                    i += 1;
                     continue;
                 }
                 if (ggml_cann_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL })) {

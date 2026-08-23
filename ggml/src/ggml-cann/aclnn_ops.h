@@ -27,6 +27,7 @@
 #include "common.h"
 
 #include <aclnnop/aclnn_abs.h>
+#include <aclnnop/aclnn_addcmul.h>
 #include <aclnnop/aclnn_arange.h>
 #include <aclnnop/aclnn_argsort.h>
 #include <aclnnop/aclnn_cat.h>
@@ -973,6 +974,10 @@ void ggml_cann_mul_mat_id(ggml_backend_cann_context & ctx, ggml_tensor * dst);
  * @param rms_norm_tensor The RMS_NORM operation node, contains the gamma weights
  *                        and epsilon parameter.
  */
+void ggml_cann_op_mul_add_fused(ggml_backend_cann_context & ctx,
+                                ggml_tensor *               mul_node,
+                                ggml_tensor *               add_node);
+
 void ggml_cann_op_norm_affine_fused(ggml_backend_cann_context & ctx,
                                     ggml_tensor *                norm_node,
                                     ggml_tensor *                mul_node,
