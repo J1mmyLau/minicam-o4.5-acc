@@ -11,19 +11,36 @@
 四项精度指标全部在容差内；同时独立交付一条 **DSpark 投机解码**线
 （**8×B300 训练主线** + 910C 本地微调与推理闭环 + 1.85GB 量化资产）。
 
-## 两条主链（本项目最关键的分界）
+## PROJECT OVERVIEW（两条 evidence 支，全项目顶层结构）
 
 ```
-B300（训练主线）                          910C（推理闭环）
-数据/cache（4197 样本 98GiB）              Draft artifact（step_150, 4.4GB）
-→ Draft training（DP8 ×150 步）           → GGUF/量化（1.85GB 方案C）
-→ checkpoint（step_150）                  → llama.cpp-omni 接入
-→ acceptance evaluation（3.49→3.86）      → speculative decoding（k=2 1.87×）
-→ Draft artifact                          → runtime A/B + E2E RTF（RTS 判定净负）
+PROJECT OVERVIEW
+│
+├── B300 training_evidence（权重从这来 → b300/ 目录逐节点整理）
+│   ├── data                     → b300/01-data.md           四源 4197 行 JSONL
+│   ├── target cache             → b300/02-target-cache.md   98.21GiB hidden cache + manifest
+│   ├── Stage11 training         → b300/03-stage11-training.md  DP8 ×150 步
+│   ├── checkpoint               → b300/04-checkpoint.md     step_150 + 导出/校验
+│   └── acceptance evaluation    → b300/05-acceptance-evaluation.md  3.49→3.86
+│        （综述：03-dspark-training.md）
+│
+└── 910C inference_evidence（推理侧全部工作）
+    ├── artifact conversion / quantization  → dspark-910c-inference.md §1   1.85GB 方案C
+    ├── llama.cpp-omni                      → 04-architecture.md            双树/五段链路
+    ├── CANN / TileLang                     → 04 §1 + 06 §1                 桥接/装配
+    ├── profiling                           → 05-profiling.md               各段归因
+    ├── runtime + kernel optimization       → 06-kernel-runtime-optimization.md + 02（E2E 数据链）
+    ├── speculative integration             → dspark-910c-inference.md §2-4  接入/k=2 1.87×/RTS 净负
+    └── E2E RTF                             → 02 §0-7（0.4829）+ 07-evaluation.md（口径）
 ```
 
-并行的一条 **RTF 推理优化链**（910C，主提交）：TileLang 融合核 + A+C 杠杆 +
-NFE2 + host 税削减，1.087 → 0.4829（见 02/05/06）。
+**一句话链路**：
+
+```
+B300：数据/cache → Draft training → checkpoint → acceptance evaluation → Draft artifact
+910C：Draft artifact → GGUF/量化 → llama.cpp-omni 接入 → speculative decoding
+      → runtime A/B → E2E RTF（RTS 判定：thinker 域投机净负，主提交不挂 draft）
+```
 
 ## 成绩速览
 
@@ -44,6 +61,7 @@ NFE2 + host 税削减，1.087 → 0.4829（见 02/05/06）。
 | [01-overview.md](01-overview.md) | 项目背景、链路架构、两条主链如何串起来 | RTF 分解 5 段 |
 | [02-rts-optimization.md](02-rts-optimization.md) | **对话/RTS 推理优化 E2E 全史**：逐杠杆数据链、最终配方、复测事故 | 1.087→0.4829 |
 | [03-dspark-training.md](03-dspark-training.md) | **DSpark 训练**：B300 主线（数据/超参/DP8/step150/acceptance A/B）+ 910C 本地微调 | accept_len 3.49→3.86 |
+| [b300/](b300/README.md) | **B300 training_evidence 逐节点整理**（data/cache/training/checkpoint/eval 五篇 + D0–D9 证据索引，带 file:line 引用） | cache manifest 逐字段 |
 | [dspark-910c-inference.md](dspark-910c-inference.md) | **DSpark 910C 推理闭环**：量化 1.85GB → 接入 → 投机 A/B → RTS 净负判定 | k=2 1.87× / RTS +12% |
 | [04-architecture.md](04-architecture.md) | 系统架构：硬件、五段链路、两棵代码树、模型资产、线程模型 | — |
 | [05-profiling.md](05-profiling.md) | 各段归因：msprof / decode 分解 / tts per-token / im2col / launch 税 | sync 66% |

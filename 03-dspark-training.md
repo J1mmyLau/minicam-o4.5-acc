@@ -73,7 +73,8 @@ B300（训练证据）                                    910C（推理闭环，
 | max_length / max_slice_nums | 2048 / 1 |
 | hidden dtype | **bfloat16**（`--dtype float16` 只影响 target 推理精度，不是落盘精度） |
 | token / mask dtype | int32 / uint8 |
-| **cache 生成耗时** | **113.8 min** |
+| **cache 生成耗时** | **113.8 min**（单 GPU 生成，peak_cuda 17.54 GiB） |
+| **total_cache_bytes** | **105,456,927,733 B（100,571.56 MiB）** |
 | 源 JSONL | `dtriad_train.jsonl`，sha256 `25a50fa6ec87649d…` |
 | 取样区间 | [0, 4197) 全量 |
 
@@ -132,8 +133,11 @@ step | loss     | lr        | grad_norm | step_time_s
 ```
 
 全部 metric 有限，无 NaN/Inf/OOM/NCCL 错误。同级目录有 step_25/50/75/100/125。
-**已知现象（接手第一看）**：grad_norm 全程 234–640 vs max_grad_norm=1.0，
-每步满量裁剪且 150 步内无下降趋势——当时约定不改超参，未处理。
+**grad_norm 口径（按 B300 结项包原文，不过度断言）**：grad_norm 全程 234–640，
+远高于 max_grad_norm=1.0——**若** logger 记录的是 clipping 之前的 norm，则可作为
+持续梯度裁剪的证据；但 logger 记录时点未核实，结项包不对此作确定性结论。
+继续训练时这是第一个该查的点（先确认 logger 时点，再谈调参）。
+早期 5-step 运行保留在 `logs/invalid_5step_record.txt`，不作为正式训练证据。
 
 ### 1.5 step_150 checkpoint（体积与内容）
 
@@ -158,6 +162,10 @@ rsync -avP --exclude 'training_state.rank*.pt' \
 dspark_block7_minicpmo_4_5_multimodal_dtriad_stage11_b300_dp8/step_150/ \
   ./dspark-minicpmo-4_5-stage11-step150/
 ```
+
+B300 侧另有推理 tarball：`/root/dspark-minicpmo-4_5-stage11-step150.tar.gz`
+（3,782,289,212 B，sha256 `1db577531f1e5c3b2e2e457cfbdf06dc9cab0748f5cd8f8e78eae062e4972cae`），
+上传白名单见 `assets/push_stage11_to_hf.py`（结项口径：外部上传不视为本地模型证据）。
 
 ### 1.6 acceptance evaluation（stage10 → stage11 A/B）
 
@@ -203,6 +211,7 @@ tokenizer / generation config / seed / world_size，且**逐样本 prompt 的 sh
 
 | 证据 | 路径 |
 |---|---|
+| **本仓逐节点整理（带 file:line 引用）** | [b300/](b300/README.md)（data / cache / training / checkpoint / eval 五篇 + D0–D9 索引） |
 | 本仓母文档摘要 | `/workspace/models/dspark-stage11/README.md` + `SHA256SUMS` |
 | B300 工程母文档（13 条坑） | 训练机 `/root/b300_minicpmo_dp8/README_zh.md` |
 | 训练/评测原始记录 | 训练机 `/ssd2/minicpmo-dspark/logs/`、`/ssd2/minicpmo-dspark/eval/stage10_vs_stage11/` |
