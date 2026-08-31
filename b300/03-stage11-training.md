@@ -28,6 +28,10 @@ torch_compile true（fallback=false，实测未回退）
 loss = ce 0.1 + l1 0.9（gamma 8.0）+ confidence_head 0.5
 ```
 
+**停止条件与 epoch 的关系**：实际停止由 `max_train_steps=150` 驱动（优先于
+num_train_epochs）。按 4197 samples / global batch 32 估算一个 epoch ≈ 131.2
+steps，即**约 step 132 后进入第二个 epoch**——不是严格的「一轮数据训练」。
+
 8 GPU 由启动器固定：`/root/b300_minicpmo_dp8/run.sh:84-95`（containerd/ctr，
 data_root=/ssd2/minicpmo-dspark = 容器内 /pool/hdd/minicpmo-dspark，preflight free=3174GiB）。
 
@@ -54,10 +58,10 @@ step | loss     | lr        | grad_norm | step_time_s
 
 全部 metric 有限，无 NaN/Inf/OOM/NCCL 错误。同级目录另有 step_25/50/75/100/125。
 
-**grad_norm 口径（按 B300 结项包原文，不作过度断言）**：grad_norm 全程 234–640，
-远高于 max_grad_norm=1.0。**若** logger 记录的是 clipping 之前的 norm，则这可作为
-训练期间持续发生梯度裁剪的证据；但 logger 的记录时点未核实，故结项包不对此作
-确定性结论。继续训练时这是第一个该查的点（先确认 logger 时点，再谈调参）。
+**grad_norm 口径**：日志值约 234–640，显著高于 max_grad_norm=1.0。
+**若**该字段对应 `clip_grad_norm_()` 返回的 pre-clipping norm（DeepSpec logger
+的记录时点未在源码中核实），则这些 step 均触发了 gradient clipping。
+由于 acceptance 最终改善，本项目未进一步修改该训练超参。
 
 **无效历史记录**：早期 5-step 运行保留在 `logs/invalid_5step_record.txt`，
 **不作为正式训练证据**；正式完成以 `state/final_step` + D8 独立检查为准。

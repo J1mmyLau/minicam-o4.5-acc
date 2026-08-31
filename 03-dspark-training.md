@@ -112,6 +112,11 @@ sharding_strategy no_shard（纯 DP，无 ZeRO 切分）   torch_compile true
 logging_steps 1   checkpointing_steps 25
 ```
 
+**停止条件与 epoch 的关系**：实际停止由 `max_train_steps=150` 驱动
+（优先于 num_train_epochs）。按 4197 samples / global batch 32 估算，
+一个 epoch ≈ 131.2 steps，即**约 step 132 后进入第二个 epoch**——
+因此这不是严格的「一轮数据训练」（问答点：既然 epochs=1，为什么 150 步）。
+
 **运行时**：torch 2.8.0+cu128 / CUDA 12.8 / NCCL 2.27.3 / transformers 4.51.0，
 额外 nvidia-cuda-nvcc-cu12 12.9.86（B30Z=sm_103，flex_attention 内部 compile
 需要 ≥12.9 的 ptxas）。容器内无 git，provenance 以 4 个 patch marker 校验：
@@ -133,10 +138,11 @@ step | loss     | lr        | grad_norm | step_time_s
 ```
 
 全部 metric 有限，无 NaN/Inf/OOM/NCCL 错误。同级目录有 step_25/50/75/100/125。
-**grad_norm 口径（按 B300 结项包原文，不过度断言）**：grad_norm 全程 234–640，
-远高于 max_grad_norm=1.0——**若** logger 记录的是 clipping 之前的 norm，则可作为
-持续梯度裁剪的证据；但 logger 记录时点未核实，结项包不对此作确定性结论。
-继续训练时这是第一个该查的点（先确认 logger 时点，再谈调参）。
+**grad_norm 口径**：日志值约 234–640，显著高于 max_grad_norm=1.0。
+**若**该字段对应 `clip_grad_norm_()` 返回的 pre-clipping norm（DeepSpec
+logger 的记录时点未在源码中核实——源码钉在 B300 机
+`/ssd2/minicpmo-dspark/runtime/DeepSpec/`），则这些 step 均触发了
+gradient clipping。由于 acceptance 最终改善，本项目未进一步修改该训练超参。
 早期 5-step 运行保留在 `logs/invalid_5step_record.txt`，不作为正式训练证据。
 
 ### 1.5 step_150 checkpoint（体积与内容）
