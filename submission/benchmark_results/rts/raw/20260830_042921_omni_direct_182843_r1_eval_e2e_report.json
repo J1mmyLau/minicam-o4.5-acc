@@ -1,0 +1,888 @@
+{
+  "session_dir": "sessions/20260830_042921_omni_direct_182843_r1",
+  "n_chunks": 37,
+  "n_listen": 28,
+  "n_idle": 0,
+  "n_speak": 9,
+  "n_wav_events": 15,
+  "n_aligned_pairs_all": 9,
+  "n_aligned_pairs": 7,
+  "n_excluded_empty_text": 2,
+  "speak_chunk_wall_ms": {
+    "n": 7,
+    "mean_ms": 357.1,
+    "median_ms": 364.9,
+    "min_ms": 342.3,
+    "max_ms": 369.0
+  },
+  "e2e_speak_recv_to_wav_poll_ms": {
+    "n": 7,
+    "mean_ms": 602.0,
+    "median_ms": 528.0,
+    "min_ms": 506.3,
+    "max_ms": 905.1
+  },
+  "e2e_decode_end_to_wav_poll_ms": {
+    "n": 7,
+    "mean_ms": 245.1,
+    "median_ms": 181.2,
+    "min_ms": 140.3,
+    "max_ms": 562.0
+  },
+  "e2e_speak_recv_to_wav_mtime_ms": {
+    "n": 7,
+    "mean_ms": 543.6,
+    "median_ms": 476.2,
+    "min_ms": 456.0,
+    "max_ms": 836.4
+  },
+  "e2e_all_incl_empty_text_ms": {
+    "n": 9,
+    "mean_ms": 572.5,
+    "median_ms": 518.0,
+    "min_ms": 430.0,
+    "max_ms": 905.1
+  },
+  "e2e_empty_text_only_ms": {
+    "n": 2,
+    "mean_ms": 469.1,
+    "median_ms": 469.1,
+    "min_ms": 430.0,
+    "max_ms": 508.2
+  },
+  "rtf": {
+    "available": true,
+    "n_frames": 10,
+    "n_wav": 15,
+    "n_frames_multi_wav": 1,
+    "n_turns": 4,
+    "audio_total_ms": 9240.0,
+    "compute_total_ms": 4766.2,
+    "rtf": {
+      "n": 10,
+      "mean": 0.5941,
+      "median": 0.5038,
+      "min": 0.334,
+      "max": 1.0953,
+      "p95": 1.0953
+    },
+    "rtf_aggregate": 0.5158,
+    "stage_rtf": {
+      "encode": 0.0603,
+      "llm_prefill": 0.063,
+      "llm_decode": 0.0967,
+      "tts": 0.1016,
+      "token2wav": 0.1942
+    },
+    "core": {
+      "n_frames": 3,
+      "audio_total_ms": 3000.0,
+      "compute_total_ms": 1470.2,
+      "rtf_aggregate": 0.4901,
+      "rtf": {
+        "n": 3,
+        "mean": 0.4901,
+        "median": 0.4836,
+        "min": 0.4626,
+        "max": 0.524,
+        "p95": 0.524
+      },
+      "stage_rtf": {
+        "encode": 0.0611,
+        "llm_prefill": 0.0642,
+        "llm_decode": 0.1233,
+        "tts": 0.1427,
+        "token2wav": 0.0987
+      },
+      "audio_ms_min": 1000.0,
+      "audio_ms_max": 1000.0,
+      "available": true,
+      "n_turns": 4,
+      "n_excluded_head": 3,
+      "n_excluded_tail": 4,
+      "excluded_audio_ms": 6240.0
+    },
+    "frames": [
+      {
+        "cnt": 0,
+        "mode": "?",
+        "n_wav": 6,
+        "wavs": [
+          "wav_1.wav",
+          "wav_3.wav",
+          "wav_6.wav",
+          "wav_8.wav",
+          "wav_11.wav",
+          "wav_13.wav"
+        ],
+        "has_final_wav": true,
+        "flush_audio_ms": 1920.0,
+        "audio_ms": 1920.0,
+        "encode_ms": 0.0,
+        "llm_prefill_ms": 0.0,
+        "llm_decode_ms": 0.0,
+        "tts_ms": 0.0,
+        "token2wav_ms": 641.4,
+        "compute_ms": 641.4,
+        "rtf": 0.334,
+        "has_llm": false,
+        "turn_idx": 0,
+        "role": "tail"
+      },
+      {
+        "cnt": 5,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_5000.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 840.0,
+        "encode_ms": 63.9,
+        "llm_prefill_ms": 60.3,
+        "llm_decode_ms": 86.1,
+        "tts_ms": 147.4,
+        "token2wav_ms": 346.4,
+        "compute_ms": 704.0,
+        "rtf": 0.8381,
+        "has_llm": true,
+        "turn_idx": 1,
+        "role": "head"
+      },
+      {
+        "cnt": 6,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_6002.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 1000.0,
+        "encode_ms": 63.4,
+        "llm_prefill_ms": 61.9,
+        "llm_decode_ms": 107.6,
+        "tts_ms": 138.7,
+        "token2wav_ms": 111.9,
+        "compute_ms": 483.6,
+        "rtf": 0.4836,
+        "has_llm": true,
+        "turn_idx": 1,
+        "role": "core"
+      },
+      {
+        "cnt": 7,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_7004.wav"
+        ],
+        "has_final_wav": true,
+        "flush_audio_ms": 680.0,
+        "audio_ms": 680.0,
+        "encode_ms": 64.3,
+        "llm_prefill_ms": 64.7,
+        "llm_decode_ms": 66.0,
+        "tts_ms": 67.0,
+        "token2wav_ms": 113.4,
+        "compute_ms": 375.5,
+        "rtf": 0.5522,
+        "has_llm": true,
+        "turn_idx": 1,
+        "role": "tail"
+      },
+      {
+        "cnt": 11,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_11005.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 1000.0,
+        "encode_ms": 65.5,
+        "llm_prefill_ms": 65.1,
+        "llm_decode_ms": 105.4,
+        "tts_ms": 128.9,
+        "token2wav_ms": 71.7,
+        "compute_ms": 436.6,
+        "rtf": 0.4366,
+        "has_llm": true,
+        "turn_idx": 2,
+        "role": "head"
+      },
+      {
+        "cnt": 12,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_12007.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 1000.0,
+        "encode_ms": 62.6,
+        "llm_prefill_ms": 63.9,
+        "llm_decode_ms": 111.1,
+        "tts_ms": 137.4,
+        "token2wav_ms": 87.7,
+        "compute_ms": 462.6,
+        "rtf": 0.4626,
+        "has_llm": true,
+        "turn_idx": 2,
+        "role": "core"
+      },
+      {
+        "cnt": 13,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_13009.wav"
+        ],
+        "has_final_wav": true,
+        "flush_audio_ms": 520.0,
+        "audio_ms": 520.0,
+        "encode_ms": 61.0,
+        "llm_prefill_ms": 65.5,
+        "llm_decode_ms": 107.5,
+        "tts_ms": 44.9,
+        "token2wav_ms": 135.5,
+        "compute_ms": 414.5,
+        "rtf": 0.7971,
+        "has_llm": true,
+        "turn_idx": 2,
+        "role": "tail"
+      },
+      {
+        "cnt": 18,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_18010.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 1000.0,
+        "encode_ms": 60.8,
+        "llm_prefill_ms": 67.0,
+        "llm_decode_ms": 89.3,
+        "tts_ms": 113.1,
+        "token2wav_ms": 87.1,
+        "compute_ms": 417.3,
+        "rtf": 0.4173,
+        "has_llm": true,
+        "turn_idx": 3,
+        "role": "head"
+      },
+      {
+        "cnt": 19,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_19012.wav"
+        ],
+        "has_final_wav": false,
+        "flush_audio_ms": 0.0,
+        "audio_ms": 1000.0,
+        "encode_ms": 57.4,
+        "llm_prefill_ms": 66.7,
+        "llm_decode_ms": 151.3,
+        "tts_ms": 152.1,
+        "token2wav_ms": 96.4,
+        "compute_ms": 524.0,
+        "rtf": 0.524,
+        "has_llm": true,
+        "turn_idx": 3,
+        "role": "core"
+      },
+      {
+        "cnt": 20,
+        "mode": "SPEAK",
+        "n_wav": 1,
+        "wavs": [
+          "wav_20014.wav"
+        ],
+        "has_final_wav": true,
+        "flush_audio_ms": 280.0,
+        "audio_ms": 280.0,
+        "encode_ms": 58.0,
+        "llm_prefill_ms": 66.8,
+        "llm_decode_ms": 69.6,
+        "tts_ms": 9.7,
+        "token2wav_ms": 102.7,
+        "compute_ms": 306.7,
+        "rtf": 1.0953,
+        "has_llm": true,
+        "turn_idx": 3,
+        "role": "tail"
+      }
+    ],
+    "warnings": [
+      "1/10 帧在 e2e_timing 里找不到对应 cnt 的 chunk，这些帧的 RTF 只含 tts+token2wav",
+      "core 只剩 3 帧（4 个 turn 大多不足 3 帧），样本太少，core RTF 波动大"
+    ],
+    "note": "每帧 RTF = (encode + llm_prefill + llm_decode + tts + token2wav) / 该帧音频时长。encode 取 max(VPM, APM)（两者并行）。帧号来自 C++ 的 src_cnt，同一帧的多个 wav（轮次结尾的 flush 尾包）已合并。主指标 core.rtf_aggregate：按 turn_eos(is_final) 切音频轮次，剔掉每轮首帧（TTS/T2W 冷启动、首个 wav 常不足一帧）和含 flush 尾包的帧（尾音的 tts 耗时早算在前面的帧上，只剩 t2w，白送分母），剩下的中间稳态帧 Σ耗时/Σ音频。含 flush 的帧整帧剔除而不是只剔那个小 wav：该帧的 tts/decode 是为两个 wav 的token 一起花的，拆不开，只减音频会把 RTF 抬虚高。rtf_aggregate/rtf/stage_rtf 是全量口径（含头尾），作对照；stage_rtf 是各阶段单独的 RTF，相加等于 rtf_aggregate。不含 judge 侧 http_prefill（临时文件 + HTTP 往返，非模型算力）。"
+  },
+  "wav_integrity": {
+    "n_polled_wav": 15,
+    "n_cpp_wav": 15,
+    "missing_in_poll": [],
+    "missing_in_cpp": [],
+    "ok": true
+  },
+  "stage_ms": {
+    "prefill_ms": {
+      "n": 7,
+      "mean_ms": 116.6,
+      "median_ms": 125.4,
+      "min_ms": 65.9,
+      "max_ms": 127.8
+    },
+    "vpm_ms": {
+      "n": 7,
+      "mean_ms": 62.1,
+      "median_ms": 62.6,
+      "min_ms": 57.4,
+      "max_ms": 65.5
+    },
+    "apm_ms": {
+      "n": 7,
+      "mean_ms": 19.6,
+      "median_ms": 15.1,
+      "min_ms": 14.0,
+      "max_ms": 31.8
+    },
+    "llm_prefill_ms": {
+      "n": 7,
+      "mean_ms": 64.4,
+      "median_ms": 65.1,
+      "min_ms": 60.3,
+      "max_ms": 67.0
+    },
+    "cost_llm_ms": {
+      "n": 7,
+      "mean_ms": 108.3,
+      "median_ms": 107.5,
+      "min_ms": 86.1,
+      "max_ms": 151.3
+    },
+    "cost_tts_ms": {
+      "n": 9,
+      "mean_ms": 104.3,
+      "median_ms": 128.9,
+      "min_ms": 9.7,
+      "max_ms": 152.1
+    },
+    "cost_token2wav_ms": {
+      "n": 15,
+      "mean_ms": 119.6,
+      "median_ms": 105.8,
+      "min_ms": 71.7,
+      "max_ms": 346.4
+    },
+    "wall_recon_ms": {
+      "n": 7,
+      "mean_ms": 351.4,
+      "median_ms": 358.9,
+      "min_ms": 336.4,
+      "max_ms": 363.3
+    }
+  },
+  "speak_turn_first_wav_ms": [
+    {
+      "speak_turn_id": 1,
+      "n_speak_chunks": 3,
+      "n_wavs": 5,
+      "e2e_first_wav_ms": 905.1
+    },
+    {
+      "speak_turn_id": 2,
+      "n_speak_chunks": 3,
+      "n_wavs": 5,
+      "e2e_first_wav_ms": 614.2
+    },
+    {
+      "speak_turn_id": 3,
+      "n_speak_chunks": 3,
+      "n_wavs": 5,
+      "e2e_first_wav_ms": 626.4
+    }
+  ],
+  "pairs_head": [
+    {
+      "chunk_idx": 4,
+      "speak_turn_id": 1,
+      "text": "好的，",
+      "text_empty": false,
+      "t_recv_ms": 11776.2,
+      "t_decode_end_ms": 12119.3,
+      "wav_file": "wav_5000.wav",
+      "t_wav_poll_ms": 12681.3,
+      "t_wav_mtime_rel_ms": 12612.6,
+      "e2e_recv_to_wav_poll_ms": 905.1,
+      "e2e_decode_to_wav_poll_ms": 562.0,
+      "wall_clock_ms": 343.3,
+      "e2e_recv_to_wav_mtime_ms": 836.4
+    },
+    {
+      "chunk_idx": 5,
+      "speak_turn_id": 1,
+      "text": "没问题。",
+      "text_empty": false,
+      "t_recv_ms": 12776.4,
+      "t_decode_end_ms": 13142.4,
+      "wav_file": "wav_1.wav",
+      "t_wav_poll_ms": 13282.7,
+      "t_wav_mtime_rel_ms": 13252.6,
+      "e2e_recv_to_wav_poll_ms": 506.3,
+      "e2e_decode_to_wav_poll_ms": 140.3,
+      "wall_clock_ms": 366.2,
+      "e2e_recv_to_wav_mtime_ms": 476.2
+    },
+    {
+      "chunk_idx": 10,
+      "speak_turn_id": 2,
+      "text": "到了二十三",
+      "text_empty": false,
+      "t_recv_ms": 17776.2,
+      "t_decode_end_ms": 18143.3,
+      "wav_file": "wav_11005.wav",
+      "t_wav_poll_ms": 18390.4,
+      "t_wav_mtime_rel_ms": 18340.6,
+      "e2e_recv_to_wav_poll_ms": 614.2,
+      "e2e_decode_to_wav_poll_ms": 247.1,
+      "wall_clock_ms": 367.2,
+      "e2e_recv_to_wav_mtime_ms": 564.4
+    },
+    {
+      "chunk_idx": 11,
+      "speak_turn_id": 2,
+      "text": "层，请",
+      "text_empty": false,
+      "t_recv_ms": 18776.4,
+      "t_decode_end_ms": 19145.3,
+      "wav_file": "wav_6.wav",
+      "t_wav_poll_ms": 19292.4,
+      "t_wav_mtime_rel_ms": 19248.6,
+      "e2e_recv_to_wav_poll_ms": 516.0,
+      "e2e_decode_to_wav_poll_ms": 147.1,
+      "wall_clock_ms": 369.0,
+      "e2e_recv_to_wav_mtime_ms": 472.2
+    },
+    {
+      "chunk_idx": 12,
+      "speak_turn_id": 2,
+      "text": "注意。",
+      "text_empty": false,
+      "t_recv_ms": 19776.6,
+      "t_decode_end_ms": 20141.3,
+      "wav_file": "wav_8.wav",
+      "t_wav_poll_ms": 20294.6,
+      "t_wav_mtime_rel_ms": 20240.6,
+      "e2e_recv_to_wav_poll_ms": 518.0,
+      "e2e_decode_to_wav_poll_ms": 153.3,
+      "wall_clock_ms": 364.9,
+      "e2e_recv_to_wav_mtime_ms": 464.0
+    },
+    {
+      "chunk_idx": 17,
+      "speak_turn_id": 3,
+      "text": "到达二",
+      "text_empty": false,
+      "t_recv_ms": 24776.3,
+      "t_decode_end_ms": 25118.3,
+      "wav_file": "wav_18010.wav",
+      "t_wav_poll_ms": 25402.7,
+      "t_wav_mtime_rel_ms": 25312.6,
+      "e2e_recv_to_wav_poll_ms": 626.4,
+      "e2e_decode_to_wav_poll_ms": 284.4,
+      "wall_clock_ms": 342.3,
+      "e2e_recv_to_wav_mtime_ms": 536.3
+    },
+    {
+      "chunk_idx": 18,
+      "speak_turn_id": 3,
+      "text": "十四层了。",
+      "text_empty": false,
+      "t_recv_ms": 25776.6,
+      "t_decode_end_ms": 26123.4,
+      "wav_file": "wav_11.wav",
+      "t_wav_poll_ms": 26304.6,
+      "t_wav_mtime_rel_ms": 26232.6,
+      "e2e_recv_to_wav_poll_ms": 528.0,
+      "e2e_decode_to_wav_poll_ms": 181.2,
+      "wall_clock_ms": 347.0,
+      "e2e_recv_to_wav_mtime_ms": 456.0
+    }
+  ],
+  "excluded_empty_text_pairs": [
+    {
+      "chunk_idx": 6,
+      "speak_turn_id": 1,
+      "e2e_recv_to_wav_poll_ms": 508.2,
+      "wall_clock_ms": 333.0
+    },
+    {
+      "chunk_idx": 19,
+      "speak_turn_id": 3,
+      "e2e_recv_to_wav_poll_ms": 430.0,
+      "wall_clock_ms": 272.1
+    }
+  ],
+  "metric_primary": "e2e_speak_recv_to_wav_poll_ms.mean_ms",
+  "metric_rtf": "rtf.core.rtf_aggregate",
+  "note": "主指标：SPEAK chunk 进入 worker 处理时刻(t_recv) → 对应 wav 被 poll 到(t_poll)；按 wav 的 src_cnt 归帧（拿不到才退回 last_speak_chunk_idx），一帧多包只取首包。已排除空 text 的 SPEAK chunk（LLM 几乎只 prefill、TTS/t2w 仍在跑，延迟系统性偏低）。IDLE（轮次已结束、零产出）不计入 SPEAK。stage_ms：VPM/APM/llm_prefill/cost_llm 来自 e2e chunk；tts/t2w 来自 stage_timing.jsonl。口径：e2e≈wall+decode→wav；各 stage 为流水线算力，不可直接相加得到 e2e。RTF 见 rtf 段落，主指标 rtf.core.rtf_aggregate（掐头去尾）。",
+  "speak_turn_wavs": {
+    "session_dir": "sessions/20260830_042921_omni_direct_182843_r1",
+    "out_dir": "sessions/20260830_042921_omni_direct_182843_r1/speak_turns",
+    "sample_rate": 24000,
+    "n_turns": 3,
+    "turns": [
+      {
+        "speak_turn_id": 1,
+        "file": "speak_turns/turn_01.wav",
+        "n_segments": 5,
+        "n_wav_events": 5,
+        "duration_ms": 3160.0,
+        "sources": [
+          "../../tools/omni/output_19060/tts_wav/wav_5000.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_1.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_6002.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_3.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_7004.wav"
+        ],
+        "text": "好的，没问题。"
+      },
+      {
+        "speak_turn_id": 2,
+        "file": "speak_turns/turn_02.wav",
+        "n_segments": 5,
+        "n_wav_events": 5,
+        "duration_ms": 3160.0,
+        "sources": [
+          "../../tools/omni/output_19060/tts_wav/wav_11005.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_6.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_12007.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_8.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_13009.wav"
+        ],
+        "text": "到了二十三层，请注意。"
+      },
+      {
+        "speak_turn_id": 3,
+        "file": "speak_turns/turn_03.wav",
+        "n_segments": 5,
+        "n_wav_events": 5,
+        "duration_ms": 2920.0,
+        "sources": [
+          "../../tools/omni/output_19060/tts_wav/wav_18010.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_11.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_19012.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_13.wav",
+          "../../tools/omni/output_19060/tts_wav/wav_20014.wav"
+        ],
+        "text": "到达二十四层了。"
+      }
+    ],
+    "note": "按 e2e speak_turn_id 拼接；音频优先 session/ai_audio（时间戳对齐），否则 cpp tts_wav"
+  },
+  "e2e_timing_summary": {
+    "session_dir": "sessions/20260830_042921_omni_direct_182843_r1",
+    "jsonl": "e2e_timing.jsonl",
+    "n_events": 52,
+    "n_speak_turns": 3,
+    "speak_turns": [
+      {
+        "speak_turn_id": 1,
+        "n_speak_chunks": 3,
+        "n_wavs": 5,
+        "chunks": [
+          {
+            "chunk_idx": 4,
+            "cnt": 5,
+            "t_recv_ms": 11776.2,
+            "t_decode_end_ms": 12119.3,
+            "wall_clock_ms": 343.3,
+            "text": "好的，",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:34.066+00:00"
+          },
+          {
+            "chunk_idx": 5,
+            "cnt": 6,
+            "t_recv_ms": 12776.4,
+            "t_decode_end_ms": 13142.4,
+            "wall_clock_ms": 366.2,
+            "text": "没问题。",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:35.090+00:00"
+          },
+          {
+            "chunk_idx": 6,
+            "cnt": 7,
+            "t_recv_ms": 13776.6,
+            "t_decode_end_ms": 14109.3,
+            "wall_clock_ms": 333.0,
+            "text": "",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:36.056+00:00"
+          }
+        ],
+        "wavs": [
+          {
+            "file": "wav_5000.wav",
+            "src_cnt": 5,
+            "duration_ms": 840.0,
+            "t_poll_ms": 12681.3,
+            "t_file_mtime_rel_ms": 12612.6,
+            "last_speak_chunk_idx": 4,
+            "latency_from_first_speak_recv_ms": 905.1,
+            "latency_from_last_speak_recv_ms": 905.1,
+            "wall_iso": "2026-08-30T04:29:34.629+00:00"
+          },
+          {
+            "file": "wav_1.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 13282.7,
+            "t_file_mtime_rel_ms": 13252.6,
+            "last_speak_chunk_idx": 5,
+            "latency_from_first_speak_recv_ms": 1506.5,
+            "latency_from_last_speak_recv_ms": 506.3,
+            "wall_iso": "2026-08-30T04:29:35.230+00:00"
+          },
+          {
+            "file": "wav_6002.wav",
+            "src_cnt": 6,
+            "duration_ms": 1000.0,
+            "t_poll_ms": 13483.4,
+            "t_file_mtime_rel_ms": 13388.6,
+            "last_speak_chunk_idx": 5,
+            "latency_from_first_speak_recv_ms": 1707.2,
+            "latency_from_last_speak_recv_ms": 707.0,
+            "wall_iso": "2026-08-30T04:29:35.431+00:00"
+          },
+          {
+            "file": "wav_3.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 14284.8,
+            "t_file_mtime_rel_ms": 14200.6,
+            "last_speak_chunk_idx": 6,
+            "latency_from_first_speak_recv_ms": 2508.6,
+            "latency_from_last_speak_recv_ms": 508.2,
+            "wall_iso": "2026-08-30T04:29:36.232+00:00"
+          },
+          {
+            "file": "wav_7004.wav",
+            "src_cnt": 7,
+            "duration_ms": 680.0,
+            "t_poll_ms": 14385.3,
+            "t_file_mtime_rel_ms": 14284.6,
+            "last_speak_chunk_idx": 6,
+            "latency_from_first_speak_recv_ms": 2609.1,
+            "latency_from_last_speak_recv_ms": 608.7,
+            "wall_iso": "2026-08-30T04:29:36.333+00:00"
+          }
+        ],
+        "e2e_first_wav_ms": 905.1,
+        "e2e_last_wav_ms": 2609.1
+      },
+      {
+        "speak_turn_id": 2,
+        "n_speak_chunks": 3,
+        "n_wavs": 5,
+        "chunks": [
+          {
+            "chunk_idx": 10,
+            "cnt": 11,
+            "t_recv_ms": 17776.2,
+            "t_decode_end_ms": 18143.3,
+            "wall_clock_ms": 367.2,
+            "text": "到了二十三",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:40.090+00:00"
+          },
+          {
+            "chunk_idx": 11,
+            "cnt": 12,
+            "t_recv_ms": 18776.4,
+            "t_decode_end_ms": 19145.3,
+            "wall_clock_ms": 369.0,
+            "text": "层，请",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:41.092+00:00"
+          },
+          {
+            "chunk_idx": 12,
+            "cnt": 13,
+            "t_recv_ms": 19776.6,
+            "t_decode_end_ms": 20141.3,
+            "wall_clock_ms": 364.9,
+            "text": "注意。",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:42.088+00:00"
+          }
+        ],
+        "wavs": [
+          {
+            "file": "wav_11005.wav",
+            "src_cnt": 11,
+            "duration_ms": 1000.0,
+            "t_poll_ms": 18390.4,
+            "t_file_mtime_rel_ms": 18340.6,
+            "last_speak_chunk_idx": 10,
+            "latency_from_first_speak_recv_ms": 614.2,
+            "latency_from_last_speak_recv_ms": 614.2,
+            "wall_iso": "2026-08-30T04:29:40.338+00:00"
+          },
+          {
+            "file": "wav_6.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 19292.4,
+            "t_file_mtime_rel_ms": 19248.6,
+            "last_speak_chunk_idx": 11,
+            "latency_from_first_speak_recv_ms": 1516.2,
+            "latency_from_last_speak_recv_ms": 516.0,
+            "wall_iso": "2026-08-30T04:29:41.240+00:00"
+          },
+          {
+            "file": "wav_12007.wav",
+            "src_cnt": 12,
+            "duration_ms": 1000.0,
+            "t_poll_ms": 19392.9,
+            "t_file_mtime_rel_ms": 19364.6,
+            "last_speak_chunk_idx": 11,
+            "latency_from_first_speak_recv_ms": 1616.7,
+            "latency_from_last_speak_recv_ms": 616.5,
+            "wall_iso": "2026-08-30T04:29:41.340+00:00"
+          },
+          {
+            "file": "wav_8.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 20294.6,
+            "t_file_mtime_rel_ms": 20240.6,
+            "last_speak_chunk_idx": 12,
+            "latency_from_first_speak_recv_ms": 2518.4,
+            "latency_from_last_speak_recv_ms": 518.0,
+            "wall_iso": "2026-08-30T04:29:42.242+00:00"
+          },
+          {
+            "file": "wav_13009.wav",
+            "src_cnt": 13,
+            "duration_ms": 520.0,
+            "t_poll_ms": 20395.2,
+            "t_file_mtime_rel_ms": 20340.6,
+            "last_speak_chunk_idx": 12,
+            "latency_from_first_speak_recv_ms": 2619.0,
+            "latency_from_last_speak_recv_ms": 618.6,
+            "wall_iso": "2026-08-30T04:29:42.342+00:00"
+          }
+        ],
+        "e2e_first_wav_ms": 614.2,
+        "e2e_last_wav_ms": 2619.0
+      },
+      {
+        "speak_turn_id": 3,
+        "n_speak_chunks": 3,
+        "n_wavs": 5,
+        "chunks": [
+          {
+            "chunk_idx": 17,
+            "cnt": 18,
+            "t_recv_ms": 24776.3,
+            "t_decode_end_ms": 25118.3,
+            "wall_clock_ms": 342.3,
+            "text": "到达二",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:47.065+00:00"
+          },
+          {
+            "chunk_idx": 18,
+            "cnt": 19,
+            "t_recv_ms": 25776.6,
+            "t_decode_end_ms": 26123.4,
+            "wall_clock_ms": 347.0,
+            "text": "十四层了。",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:48.071+00:00"
+          },
+          {
+            "chunk_idx": 19,
+            "cnt": 20,
+            "t_recv_ms": 26776.8,
+            "t_decode_end_ms": 27048.5,
+            "wall_clock_ms": 272.1,
+            "text": "",
+            "end_of_turn": true,
+            "wall_iso": "2026-08-30T04:29:48.996+00:00"
+          }
+        ],
+        "wavs": [
+          {
+            "file": "wav_18010.wav",
+            "src_cnt": 18,
+            "duration_ms": 1000.0,
+            "t_poll_ms": 25402.7,
+            "t_file_mtime_rel_ms": 25312.6,
+            "last_speak_chunk_idx": 17,
+            "latency_from_first_speak_recv_ms": 626.4,
+            "latency_from_last_speak_recv_ms": 626.4,
+            "wall_iso": "2026-08-30T04:29:47.350+00:00"
+          },
+          {
+            "file": "wav_11.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 26304.6,
+            "t_file_mtime_rel_ms": 26232.6,
+            "last_speak_chunk_idx": 18,
+            "latency_from_first_speak_recv_ms": 1528.3,
+            "latency_from_last_speak_recv_ms": 528.0,
+            "wall_iso": "2026-08-30T04:29:48.252+00:00"
+          },
+          {
+            "file": "wav_19012.wav",
+            "src_cnt": 19,
+            "duration_ms": 1000.0,
+            "t_poll_ms": 26405.2,
+            "t_file_mtime_rel_ms": 26368.6,
+            "last_speak_chunk_idx": 18,
+            "latency_from_first_speak_recv_ms": 1628.9,
+            "latency_from_last_speak_recv_ms": 628.6,
+            "wall_iso": "2026-08-30T04:29:48.353+00:00"
+          },
+          {
+            "file": "wav_13.wav",
+            "src_cnt": 0,
+            "duration_ms": 320.0,
+            "t_poll_ms": 27206.8,
+            "t_file_mtime_rel_ms": 27148.6,
+            "last_speak_chunk_idx": 19,
+            "latency_from_first_speak_recv_ms": 2430.5,
+            "latency_from_last_speak_recv_ms": 430.0,
+            "wall_iso": "2026-08-30T04:29:49.154+00:00"
+          },
+          {
+            "file": "wav_20014.wav",
+            "src_cnt": 20,
+            "duration_ms": 280.0,
+            "t_poll_ms": 27307.4,
+            "t_file_mtime_rel_ms": 27216.6,
+            "last_speak_chunk_idx": 19,
+            "latency_from_first_speak_recv_ms": 2531.1,
+            "latency_from_last_speak_recv_ms": 530.6,
+            "wall_iso": "2026-08-30T04:29:49.255+00:00"
+          }
+        ],
+        "e2e_first_wav_ms": 626.4,
+        "e2e_last_wav_ms": 2531.1
+      }
+    ],
+    "note": "t_*_ms 相对 session 开始；wav 与 chunk 非 1:1，按 speak_turn_id 对齐；e2e_first_wav_ms = 首个 wav poll - 该 turn 首个 SPEAK chunk 输入"
+  }
+}

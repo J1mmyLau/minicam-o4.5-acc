@@ -1,0 +1,14 @@
+{
+  "rc": 0,
+  "elapsed_s": 80.0,
+  "log": "/tmp/rts_step10_s1004/rts.log",
+  "metrics": {
+    "runs_dir": "/tmp/rts_step10_s1004/rts_runs",
+    "run_meta": "/tmp/rts_step10_s1004/rts_runs/20260829_170526/run_meta.json",
+    "report": "/workspace/omni-tilelang-opt/evaluation/judge-final/sessions/20260829_170544_omni_direct_146336_r1/eval_e2e_report.json",
+    "均值": 0.4925,
+    "分解": "encode 0.0604 + llm_prefill 0.0651 + llm_decode 0.1374 + tts 0.1496 + token2wav 0.08",
+    "SPEAK→wav均值(ms)": 640.8,
+    "SPEAK→wav中位数(ms)": 617.4
+  }
+}
