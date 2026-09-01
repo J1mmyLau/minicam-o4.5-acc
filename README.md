@@ -10,13 +10,13 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-[![core RTF](https://img.shields.io/badge/core_RTF-0.4829-blue)]()
-[![vs baseline](https://img.shields.io/badge/vs_paired_local_baseline-28.5%25_faster-brightgreen)]()
-[![accuracy](https://img.shields.io/badge/accuracy_benchmarks-4_of_4_PASS-success)]()
-[![spec decode](https://img.shields.io/badge/speculative_decoding-1.87x_text-blueviolet)]()
-[![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)]()
-[![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)]()
-[![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)]()
+[![core RTF](https://img.shields.io/badge/core_RTF-0.4829-blue)](#8-the-rtf-optimisation-chain)
+[![vs baseline](https://img.shields.io/badge/vs_paired_local_baseline-28.5%25_faster-brightgreen)](#1--objective--system-boundary)
+[![accuracy](https://img.shields.io/badge/accuracy_benchmarks-4_of_4_PASS-success)](#9--accuracy--environment-isolation)
+[![spec decode](https://img.shields.io/badge/speculative_decoding-1.87x_text-blueviolet)](#5--speculative-decoding--workload-economics)
+[![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/docs/tilelang-tutorial)
+[![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)](https://www.hiascend.com/)
+[![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)](https://github.com/tc-mb/llama.cpp-omni)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Status: submitted (2026-08-31).** Core RTF **0.6754 → 0.4829** under an identical harness ·

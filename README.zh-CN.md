@@ -10,13 +10,13 @@
 
 [English](README.md) · **简体中文**
 
-[![core RTF](https://img.shields.io/badge/core_RTF-0.4829-blue)]()
-[![vs baseline](https://img.shields.io/badge/vs_paired_local_baseline-28.5%25_faster-brightgreen)]()
-[![accuracy](https://img.shields.io/badge/accuracy_benchmarks-4_of_4_PASS-success)]()
-[![spec decode](https://img.shields.io/badge/speculative_decoding-1.87x_text-blueviolet)]()
-[![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)]()
-[![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)]()
-[![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)]()
+[![core RTF](https://img.shields.io/badge/core_RTF-0.4829-blue)](#8-rtf-优化链)
+[![vs baseline](https://img.shields.io/badge/vs_paired_local_baseline-28.5%25_faster-brightgreen)](#1--目标与系统边界)
+[![accuracy](https://img.shields.io/badge/accuracy_benchmarks-4_of_4_PASS-success)](#9--精度与环境隔离)
+[![spec decode](https://img.shields.io/badge/speculative_decoding-1.87x_text-blueviolet)](#5--投机解码与-workload-经济学)
+[![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/docs/tilelang-tutorial)
+[![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)](https://www.hiascend.com/)
+[![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)](https://github.com/tc-mb/llama.cpp-omni)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **状态：已提交（2026-08-31）。** 同口径核心 RTF **0.6754 → 0.4829** ·
