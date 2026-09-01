@@ -81,7 +81,7 @@ c = func(a, b)                          # 直接喂 torch-npu 张量
 ## 4. 跑起来
 
 ```bash
-export PYTHONPATH=/workspace/tilelang-ascend
+export PYTHONPATH=/path/to/tilelang-ascend   # 你的 tilelang-ascend 检出路径
 python code/elementwise_add.py --m 1024 --n 1024
 ```
 

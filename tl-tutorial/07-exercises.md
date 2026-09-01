@@ -6,7 +6,7 @@
 ## 环境准备
 
 ```bash
-export PYTHONPATH=/workspace/tilelang-ascend
+export PYTHONPATH=/path/to/tilelang-ascend   # 换成你的 tilelang-ascend 检出路径
 export ASCEND_RT_VISIBLE_DEVICES=1        # pin 单 die，跨 die 拿垃圾数值
 # 检查：python -c "import tilelang, torch_npu; print('ok')"
 ```

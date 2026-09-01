@@ -41,12 +41,14 @@ GM（HBM，大而慢）──T.copy──► UB（片上 Unified Buffer，小而
 | [06-integration.md](06-integration.md) | 怎么进生产：AOT → 桥接 → env 开关 → 位级 parity | `code/aot_llm_kernels.py`、`code/bridge_parity_probe.py` |
 | [07-exercises.md](07-exercises.md) | 练习路线（本机可直接跑） | — |
 
-## 环境与跑法（本机 910C）
+## 环境与跑法（910C 本机）
 
 ```bash
-# 依赖：tilelang-ascend（/workspace/tilelang-ascend，TVM 补丁 6 处版本）
-#       torch-npu、CANN 9.1.0-beta.1、ASCEND_RT_VISIBLE_DEVICES pin 单 die
-export PYTHONPATH=/workspace/tilelang-ascend
+# 依赖：tilelang-ascend 源码树（我们用的是打 TVM 补丁 6 处的版本，
+#       团队工作区路径为 /workspace/tilelang-ascend——外部读者请换成
+#       自己的 tilelang-ascend 检出路径）
+#       另需 torch-npu、CANN 9.1.0-beta.1、ASCEND_RT_VISIBLE_DEVICES pin 单 die
+export PYTHONPATH=/path/to/tilelang-ascend
 
 python code/elementwise_add.py          # 第一个 kernel，~秒级编译
 python code/rms_norm.py                 # 官方模板 + 自带对拍
@@ -70,10 +72,12 @@ python code/test_qknorm_rope.py         # 生产 kernel 的正确性测试
 
 ## 与工程归档的关系
 
-性能数据链、被否决路线、A/B 口径见
-`06-kernel-runtime-optimization.md` 与 `05-profiling.md`（本分支基于冻结的
-`docs/engineering-log`@858ad30，两份文档同分支可直接读）。
+性能数据链、被否决路线、A/B 口径见同分支根目录的
+[../06-kernel-runtime-optimization.md](../06-kernel-runtime-optimization.md) 与
+[../05-profiling.md](../05-profiling.md)（本分支基于冻结的
+`docs/engineering-log`@858ad30 切出，工程日志全量随分支携带，
+总览见 [../README-engineering-log.md](../README-engineering-log.md)）。
 本教程专注「怎么写」，工程日志那边专注「为什么值 / 为什么不值」。
 
 生产接线侧（side-loading 桥接、ggml-cann 集成）的真源在
-`perf/tilelang-bridge` 分支（omni-tilelang-opt worktree）。
+`perf/tilelang-bridge` 分支。

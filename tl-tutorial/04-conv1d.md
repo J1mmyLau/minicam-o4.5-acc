@@ -66,8 +66,8 @@ for T in [640, 1280, 2320, 2560, ...]:
 
 运行时桥按 (K, DIL, T) 查表命中 bucket；**没命中的形状回落到原生
 ggml 路径**——性能优化必须带回落，不能让没覆盖的形状直接崩。
-（`aot_conv_buckets.py` / `aot_conv_all.py` 在 `/workspace/t2w-tilelang/`
-是生成脚本，命名即形状。）
+（`aot_conv_buckets.py` / `aot_conv_all.py` 是生成脚本，命名即形状，
+随 `perf/tilelang-bridge` 分支的 t2w 工作区存放。）
 
 ## 4. 调试往事（真实根因，别再踩）
 
