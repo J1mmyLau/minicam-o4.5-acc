@@ -327,6 +327,11 @@ TTS 侧：≈ 3.3 ms/token（66 %）消耗在同步。Token2wav 侧：
 不值得 head-only 重写。单点换装（RoPE 替换、sel-embedding、通用 OP_FUSION）
 实测全部 ≈ 0 增益。
 
+<p align="center">
+  <img src="docs/assets/charts/w0_breakdown.png" width="540" alt="W0 首音延迟分解">
+  <br><sub><i>W0（首音）延迟分解——打开整场优化战役的 CANN T2W 迁移目标（W0 p50 4798→894 ms，−81.4 %）。由 <code>make_charts.py</code> 从归档 A/B 数据生成。</i></sub>
+</p>
+
 > **关键路径纪律。** Profiler 热点只是*候选*，不是根因。每个候选必须经过
 > **运行时可达性 → 正确性 gate → 受控 A/B → Amdahl 核算**才准晋升。多个局部更快的
 > 改动因 stage 占比太小、或全链路回退而被否决（§10）。
@@ -396,6 +401,11 @@ TileLang kernel 后，四臂交错 llama-bench（tgq64）实测 **0.47 → 0.78 
 
 规律一致：**大增益来自削减重复工作或折叠算子链——不是把孤立原语换成略快的实现。**
 
+<p align="center">
+  <img src="docs/assets/charts/t2w_iteration.png" width="540" alt="token2wav stage 在优化迭代中的变化">
+  <br><sub><i>token2wav stage 时间在本地 A/B 迭代中的变化——conv1d/NFE 的收益在 stage 层是真实的，到 E2E 层被 Amdahl 封顶。</i></sub>
+</p>
+
 ---
 
 ## 8 · RTF 优化链
@@ -412,6 +422,11 @@ TileLang kernel 后，四臂交错 llama-bench（tgq64）实测 **0.47 → 0.78 
 | 提交前独立复检 | 0.4840 ± 0.0125 |
 
 即对配对本地基线 **−28.5 %**，对公开参考方向性 **−55.6 %**。
+
+<p align="center">
+  <img src="docs/assets/charts/rtf_parity.png" width="560" alt="RTF parity 图——官方参考 vs 配对本地基线 vs 最终配置">
+  <br><sub><i>RTF parity：官方参考（方向性）vs 同口径配对本地基线 vs 最终配置。headline 声明是配对口径的 −28.5 %，不是跨 harness 差距。</i></sub>
+</p>
 
 <details><summary><b>代表性最终 stage 分解</b>（headline 仍是 4-run 聚合——token2wav 方差不可忽略）</summary>
 
@@ -438,6 +453,11 @@ TileLang kernel 后，四臂交错 llama-bench（tgq64）实测 **0.47 → 0.78 
 | TTS Seed WER | ≤ 1.56 % | **1.422 %** |
 
 *（评分资产：中文 WER 用 **Paraformer** 而非 Whisper；SIM 用 WavLM+ECAPA。）*
+
+<p align="center">
+  <img src="docs/assets/charts/accuracy.png" width="560" alt="精度四门 vs 要求">
+  <br><sub><i>四项精度门 vs 各自要求——在隔离的精度环境（<code>config-accuracy.env</code>）下测得。</i></sub>
+</p>
 
 > **一次真实回归教会我们：性能与精度环境不能共享可变 shell 状态。**
 > 性能专用变量经 `base_env` 泄漏进长上下文精度路径，VideoMME 从 69.8 塌到 **8.0**。
