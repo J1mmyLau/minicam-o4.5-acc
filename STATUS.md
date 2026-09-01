@@ -1,52 +1,22 @@
-# F6 项目状态 — 2026-08-10 (收口)
+# 项目状态 — 终态 (2026-08-31)
 
-## 当前状态: 🟡 FROZEN — 等待官方统一测评分支
+> **✅ 提交完成。** 本文件已停止更新；项目完整介绍见 [README.md](README.md)。
 
-官方 organizer 确认明天上午提供统一测评分支。当前所有 Cookbook/自定义 evaluator accuracy 结果不作为最终官方成绩。
+## 最终结果
 
-## 进度矩阵
+| 维度 | 状态 | 结果 |
+|------|------|------|
+| 端到端 RTF | ✅ | **0.4829 ± 0.0161**（配对本地基线 0.6754 → −28.5%；复检 0.4840 ± 0.0125） |
+| 精度（四项） | ✅ 4/4 PASS | VideoMME 69.8 / Daily-Omni 79.43 / TTS SIM 0.969 / TTS WER 1.422% |
+| 投机解码 | ✅ 独立资产 | 文本域 k=2 **1.87×**；RTS 最终配置关闭 thinker 投机（短 chunk 净负） |
+| 提交 | ✅ | `SUBMIT-track1-final-20260831.tar.gz`（只读终包） |
 
-```
-FROZEN_CANDIDATE_051e993
-├─ Phase A: F16 校准          ✅ COMPLETE
-├─ Phase B: Q8_0 A/B          ✅ COMPLETE (Q8_0 慢于 F16)
-├─ Phase C: W8A8 量化 MatMul  ✅ COMPLETE (ROUTE A: F16 主力)
-├─ Phase 1: 性能优化          ✅ COMPLETE (RTF=0.452)
-├─ Phase 2: 稳定性            ✅ COMPLETE (50-reuse + 100-soak)
-├─ Phase 3: Demo 路径         ✅ COMPLETE (Text 30/30, Audio valid)
-├─ Phase 4: 最终收口          ✅ COMPLETE (Gate 表 + 文档)
-├─ Phase 5: Accuracy          🟡 FROZEN (等官方统一分支)
-└─ READY                      ❌ NOT_UNTIL_OFFICIAL_ACCURACY
-```
+## 历史阶段归档
 
-## 关键指标 (F16, 051e993)
+- Phase A/B/C（F16 校准 / Q8_0 A/B / W8A8）：✅ COMPLETE → `docs/w8a8-cann-quant-matmul.md`
+- Phase 1–4（性能 0.452 旧口径 / 稳定性 / Demo / 收口）：✅ COMPLETE → `docs/PROJECT_JOURNEY.md`
+- Phase 5 Accuracy：✅ 收口（四项指标见上表，env 隔离教训见 README §9）
+- 2026-08-14 冻结：runtime `fd3dd36`（tag `competition-final-20260814`）
+- 2026-08-15~31：RTF 0.6754→0.4829 攻坚 + 精度复验 + 终包
 
-| 指标 | 值 |
-|------|-----|
-| SPEAK→WAV RTF | 0.452 (LOCAL_BEST_EFFORT) |
-| Prefill latency (KV hit) | 85ms p50 |
-| Decode→speak latency | ~142ms (2.9%) |
-| T2W latency (pipeline) | ~375ms/window |
-| Session reuse | 50/50 PASS |
-| Long soak | 100/100 PASS |
-| Demo Text gate | 30/30 valid |
-| Demo Audio gate | WAV output valid |
-
-## 已知 Bug (P0, 未修复)
-
-| Bug | 根因 | 修复状态 |
-|-----|------|---------|
-| WS 多模态 NaN | mel 预处理 160/2400 NaN | 已追踪，等官方分支验证后决定是否修 |
-| Q8_0 contiguous-y | [4096,17] multi-token → CANN 算子限制 | 已复现，等官方分支验证后决定是否修 |
-
-## 明天行动
-
-1. 拉官方统一测评分支 → 记录 commit SHA
-2. 跑 F16 accuracy (基准)
-3. 跑 Q8_0 accuracy
-4. 重新评估: Daily-Omni / VideoMME / TTS-Seed / NaN / Q8 contiguous-y
-5. 只有官方分支上复现的 bug 才是提交阻塞项
-
----
-
-> 基线: 051e993 | 分支: main | 状态: `WAIT_OFFICIAL_UNIFIED_EVAL_BRANCH`
+完整分支导航：[docs/branch-map.md](docs/branch-map.md) · 完整脉络：[docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md)
