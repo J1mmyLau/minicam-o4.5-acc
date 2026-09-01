@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" width="170" alt="项目 logo —— 昇腾 NPU 芯片与实时语音波形">
+
 # MiniCPM-o 4.5
 
 ### 从 DSpark 训练到 Ascend 910C 运行时优化
@@ -15,6 +17,7 @@
 [![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)]()
 [![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)]()
 [![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)]()
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **状态：已提交（2026-08-31）。** 同口径核心 RTF **0.6754 → 0.4829** ·
 四项精度门全部达标 · 投机解码作为独立文本域资产保留。
@@ -22,6 +25,8 @@
 > ⚠️ 本 `main` 分支是**项目介绍**，不是交付分支。
 > 最终代码在 `competition/final-ascend-track-a`（冻结 runtime `fd3dd36`）——
 > 见[仓库导航](#-仓库导航)。
+
+**第一次来？** 📊 [结果榜](#结果榜) · 🗺️ [仓库导航](#-仓库导航) · 📅 [时间线](#-带-git-锚点的时间线)
 
 </div>
 
@@ -532,6 +537,42 @@ TileLang kernel 后，四臂交错 llama-bench（tgq64）实测 **0.47 → 0.78 
 
 RTF harness 使用同一条 120 s 双工视频与固定 seed 1001–1004。
 **复现 = 匹配计时边界、seed、配置身份与精度契约——不仅仅是退出码为零。**
+
+<details><summary><b>🚀 本地启动整套服务（本分支）</b></summary>
+
+```bash
+# 构建
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+cmake --build . --target llama-omni-server -j$(nproc)
+
+# 启动全双工服务 —— 必须 pin 单 die（跨 die 执行产生无效数值）
+ASCEND_RT_VISIBLE_DEVICES=0 \
+OMNI_T2W_PIPELINE_OVERLAP=1 OMNI_T2W_DEVICE=cann-flow-only \
+OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
+./bin/llama-omni-server \
+  -m /path/to/MiniCPM-o-4_5-F16.gguf \
+  --host 127.0.0.1 --port 18094 -ngl 999 --device CANN0 \
+  --ctx-size 4096 --batch-size 512 --ubatch-size 512 -t 4
+```
+
+| 变量 | 作用 |
+|---|---|
+| `ASCEND_RT_VISIBLE_DEVICES=0` | pin 单 die——dual-die 910C 上**必需** |
+| `OMNI_DUPLEX_MAX_SLICE=0` | 杠杆 **A**：每帧 vision token 128→64 |
+| `OMNI_TTS_FIRST_CHUNK_STEP=10` | 杠杆 **C**：首 TTS chunk 5→10 token |
+| `OMNI_T2W_PIPELINE_OVERLAP=1` | Flow ∥ Vocoder 流水线并行 |
+| `OMNI_T2W_DEVICE=cann-flow-only` | flow matching 上 NPU |
+| `OMNI_T2W_DRAIN_TIMEOUT_MS=5000` | T2W drain 超时（ms） |
+| `OMNI_NAN_DIAG=1` / `OMNI_T2W_QUEUE_DIAG=1` / `OMNI_ENCODING_DIAG=1` | 零开销诊断 |
+| `GGML_CANN_W8A8=1` | W8A8 量化 MatMul（opt-in，非默认） |
+| `OMNI_KV_CACHE_REUSE=1` | 静态前缀 KV 复用 |
+
+> 产出提交数字 0.4829 的**精确冻结环境集**随 competition 分支的提交包存放
+> （`server.env` / `config-local.env`）；精度运行使用物理隔离的
+> `config-accuracy.env`（§9）。
+
+</details>
 
 ---
 

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="260" height="260" role="img" aria-label="MiniCPM-o 4.5 on Ascend 910C project logo">
+  <defs>
+    <linearGradient id="body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E5EFF"/>
+      <stop offset="100%" stop-color="#00B3A4"/>
+    </linearGradient>
+    <linearGradient id="die" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0A1633"/>
+      <stop offset="100%" stop-color="#12224D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- chip pins -->
+  <g fill="#8FA3BF">
+    <!-- left -->
+    <rect x="28" y="82"  width="22" height="9" rx="4.5"/>
+    <rect x="28" y="110" width="22" height="9" rx="4.5"/>
+    <rect x="28" y="138" width="22" height="9" rx="4.5"/>
+    <rect x="28" y="166" width="22" height="9" rx="4.5"/>
+    <!-- right -->
+    <rect x="210" y="82"  width="22" height="9" rx="4.5"/>
+    <rect x="210" y="110" width="22" height="9" rx="4.5"/>
+    <rect x="210" y="138" width="22" height="9" rx="4.5"/>
+    <rect x="210" y="166" width="22" height="9" rx="4.5"/>
+    <!-- top -->
+    <rect x="82"  y="28" width="9" height="22" rx="4.5"/>
+    <rect x="110" y="28" width="9" height="22" rx="4.5"/>
+    <rect x="138" y="28" width="9" height="22" rx="4.5"/>
+    <rect x="166" y="28" width="9" height="22" rx="4.5"/>
+    <!-- bottom -->
+    <rect x="82"  y="210" width="9" height="22" rx="4.5"/>
+    <rect x="110" y="210" width="9" height="22" rx="4.5"/>
+    <rect x="138" y="210" width="9" height="22" rx="4.5"/>
+    <rect x="166" y="210" width="9" height="22" rx="4.5"/>
+  </g>
+
+  <!-- chip body -->
+  <rect x="50" y="50" width="160" height="160" rx="34" fill="url(#body)"/>
+
+  <!-- inner die -->
+  <rect x="70" y="70" width="120" height="120" rx="22" fill="url(#die)" opacity="0.92"/>
+
+  <!-- real-time speech waveform -->
+  <g stroke="#FFFFFF" stroke-width="11" stroke-linecap="round">
+    <line x1="90"  y1="124" x2="90"  y2="136"/>
+    <line x1="110" y1="112" x2="110" y2="148"/>
+    <line x1="130" y1="98"  x2="130" y2="162"/>
+    <line x1="150" y1="112" x2="150" y2="148"/>
+    <line x1="170" y1="124" x2="170" y2="136"/>
+  </g>
+
+  <!-- real-time arc: timing tick over the waveform -->
+  <path d="M 86 96 A 48 48 0 0 1 146 84" fill="none" stroke="#7FE7DC" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="148" cy="84" r="5" fill="#7FE7DC"/>
+</svg>

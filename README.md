@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" width="170" alt="project logo — Ascend NPU chip with a real-time speech waveform">
+
 # MiniCPM-o 4.5
 
 ### From DSpark Training to Ascend 910C Runtime Optimisation
@@ -15,6 +17,7 @@
 [![kernel](https://img.shields.io/badge/TileLang_fusion-+66%25_decode-orange)]()
 [![platform](https://img.shields.io/badge/platform-Ascend_910C-informational)]()
 [![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)]()
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Status: submitted (2026-08-31).** Core RTF **0.6754 → 0.4829** under an identical harness ·
 all four accuracy gates passed · speculative decoding kept as a standalone text-domain asset.
@@ -22,6 +25,8 @@ all four accuracy gates passed · speculative decoding kept as a standalone text
 > ⚠️ This `main` branch is the **project introduction**, not the delivery branch.
 > Final code lives on `competition/final-ascend-track-a` (frozen runtime `fd3dd36`) —
 > see [Repository Navigation](#-repository-navigation).
+
+**New here?** 📊 [Scoreboard](#results-scoreboard) · 🗺️ [Repository map](#-repository-navigation) · 📅 [Timeline](#-timeline-with-git-anchors)
 
 </div>
 
@@ -572,6 +577,42 @@ Deliberately four-stage:
 The RTF harness uses the same 120 s duplex video and fixed seeds 1001–1004.
 **Reproduction means matching the timing boundary, seed, configuration identity and accuracy
 contract — not merely a zero exit code.**
+
+<details><summary><b>🚀 Launch the stack locally (this branch)</b></summary>
+
+```bash
+# build
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+cmake --build . --target llama-omni-server -j$(nproc)
+
+# launch full-duplex serving — pin ONE die (cross-die execution produces invalid numerics)
+ASCEND_RT_VISIBLE_DEVICES=0 \
+OMNI_T2W_PIPELINE_OVERLAP=1 OMNI_T2W_DEVICE=cann-flow-only \
+OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
+./bin/llama-omni-server \
+  -m /path/to/MiniCPM-o-4_5-F16.gguf \
+  --host 127.0.0.1 --port 18094 -ngl 999 --device CANN0 \
+  --ctx-size 4096 --batch-size 512 --ubatch-size 512 -t 4
+```
+
+| Variable | Effect |
+|---|---|
+| `ASCEND_RT_VISIBLE_DEVICES=0` | pin single die — **required** on dual-die 910C |
+| `OMNI_DUPLEX_MAX_SLICE=0` | lever **A**: per-frame vision tokens 128→64 |
+| `OMNI_TTS_FIRST_CHUNK_STEP=10` | lever **C**: first TTS chunk 5→10 tokens |
+| `OMNI_T2W_PIPELINE_OVERLAP=1` | Flow ∥ Vocoder pipeline parallelism |
+| `OMNI_T2W_DEVICE=cann-flow-only` | flow matching on the NPU |
+| `OMNI_T2W_DRAIN_TIMEOUT_MS=5000` | T2W drain timeout (ms) |
+| `OMNI_NAN_DIAG=1` / `OMNI_T2W_QUEUE_DIAG=1` / `OMNI_ENCODING_DIAG=1` | zero-cost diagnostics |
+| `GGML_CANN_W8A8=1` | W8A8 quantised matmul (opt-in, not default) |
+| `OMNI_KV_CACHE_REUSE=1` | static-prefix KV reuse |
+
+> The exact frozen environment set that produced the submitted 0.4829 lives with the
+> submission package on the competition branch (`server.env` / `config-local.env`);
+> accuracy runs use the physically isolated `config-accuracy.env` (§9).
+
+</details>
 
 ---
 

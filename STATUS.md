@@ -20,3 +20,5 @@
 - 2026-08-15~31：RTF 0.6754→0.4829 攻坚 + 精度复验 + 终包
 
 完整分支导航：[docs/branch-map.md](docs/branch-map.md) · 完整脉络：[docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md)
+
+[English](README.md) · [简体中文](README.zh-CN.md)
