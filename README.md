@@ -30,7 +30,7 @@ all four accuracy gates passed · speculative decoding kept as a standalone text
 
 **New here?** 📊 [Scoreboard](#results-scoreboard) · 🗺️ [Repository map](#-repository-navigation) · 📅 [Timeline](#-timeline-with-git-anchors)
 
-**by Jimmy Lau（佳明）· liujiaming@zju.edu.cn · [@Phoenix3334](https://github.com/Phoenix3334)**
+**by [@Phoenix3334](https://github.com/Phoenix3334)（repo owner）& Jimmy Lau（佳明 · liujiaming@zju.edu.cn）**
 
 </div>
 
@@ -667,8 +667,8 @@ OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
 
 ## 👤 Authors & acknowledgements
 
-**Jimmy Lau（佳明）** — liujiaming@zju.edu.cn ·
-**[@Phoenix3334](https://github.com/Phoenix3334)**
+- **[@Phoenix3334](https://github.com/Phoenix3334)** — repo owner
+- **Jimmy Lau（佳明）** — liujiaming@zju.edu.cn
 
 Joint work: design, training-side pipeline, cross-platform porting, kernel/runtime
 optimisation, measurement methodology and documentation.

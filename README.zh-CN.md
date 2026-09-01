@@ -30,7 +30,7 @@
 
 **第一次来？** 📊 [结果榜](#结果榜) · 🗺️ [仓库导航](#-仓库导航) · 📅 [时间线](#-带-git-锚点的时间线)
 
-**作者：Jimmy Lau（佳明）· [@Phoenix3334](https://github.com/Phoenix3334)** · liujiaming@zju.edu.cn
+**作者：[@Phoenix3334](https://github.com/Phoenix3334)（仓库所有者）& Jimmy Lau（佳明 · liujiaming@zju.edu.cn）**
 
 </div>
 
@@ -627,8 +627,8 @@ OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
 
 ## 👤 作者与致谢
 
-**Jimmy Lau（佳明）** — liujiaming@zju.edu.cn ·
-**[@Phoenix3334](https://github.com/Phoenix3334)**
+- **[@Phoenix3334](https://github.com/Phoenix3334)** — 仓库所有者
+- **Jimmy Lau（佳明）** — liujiaming@zju.edu.cn
 
 共同完成：方案设计、训练侧流水线、跨平台移植、kernel/runtime 优化、测量方法论与全部文档。
 
