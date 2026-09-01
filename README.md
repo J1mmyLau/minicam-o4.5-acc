@@ -19,6 +19,8 @@
 [![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)](https://github.com/tc-mb/llama.cpp-omni)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+**Topics:** [llama-cpp](https://github.com/topics/llama-cpp) · [minicpm](https://github.com/topics/minicpm) · [tilelang](https://github.com/topics/tilelang) · [deepspec](https://github.com/topics/deepspec) · [dspark](https://github.com/topics/dspark) · [speculative-decoding](https://github.com/topics/speculative-decoding) · [ascend](https://github.com/topics/ascend) · [cann](https://github.com/topics/cann)
+
 **Status: submitted (2026-08-31).** Core RTF **0.6754 → 0.4829** under an identical harness ·
 all four accuracy gates passed · speculative decoding kept as a standalone text-domain asset.
 
@@ -27,6 +29,8 @@ all four accuracy gates passed · speculative decoding kept as a standalone text
 > see [Repository Navigation](#-repository-navigation).
 
 **New here?** 📊 [Scoreboard](#results-scoreboard) · 🗺️ [Repository map](#-repository-navigation) · 📅 [Timeline](#-timeline-with-git-anchors)
+
+**by [Jimmy Lau](https://github.com/Phoenix3334)** · liujiaming@zju.edu.cn
 
 </div>
 
@@ -658,6 +662,23 @@ OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
 
 > Full day-by-day narrative (pitfall tables, official checkpoints, vLLM migration) →
 > [docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md)
+
+---
+
+## 👤 Author & acknowledgements
+
+**Jimmy Lau** — [@Phoenix3334](https://github.com/Phoenix3334) · liujiaming@zju.edu.cn
+
+Design, training-side pipeline, cross-platform porting, kernel/runtime optimisation,
+measurement methodology and documentation.
+
+This project stands on open work and is glad to say so:
+
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) / [llama.cpp-omni](https://github.com/tc-mb/llama.cpp-omni) — the serving runtime this project forked and optimised (MIT)
+- [TileLang](https://github.com/tile-ai/tilelang) — the tile-level kernel DSL behind every fused kernel here (Ascend port maintained in-house, see the [tutorial branch](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/docs/tilelang-tutorial))
+- [DeepSpec](https://github.com/deepseek-ai/DeepSpec) / DSpark — the speculative-drafting training & decoding paradigm (B300 training side)
+- MiniCPM-o 4.5 — the omnimodal model itself ([technical report & official project](https://github.com/OpenBMB/MiniCPM-o))
+- [Ascend CANN](https://www.hiascend.com/) — the compute backend (ACLNN operators, ACL graphs)
 
 ---
 

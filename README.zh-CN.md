@@ -19,6 +19,8 @@
 [![runtime](https://img.shields.io/badge/runtime-llama.cpp--omni-important)](https://github.com/tc-mb/llama.cpp-omni)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+**Topics：** [llama-cpp](https://github.com/topics/llama-cpp) · [minicpm](https://github.com/topics/minicpm) · [tilelang](https://github.com/topics/tilelang) · [deepspec](https://github.com/topics/deepspec) · [dspark](https://github.com/topics/dspark) · [speculative-decoding](https://github.com/topics/speculative-decoding) · [ascend](https://github.com/topics/ascend) · [cann](https://github.com/topics/cann)
+
 **状态：已提交（2026-08-31）。** 同口径核心 RTF **0.6754 → 0.4829** ·
 四项精度门全部达标 · 投机解码作为独立文本域资产保留。
 
@@ -27,6 +29,8 @@
 > 见[仓库导航](#-仓库导航)。
 
 **第一次来？** 📊 [结果榜](#结果榜) · 🗺️ [仓库导航](#-仓库导航) · 📅 [时间线](#-带-git-锚点的时间线)
+
+**作者：[Jimmy Lau](https://github.com/Phoenix3334)** · liujiaming@zju.edu.cn
 
 </div>
 
@@ -618,6 +622,22 @@ OMNI_DUPLEX_MAX_SLICE=0 OMNI_TTS_FIRST_CHUNK_STEP=10 \
 
 > 完整逐日脉络（踩坑总表、官方节点、vLLM 迁移）→
 > [docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md)
+
+---
+
+## 👤 作者与致谢
+
+**Jimmy Lau** — [@Phoenix3334](https://github.com/Phoenix3334) · liujiaming@zju.edu.cn
+
+负责：方案设计、训练侧流水线、跨平台移植、kernel/runtime 优化、测量方法论与全部文档。
+
+本项目站在开源工作之上，也很乐意说清楚：
+
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) / [llama.cpp-omni](https://github.com/tc-mb/llama.cpp-omni)——本项目 fork 并优化的服务运行时（MIT）
+- [TileLang](https://github.com/tile-ai/tilelang)——本项目所有融合 kernel 背后的 tile 级 kernel DSL（昇腾移植为本项目自维护，见[教学分支](https://github.com/Phoenix3334/minicpmo45-ascend-private/tree/docs/tilelang-tutorial)）
+- [DeepSpec](https://github.com/deepseek-ai/DeepSpec) / DSpark——投机 draft 训练与解码范式（B300 训练侧）
+- MiniCPM-o 4.5——全模态模型本体（[技术报告与官方项目](https://github.com/OpenBMB/MiniCPM-o)）
+- [昇腾 CANN](https://www.hiascend.com/)——算力后端（ACLNN 算子、ACL 图）
 
 ---
 
