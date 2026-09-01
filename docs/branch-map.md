@@ -1,6 +1,6 @@
 # Branch Map — llama.cpp-omni 昇腾赛道仓库分支导读
 
-> 更新: 2026-08-14 · 共 **42 支本地分支**。
+> 更新: 2026-09-01 · 共 **42 支本地分支** + 4 支远端文档分支（见「文档分支」节）。
 > **最终仓库生命周期 = 3 支活跃分支**（下表）。其余 ~39 支均为历史（已合入 final / 证据链收口 / 未采用 / 废弃），**勿再开发**。
 
 ## 最终生命周期（3 支，活跃）
@@ -10,6 +10,14 @@
 | `competition/final-ascend-track-a` | 赛道一最终提交（源码冻结 `fd3dd36` + 提交文档） | 🔒 FREEZE | `README.md` → `README-COMPETITION.md` |
 | `feat/dspark-llama-port` | DSpark 投机解码 backport（赛道二） | 队友 draft 到位后继续 | `README.md` → `README-DSPARK.md` |
 | `docs/specdecode-migration` | llama / vLLM / DSpark 迁移研究 | 文档研究 | `README.md`（导读） |
+
+## 文档分支（remote docs/*，不在本地 42 支内）
+
+| 分支 | 内容 | HEAD | 状态 |
+|---|---|---|---|
+| `docs/engineering-log` | 工程日志（性能数据链 / 被否决路线 / A/B 口径，9 份模块化文档） | `858ad30` | 🔒 FREEZE |
+| `application-materials` | 申请材料（5 文件 + EVIDENCE_MAP 口径红线） | `e84ab45` | 冻结 |
+| `docs/tilelang-tutorial` | **TileLang 教学**：7 讲 + README + 7 份代码（全部摘自生产 kernel：QKR 融合 +66%、RMSNorm 行融合、vocoder conv1d t2w −21%），基于 engineering-log@858ad30 | `a2a4362` | 活跃（2026-09-01 新增） |
 
 ## 关键 commit 身份（导航锚点）
 
@@ -95,7 +103,7 @@
 
 ## 清理建议
 
-- **保留**：3 支活跃分支 + `main`（介绍）+ `master`（上游）。
+- **保留**：3 支活跃分支 + 4 支文档分支（`docs/*`、`application-materials`）+ `main`（介绍）+ `master`（上游）。
 - **可删**（已收口/废弃，证据已落 `docs/F6_*`）：全部 `perf/*`、`exp/*`、`opt/*`、
   `feat/*`（除 `feat/dspark-llama-port`）、`app`、`backup-*`、`release/*`、`eval/*`。
 - **勿动**：`fix/cann-fa-nan-ubatch16`（= `fd3dd36` 冻结 runtime 的落点）、`fix/fa-mask-semantics`（pristine 对照）。
